@@ -94,7 +94,8 @@ export interface AccessState {
 }
 
 /** refresca el access token del runner. la rotación persiste el refresh nuevo AL
- *  INSTANTE (perder el refresh rotado invalida la cadena entera). */
+ *  INSTANTE (perder el refresh rotado invalida la cadena entera). el save parte de la
+ *  config EN DISCO para no pisar un `repos add` hecho en paralelo desde otra terminal. */
 export async function refreshAccess(cfg: RunnerConfig): Promise<AccessState> {
   const tokens = await postToken(cfg.baseUrl, {
     grant_type: 'refresh_token',
@@ -102,6 +103,7 @@ export async function refreshAccess(cfg: RunnerConfig): Promise<AccessState> {
     client_id: cfg.clientId,
   });
   cfg.refreshToken = tokens.refresh_token;
-  saveConfig(cfg);
+  const disk = loadConfig();
+  saveConfig({ ...(disk ?? cfg), refreshToken: tokens.refresh_token });
   return { token: tokens.access_token, expiresAt: Date.now() + tokens.expires_in * 1000 };
 }

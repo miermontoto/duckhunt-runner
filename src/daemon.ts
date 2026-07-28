@@ -11,7 +11,7 @@ import path from 'node:path';
 import readlineSync from 'node:readline';
 import { promisify } from 'node:util';
 import { refreshAccess, type AccessState } from './oauth.js';
-import type { RepoConfig, RunnerConfig } from './config.js';
+import { loadConfig, type RepoConfig, type RunnerConfig } from './config.js';
 
 const execFileP = promisify(execFile);
 
@@ -71,9 +71,22 @@ export class RunnerDaemon {
   async run(): Promise<never> {
     console.log(`[runner] ${this.cfg.label ?? os.hostname()} → ${this.cfg.baseUrl} (poll ${CLAIM_POLL_MS / 1000}s)`);
     for (;;) {
+      // recarga el mapa de repos de disco en cada poll: un `repos add` en otra terminal
+      // surte efecto sin reiniciar el daemon.
+      try {
+        const fresh = loadConfig();
+        if (fresh) this.cfg.repos = fresh.repos;
+      } catch (err) {
+        console.error(`[runner] config ilegible, sigo con la anterior: ${(err as Error).message}`);
+      }
       let claim: ClaimResponse | null = null;
       try {
-        const res = await this.api('/claim', { runnerLabel: this.cfg.label ?? os.hostname() });
+        // el claim lleva las KEYS del mapa (nunca paths): presencia para que la web
+        // avise de repos sin mapear antes de encolar.
+        const res = await this.api('/claim', {
+          runnerLabel: this.cfg.label ?? os.hostname(),
+          repos: Object.keys(this.cfg.repos),
+        });
         if (res.status === 200) claim = (await res.json()) as ClaimResponse;
         else if (res.status !== 204) {
           console.error(`[runner] claim falló: http ${res.status} ${await res.text().catch(() => '')}`);
