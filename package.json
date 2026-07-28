@@ -1,0 +1,19 @@
+{
+  "name": "@duckhunt/runner",
+  "version": "0.1.0",
+  "private": true,
+  "description": "runner local de agent runs (contrato 32 fase 2): reclama runs de duckhunt y lanza claude headless con el mcp adjunto. cero deps de runtime (node 22).",
+  "type": "module",
+  "bin": {
+    "duckhunt-runner": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "devDependencies": {
+    "@platform/config": "workspace:*",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}
