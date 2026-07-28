@@ -11,7 +11,7 @@ const USAGE = `duckhunt-runner — runner local de agent runs
 
 uso:
   duckhunt-runner login <base-url> [label]   conecta el runner (pega el código del browser)
-  duckhunt-runner repos list|add|remove      gestiona el mapa repo→checkout local
+  duckhunt-runner repos list|add|remove|discover   gestiona el mapa repo→checkout local
   duckhunt-runner                            arranca el daemon (config en ~/.duckhunt-runner.json)
 `;
 

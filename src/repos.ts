@@ -2,6 +2,7 @@
 // config sin editar json a mano. el mapa es local A PROPÓSITO (el server nunca ve paths,
 // contrato 32); al server solo viajan las KEYS via el claim (presencia, sin paths).
 
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { configPath, loadConfig, saveConfig } from './config.js';
@@ -13,7 +14,44 @@ const USAGE = `uso:
   duckhunt-runner repos list
   duckhunt-runner repos add <workspace/slug> <path> [--dangerously-skip-permissions] [--no-worktree]
   duckhunt-runner repos remove <workspace/slug>
+  duckhunt-runner repos discover [dir] [--dry-run]   escanea checkouts git y los mapea por su remote
 `;
+
+// deriva la key workspace/slug del url del remote origin. cubre las formas habituales:
+// git@host:ws/slug.git · https://host/ws/slug.git · ssh://git@host/ws/slug.git
+// (los dos últimos segmentos del path, sin .git — coincide con target_repo.repo tanto
+// para bitbucket como para github).
+function repoKeyFromRemote(url: string): string | null {
+  const cleaned = url.trim().replace(/\.git$/, '');
+  const scpLike = cleaned.match(/^[^@\s]+@[^:/\s]+:(.+)$/);
+  const pathPart = scpLike
+    ? scpLike[1]!
+    : (() => {
+        try {
+          return new URL(cleaned).pathname.replace(/^\/+/, '');
+        } catch {
+          return null;
+        }
+      })();
+  if (!pathPart) return null;
+  const segments = pathPart.split('/').filter(Boolean);
+  if (segments.length < 2) return null;
+  const key = segments.slice(-2).join('/');
+  return REPO_KEY_RE.test(key) ? key : null;
+}
+
+// url del remote origin de un checkout, o null si no es repo git / no tiene origin.
+function originUrl(dir: string): string | null {
+  try {
+    return execFileSync('git', ['-C', dir, 'remote', 'get-url', 'origin'], {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim() || null;
+  } catch {
+    // sin repo git o sin remote origin: candidato descartado, no es un error.
+    return null;
+  }
+}
 
 export function reposCommand(args: string[]): void {
   const cfg = loadConfig();
@@ -70,6 +108,54 @@ export function reposCommand(args: string[]): void {
     };
     saveConfig(cfg);
     console.log(`mapeado ${repo} → ${abs} en ${configPath()}`);
+    return;
+  }
+
+  if (sub === 'discover') {
+    const dryRun = rest.includes('--dry-run');
+    const base = path.resolve(rest.find((a) => !a.startsWith('--')) ?? '.');
+    if (!fs.existsSync(base) || !fs.statSync(base).isDirectory()) {
+      console.error(`directorio no existe: ${base}`);
+      process.exitCode = 1;
+      return;
+    }
+    // candidatos: el propio dir + sus hijos directos (los checkouts suelen vivir planos
+    // bajo ~/dev; profundidad 1 evita recorrer node_modules y árboles enormes).
+    const candidates = [
+      base,
+      ...fs
+        .readdirSync(base, { withFileTypes: true })
+        .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
+        .map((e) => path.join(base, e.name)),
+    ].filter((dir) => fs.existsSync(path.join(dir, '.git')));
+
+    const found = candidates.flatMap((dir) => {
+      const url = originUrl(dir);
+      const key = url ? repoKeyFromRemote(url) : null;
+      return key ? [{ key, dir }] : [];
+    });
+    if (found.length === 0) {
+      console.log(`sin checkouts git con remote origin bajo ${base}`);
+      return;
+    }
+
+    const skipped = found.filter(({ key }) => key in cfg.repos);
+    const fresh = found.filter(({ key }) => !(key in cfg.repos));
+    skipped.forEach(({ key }) => console.log(`  = ${key} ya mapeado (${cfg.repos[key]!.path})`));
+    fresh.forEach(({ key, dir }) => console.log(`  + ${key} → ${dir}`));
+    if (fresh.length === 0) {
+      console.log('nada nuevo que mapear');
+      return;
+    }
+    if (dryRun) {
+      console.log(`dry-run: ${fresh.length} repo(s) sin aplicar`);
+      return;
+    }
+    // los flags sensibles (skip-permissions, no-worktree) NUNCA se autodescubren:
+    // son opt-in explícito por repo via `repos add` o editando la config.
+    fresh.forEach(({ key, dir }) => (cfg.repos[key] = { path: dir }));
+    saveConfig(cfg);
+    console.log(`mapeados ${fresh.length} repo(s) en ${configPath()}`);
     return;
   }
 
