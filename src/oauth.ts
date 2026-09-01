@@ -1,7 +1,7 @@
-// flujo oauth del runner contra el authorization server mcp de duckhunt: dcr + pkce +
-// code out-of-band (el usuario aprueba en su browser y pega el code — funciona en
-// máquinas headless donde un loopback redirect no llega). audiencia dedicada
-// /api/runner (rfc 8707): estos tokens no valen en /mcp ni viceversa.
+// flujo oauth del daemon contra el authorization server mcp de duckhunt: dcr + pkce + code
+// out-of-band (el usuario aprueba en su browser y pega el code — funciona en máquinas headless
+// donde un loopback redirect no llega). audiencia dedicada /api/runner (rfc 8707): estos tokens
+// no valen en /mcp ni viceversa.
 
 import crypto from 'node:crypto';
 import readline from 'node:readline/promises';
@@ -35,8 +35,8 @@ async function postToken(baseUrl: string, form: Record<string, string>): Promise
   return body as TokenResponse;
 }
 
-/** login interactivo: registra el cliente, imprime la url de autorización, espera el
- *  code pegado por el usuario y persiste clientId + refresh token en la config. */
+/** login interactivo: registra el cliente, imprime la url de autorización, espera el code
+ *  pegado por el usuario y persiste clientId + refresh token en la config. */
 export async function login(baseUrl: string, label?: string): Promise<void> {
   const base = baseUrl.replace(/\/+$/, '');
   const redirectUri = `${base}${OOB_REDIRECT_PATH}`;
@@ -83,9 +83,11 @@ export async function login(baseUrl: string, label?: string): Promise<void> {
     refreshToken: tokens.refresh_token,
     label: label ?? existing?.label,
     repos: existing?.repos ?? {},
+    aws: existing?.aws ?? {},
+    defaults: existing?.defaults ?? {},
   };
   saveConfig(cfg);
-  console.log(`\nconectado. config en ~/.duckhunt-runner.json — añade tus repos al mapa "repos".`);
+  console.log('\nconectado. config en ~/.duckhunt-runner.json — mapea tus repos (`repos discover ~/dev`) y cuentas aws (`aws add`).');
 }
 
 export interface AccessState {
@@ -93,9 +95,8 @@ export interface AccessState {
   expiresAt: number;
 }
 
-/** refresca el access token del runner. la rotación persiste el refresh nuevo AL
- *  INSTANTE (perder el refresh rotado invalida la cadena entera). el save parte de la
- *  config EN DISCO para no pisar un `repos add` hecho en paralelo desde otra terminal. */
+/** refresca el access token del daemon. la rotación persiste el refresh nuevo AL INSTANTE
+ *  (perder el refresh rotado invalida la cadena entera). */
 export async function refreshAccess(cfg: RunnerConfig): Promise<AccessState> {
   const tokens = await postToken(cfg.baseUrl, {
     grant_type: 'refresh_token',
@@ -103,7 +104,6 @@ export async function refreshAccess(cfg: RunnerConfig): Promise<AccessState> {
     client_id: cfg.clientId,
   });
   cfg.refreshToken = tokens.refresh_token;
-  const disk = loadConfig();
-  saveConfig({ ...(disk ?? cfg), refreshToken: tokens.refresh_token });
+  saveConfig(cfg);
   return { token: tokens.access_token, expiresAt: Date.now() + tokens.expires_in * 1000 };
 }

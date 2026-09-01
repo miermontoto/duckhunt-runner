@@ -1,6 +1,6 @@
-// subcomandos `duckhunt-runner repos ...`: gestionan el mapa repo→checkout local de la
-// config sin editar json a mano. el mapa es local A PROPÓSITO (el server nunca ve paths,
-// contrato 32); al server solo viajan las KEYS via el claim (presencia, sin paths).
+// subcomandos `duckhunt-runner repos ...`: gestionan el mapa repo→checkout local de la config sin
+// editar json a mano. el mapa es local A PROPÓSITO (el server nunca ve paths, contrato 42); al
+// server solo viajan las KEYS via el claim (presencia, sin paths).
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -21,7 +21,7 @@ const USAGE = `uso:
 // git@host:ws/slug.git · https://host/ws/slug.git · ssh://git@host/ws/slug.git
 // (los dos últimos segmentos del path, sin .git — coincide con target_repo.repo tanto
 // para bitbucket como para github).
-function repoKeyFromRemote(url: string): string | null {
+export function repoKeyFromRemote(url: string): string | null {
   const cleaned = url.trim().replace(/\.git$/, '');
   const scpLike = cleaned.match(/^[^@\s]+@[^:/\s]+:(.+)$/);
   const pathPart = scpLike
@@ -53,6 +53,26 @@ function originUrl(dir: string): string | null {
   }
 }
 
+// ficheros de settings de claude code que un run headless en ese repo cargará (hooks incluidos).
+const CLAUDE_SETTINGS_FILES = ['.claude/settings.json', '.claude/settings.local.json'];
+
+// aviso informativo: un hook Stop del repo se ejecuta al terminar cada run (p.ej. un rebuild de
+// docker). el usuario asume sus hooks (decisión del contrato 42), pero conviene que lo sepa.
+function warnStopHooks(repoPath: string): void {
+  CLAUDE_SETTINGS_FILES.forEach((rel) => {
+    const file = path.join(repoPath, rel);
+    if (!fs.existsSync(file)) return;
+    try {
+      const parsed = JSON.parse(fs.readFileSync(file, 'utf-8')) as { hooks?: { Stop?: unknown[] } };
+      if (Array.isArray(parsed.hooks?.Stop) && parsed.hooks.Stop.length > 0) {
+        console.warn(`aviso: ${rel} define hooks Stop — se ejecutarán al terminar cada run en este repo`);
+      }
+    } catch {
+      // settings ilegibles: no es asunto del daemon.
+    }
+  });
+}
+
 export function reposCommand(args: string[]): void {
   const cfg = loadConfig();
   if (!cfg) {
@@ -65,7 +85,7 @@ export function reposCommand(args: string[]): void {
   if (sub === 'list') {
     const entries = Object.entries(cfg.repos);
     if (entries.length === 0) {
-      console.log('sin repos mapeados. añade con `duckhunt-runner repos add <workspace/slug> <path>`');
+      console.log('sin repos mapeados. añade con `duckhunt-runner repos add <workspace/slug> <path>` o `repos discover <dir>`');
       return;
     }
     entries.forEach(([repo, rc]) => {
@@ -101,6 +121,7 @@ export function reposCommand(args: string[]): void {
     if (!fs.existsSync(path.join(abs, '.git'))) {
       console.warn(`aviso: ${abs} no parece un checkout git (.git ausente)`);
     }
+    warnStopHooks(abs);
     cfg.repos[repo] = {
       path: abs,
       ...(rest.includes('--dangerously-skip-permissions') ? { dangerouslySkipPermissions: true } : {}),

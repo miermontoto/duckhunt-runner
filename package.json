@@ -1,8 +1,8 @@
 {
   "name": "@duckhunt/runner",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "runner local de agent runs (contrato 32 fase 2): reclama runs de duckhunt y lanza claude headless con el mcp adjunto. cero deps de runtime (node 22).",
+  "description": "daemon local de agent runs (contrato 42): reclama runs de duckhunt y lanza claude code headless en la máquina del usuario con su repo, su aws cli y el mcp de duckhunt. cero deps de runtime (node 22).",
   "type": "module",
   "bin": {
     "duckhunt-runner": "./dist/index.js"
