@@ -27,6 +27,9 @@ export interface RunnerDefaults {
   model?: string;
   // runs en paralelo (v0: secuencial; el valor se respeta como tope).
   maxConcurrent?: number;
+  // presupuesto NOMINAL por run (--max-budget-usd): pisa el del claim. 0 = sin flag (con
+  // suscripción el coste es nominal; el flag solo guarda contra loops desbocados).
+  maxBudgetUsd?: number;
 }
 
 export interface RunnerConfig {

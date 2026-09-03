@@ -217,7 +217,9 @@ export class RunnerDaemon {
     if (has('--disallowedTools') && claim.tools.disallowed.length > 0) args.push('--disallowedTools', claim.tools.disallowed.join(','));
     if (has('--permission-mode') && claim.permissionMode) args.push('--permission-mode', claim.permissionMode);
     if (has('--max-turns') && claim.maxTurns > 0) args.push('--max-turns', String(claim.maxTurns));
-    if (has('--max-budget-usd') && claim.maxBudgetUsd > 0) args.push('--max-budget-usd', String(claim.maxBudgetUsd));
+    // presupuesto: la config local manda sobre el claim; 0 explícito = sin límite nominal.
+    const budget = this.cfg.defaults.maxBudgetUsd ?? claim.maxBudgetUsd;
+    if (has('--max-budget-usd') && budget > 0) args.push('--max-budget-usd', String(budget));
     if (this.cfg.defaults.model) args.push('--model', this.cfg.defaults.model);
     if (repoCfg?.dangerouslySkipPermissions) args.push('--dangerously-skip-permissions');
     if (resumeSessionId) args.push('--resume', resumeSessionId);
@@ -294,8 +296,9 @@ export class RunnerDaemon {
     if (attempt.exitCode === 0 && s.result && !s.result.isError) {
       return { ...base, status: 'done', ...(s.result.result ? { result: s.result.result } : {}) };
     }
+    const budgetHit = s.result?.subtype === 'error_max_budget_usd';
     const reason = s.result?.isError
-      ? `claude terminó con error (${s.result.subtype ?? 'error'})${s.result.result ? `: ${s.result.result.slice(0, 500)}` : ''}`
+      ? `claude terminó con error (${s.result.subtype ?? 'error'})${budgetHit ? ' — presupuesto nominal agotado: sube defaults.maxBudgetUsd en ~/.duckhunt-runner.json (0 = sin límite)' : ''}${s.result.result ? `: ${s.result.result.slice(0, 500)}` : ''}`
       : `claude terminó con exit code ${attempt.exitCode}`;
     return { ...base, status: 'failed', error: reason };
   }
