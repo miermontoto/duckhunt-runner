@@ -217,8 +217,11 @@ export class RunnerDaemon {
     if (has('--disallowedTools') && claim.tools.disallowed.length > 0) args.push('--disallowedTools', claim.tools.disallowed.join(','));
     if (has('--permission-mode') && claim.permissionMode) args.push('--permission-mode', claim.permissionMode);
     if (has('--max-turns') && claim.maxTurns > 0) args.push('--max-turns', String(claim.maxTurns));
-    // presupuesto: la config local manda sobre el claim; 0 explícito = sin límite nominal.
-    const budget = this.cfg.defaults.maxBudgetUsd ?? claim.maxBudgetUsd;
+    // presupuesto: solo tiene sentido cuando el coste es REAL (api key). con login de
+    // suscripción el cli lo aplicaría sobre un coste nominal que nadie paga y mata runs
+    // legítimos (el guard contra loops es el timeout). config manda: número = forzar, 0 = nunca.
+    const payingWithApiKey = !!process.env.ANTHROPIC_API_KEY;
+    const budget = this.cfg.defaults.maxBudgetUsd ?? (payingWithApiKey ? claim.maxBudgetUsd : 0);
     if (has('--max-budget-usd') && budget > 0) args.push('--max-budget-usd', String(budget));
     if (this.cfg.defaults.model) args.push('--model', this.cfg.defaults.model);
     if (repoCfg?.dangerouslySkipPermissions) args.push('--dangerously-skip-permissions');

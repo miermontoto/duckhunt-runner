@@ -27,8 +27,9 @@ export interface RunnerDefaults {
   model?: string;
   // runs en paralelo (v0: secuencial; el valor se respeta como tope).
   maxConcurrent?: number;
-  // presupuesto NOMINAL por run (--max-budget-usd): pisa el del claim. 0 = sin flag (con
-  // suscripción el coste es nominal; el flag solo guarda contra loops desbocados).
+  // presupuesto por run (--max-budget-usd). ausente = automático: el flag solo se pasa si el
+  // daemon corre con ANTHROPIC_API_KEY (coste real); con login de suscripción el coste es
+  // nominal y el guard contra loops es el timeout. un número lo fuerza; 0 lo desactiva siempre.
   maxBudgetUsd?: number;
 }
 
