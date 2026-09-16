@@ -259,7 +259,9 @@ export class RunnerDaemon {
     const env = this.envFor(run);
     let report: StatusReport;
     try {
-      const resume = run.kind === 'resume' && run.sessionId ? run.sessionId : null;
+      // reanudar o no lo decide el server: manda sessionId solo cuando hay sesión que retomar
+      // (el run preguntó y ya le respondieron, o es la instrucción sobre un resultado anterior).
+      const resume = run.sessionId;
       let attempt = await this.spawnClaude(claim, this.claudeArgs(claim, claim.prompt, mcpFile, prepared.repoCfg, resume), prepared.workdir, env);
       let resumed: boolean | undefined = resume ? true : undefined;
       // reanudación fallida antes de que el asistente hablara (sesión inexistente en esta
