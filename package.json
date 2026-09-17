@@ -1,18 +1,40 @@
 {
-  "name": "@duckhunt/runner",
+  "name": "duckhunt-runner",
   "version": "0.2.0",
-  "private": true,
-  "description": "daemon local de agent runs (contrato 42): reclama runs de duckhunt y lanza claude code headless en la máquina del usuario con su repo, su aws cli y el mcp de duckhunt. cero deps de runtime (node 22).",
+  "description": "Local daemon for duckhunt agent runs: claims runs and launches Claude Code headless on your own machine, with your login, your repos and your AWS CLI.",
   "type": "module",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "author": "miermontoto",
+  "homepage": "https://github.com/miermontoto/duckhunt-runner#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/miermontoto/duckhunt-runner.git"
+  },
+  "bugs": {
+    "url": "https://github.com/miermontoto/duckhunt-runner/issues"
+  },
+  "keywords": [
+    "duckhunt",
+    "claude-code",
+    "agent",
+    "daemon",
+    "cli"
+  ],
   "bin": {
     "duckhunt-runner": "./dist/index.js"
   },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "tsc",
+    "prepublishOnly": "npm run build",
     "start": "node dist/index.js"
   },
   "devDependencies": {
-    "@platform/config": "workspace:*",
     "@types/node": "^22.0.0",
     "typescript": "^5.7.0"
   }

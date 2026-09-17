@@ -1,0 +1,41 @@
+# publica en npm al empujar un tag vX.Y.Z. el repo es público, así que se firma con provenance
+# (npm lo verifica contra este workflow); requiere el secreto NPM_TOKEN con permiso de publish.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # el tag manda: si no cuadra con package.json, npm publicaría una versión que nadie espera.
+      - name: comprobar que el tag coincide con la versión del paquete
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          pkg="$(node -p "require('./package.json').version")"
+          if [ "$tag" != "$pkg" ]; then
+            echo "tag $tag != package.json $pkg" >&2
+            exit 1
+          fi
+
+      - run: npm ci
+      - run: npm run build
+
+      - run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
