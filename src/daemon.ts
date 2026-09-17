@@ -45,6 +45,9 @@ interface ClaimResponse {
   run: ClaimedRun;
   prompt: string;
   fallbackPrompt: string | null;
+  // tier del perfil que compuso el server (investigate|act|world). informativo: quien acota de
+  // verdad es tools.allowed, pero saberlo en el log explica por qué un run no pudo escribir.
+  tier?: string;
   tools: { allowed: string[]; disallowed: string[] };
   permissionMode: string;
   maxTurns: number;
@@ -233,7 +236,9 @@ export class RunnerDaemon {
 
   private async executeRun(claim: ClaimResponse): Promise<void> {
     const { run } = claim;
-    console.log(`[runner] run ${run.id} reclamado (${run.kind}, entry ${run.entryId}${run.repo ? `, repo ${run.repo}` : ''}${run.sessionId ? `, sesión ${run.sessionId}` : ''})`);
+    console.log(
+      `[runner] run ${run.id} reclamado (${run.kind}, entry ${run.entryId}${claim.tier ? `, tier ${claim.tier}` : ''}${run.repo ? `, repo ${run.repo}` : ''}${run.sessionId ? `, sesión ${run.sessionId}` : ''})`,
+    );
 
     let prepared: Awaited<ReturnType<RunnerDaemon['prepareWorkdir']>>;
     try {
