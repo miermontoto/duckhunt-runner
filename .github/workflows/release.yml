@@ -2,6 +2,11 @@
 # repo + este workflow están dados de alta en el paquete): SIN token, no hay secreto que rotar ni
 # que filtrar. `id-token: write` es lo que permite acuñar el token efímero; sin ese permiso npm
 # cae a buscar credencial y falla. la provenance sale sola por este camino.
+#
+# este job tiene permiso para publicar en el registro, así que todo lo que ejecuta va clavado:
+# las actions por SHA (un tag de git es mutable — reapuntarlo es la vía clásica para colar código
+# en un job con credenciales) y npm por versión exacta. al subir cualquiera de las dos, comprueba
+# antes a qué release corresponde.
 name: release
 
 on:
@@ -17,29 +22,33 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
 
       # trusted publishing necesita npm >= 11.5.1 y node 22 trae la 10.x: sin esto el publish
-      # ignora el OIDC y pide credencial.
-      - run: npm install -g npm@latest
+      # ignora el OIDC y pide credencial. versión exacta, no @latest: este job publica.
+      - run: npm install -g npm@12.0.2
 
       # el tag manda: si no cuadra con package.json, npm publicaría una versión que nadie espera.
+      # SIN condición a propósito: en un workflow_dispatch sobre una rama GITHUB_REF_NAME es el
+      # nombre de la rama, no cuadra nunca y el job muere aquí. así el disparo manual no puede
+      # publicar saltándose la comprobación — para relanzar una release, despáchala sobre su tag.
       - name: comprobar que el tag coincide con la versión del paquete
-        if: startsWith(github.ref, 'refs/tags/v')
         run: |
           tag="${GITHUB_REF_NAME#v}"
           pkg="$(node -p "require('./package.json').version")"
           if [ "$tag" != "$pkg" ]; then
-            echo "tag $tag != package.json $pkg" >&2
+            echo "ref '$GITHUB_REF_NAME' no es el tag de la versión $pkg" >&2
             exit 1
           fi
 
-      - run: npm ci
+      # --ignore-scripts: las devDeps no necesitan lifecycle scripts para compilar y este job no es
+      # sitio para ejecutar los de nadie. el build va aparte, explícito.
+      - run: npm ci --ignore-scripts
       - run: npm run build
 
       - run: npm --version
