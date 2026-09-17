@@ -5,7 +5,7 @@
 
 import crypto from 'node:crypto';
 import readline from 'node:readline/promises';
-import { loadConfig, saveConfig, type RunnerConfig } from './config.js';
+import { DEFAULT_BASE_URL, loadConfig, saveConfig, type RunnerConfig } from './config.js';
 
 // path del recurso runner en el server (espejo de canonicalRunnerResourceUrl).
 const RUNNER_RESOURCE_PATH = '/api/runner';
@@ -37,6 +37,19 @@ async function postToken(baseUrl: string, form: Record<string, string>): Promise
 
 /** login interactivo: registra el cliente, imprime la url de autorización, espera el code
  *  pegado por el usuario y persiste clientId + refresh token en la config. */
+/**
+ * argumentos de `login`: ambos posicionales son opcionales. el primero es la instancia si parece
+ * una url (esquema, o un host con punto o puerto) y si no es la etiqueta, para que `login` a secas
+ * apunte a la instancia pública y `login portatil` solo etiquete. sin esquema se asume https.
+ */
+export function parseLoginArgs(rest: string[]): { baseUrl: string; label?: string } {
+  const [first, second] = rest;
+  if (first === undefined || !(/^https?:\/\//i.test(first) || /[.:]/.test(first))) {
+    return { baseUrl: DEFAULT_BASE_URL, label: first };
+  }
+  return { baseUrl: /^https?:\/\//i.test(first) ? first : `https://${first}`, label: second };
+}
+
 export async function login(baseUrl: string, label?: string): Promise<void> {
   const base = baseUrl.replace(/\/+$/, '');
   const redirectUri = `${base}${OOB_REDIRECT_PATH}`;

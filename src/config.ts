@@ -7,6 +7,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+// instancia por defecto de `login`: la pública. otra instancia se pasa como primer argumento.
+export const DEFAULT_BASE_URL = 'https://duckhunt.info';
+
 export interface RepoConfig {
   // path absoluto al checkout local del repo.
   path: string;

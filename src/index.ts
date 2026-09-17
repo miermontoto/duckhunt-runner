@@ -3,8 +3,8 @@
 // /api/runner), `repos`/`aws` mantienen los mapas locales, `status` diagnostica el kit de la
 // máquina y el modo por defecto (`start`) arranca el loop de claim.
 
-import { loadConfig } from './config.js';
-import { login } from './oauth.js';
+import { DEFAULT_BASE_URL, loadConfig } from './config.js';
+import { login, parseLoginArgs } from './oauth.js';
 import { RunnerDaemon } from './daemon.js';
 import { reposCommand } from './repos.js';
 import { awsCommand } from './aws.js';
@@ -13,7 +13,8 @@ import { statusCommand } from './status.js';
 const USAGE = `duckhunt-runner — daemon local de agent runs
 
 uso:
-  duckhunt-runner login <base-url> [label]   conecta el runner (pega el código del browser)
+  duckhunt-runner login [base-url] [label]   conecta el runner (pega el código del browser)
+                                            sin base-url apunta a ${DEFAULT_BASE_URL}
   duckhunt-runner status                     kit de esta máquina: claude, credencial, aws, repos
   duckhunt-runner start [--verbose]          arranca el daemon (config en ~/.duckhunt-runner.json)
   duckhunt-runner repos list|add|remove|discover
@@ -23,12 +24,7 @@ uso:
 async function main(): Promise<void> {
   const [cmd, ...rest] = process.argv.slice(2);
   if (cmd === 'login') {
-    const [baseUrl, label] = rest;
-    if (!baseUrl) {
-      console.error(USAGE);
-      process.exitCode = 1;
-      return;
-    }
+    const { baseUrl, label } = parseLoginArgs(rest);
     await login(baseUrl, label);
     return;
   }

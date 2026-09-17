@@ -24,7 +24,7 @@ disk.
 ## Setup
 
 ```sh
-npx duckhunt-runner login https://duckhunt.info
+npx duckhunt-runner login
 npx duckhunt-runner repos discover ~/dev
 npx duckhunt-runner start
 ```
@@ -33,7 +33,7 @@ That is the whole thing. Step by step:
 
 | Command | What it does |
 | --- | --- |
-| `login <base-url> [label]` | Connects the daemon to your account. Opens the browser, you paste the code back. The label distinguishes machines if you run more than one. |
+| `login [base-url] [label]` | Connects the daemon to your account. Opens the browser, you paste the code back. Defaults to `https://duckhunt.info`; pass a URL for another instance (`https://` is assumed if you omit the scheme). Both arguments are optional — an argument that does not look like a URL is taken as the label, which distinguishes machines if you run more than one. |
 | `repos discover [dir]` | Scans a directory for git checkouts and maps each one by its `origin` remote, so an agent can read the code behind an alarm. Add `--dry-run` to see what it would map. Only the `workspace/slug` key reaches the server. |
 | `repos list\|add\|remove` | Manage that map by hand: `repos add <workspace/slug> <path>`. |
 | `aws add <accountId> <profile>` | Optional. Binds an AWS account id to a profile of your local AWS CLI, so the agent can read metrics, logs and resource state for that account. |
