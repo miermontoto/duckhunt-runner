@@ -18,9 +18,20 @@ async function credentialSummary(): Promise<string> {
   if (process.env.CLAUDE_CODE_OAUTH_TOKEN) return 'oauth token (CLAUDE_CODE_OAUTH_TOKEN en el env)';
   try {
     const out = (await execFileP('claude', ['auth', 'status'], { encoding: 'utf-8' })).stdout.trim();
+    // claude >= 2.1 responde json; antes era una línea de texto plano y nos quedábamos con ella.
+    // quedarse con la primera línea del json imprimía un `{` pelado.
+    if (out.startsWith('{')) {
+      const j = JSON.parse(out) as { loggedIn?: boolean; authMethod?: string; apiProvider?: string };
+      if (j.loggedIn === false) return 'SIN credencial detectada: ejecuta `claude` y haz login';
+      const how = [j.authMethod, j.apiProvider].filter(Boolean).join(' · ');
+      // el email que trae el json NO se imprime a propósito: este comando es lo que se pega en
+      // un informe de problemas.
+      return how ? `login de claude code (${how})` : 'login de claude code';
+    }
     if (out) return out.split('\n')[0]!;
   } catch {
-    // versiones sin `claude auth status`: inferir del fichero de credenciales.
+    // sin el subcomando (claude viejo) o con un json que no parsea: se infiere del fichero de
+    // credenciales, que es el fallback de toda la vida.
   }
   const configDir = process.env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), '.claude');
   return fs.existsSync(path.join(configDir, '.credentials.json')) ? 'login de claude code (credenciales locales)' : 'SIN credencial detectada: ejecuta `claude` y haz login';
