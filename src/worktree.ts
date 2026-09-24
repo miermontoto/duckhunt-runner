@@ -10,7 +10,8 @@
 // '-' no es un flag. una rama que git no acepta NO falla el run: worktree sobre la base por defecto
 // con un aviso (como hacía 0.3.1 con HEAD). un conv-<id> borrado a mano sin `git worktree remove`
 // sigue registrado y el `worktree add` fallaría para siempre: antes de crearlo, `git worktree prune`.
-// al server solo viaja una nota corta (`conv-88 · origin/main@a1b2c3d`), nunca un path absoluto.
+// al server solo viaja una nota corta con la base git (`origin/main@a1b2c3d`): ni paths absolutos ni el
+// nombre del directorio (conv-88 se leía en la ui como id del run, que es r#88).
 
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
@@ -161,7 +162,7 @@ export async function prepareConversationWorktree(repoPath: string, runId: numbe
   const name = `${CONVERSATION_WORKTREE_PREFIX}${runId}`;
   const dir = path.join(worktreesDir(repoPath), name);
   const reused = await reuseWorktree(repoPath, dir, env);
-  if (reused !== null) return { workdir: dir, note: `${name} · ${reused}`, warnings: [] };
+  if (reused !== null) return { workdir: dir, note: reused, warnings: [] };
 
   const usable = branch !== null && (await isUsableBranch(repoPath, branch, env));
   const rejected = branch !== null && !usable ? [`rama ${JSON.stringify(branch)} no válida para git: worktree sobre la rama por defecto`] : [];
@@ -180,7 +181,7 @@ export async function prepareConversationWorktree(repoPath: string, runId: numbe
   const at = `${base.label}@${base.sha.slice(0, SHORT_SHA_CHARS)}`;
   return {
     workdir: dir,
-    note: base.newBranch ? `${name} · ${base.newBranch} (rama nueva) sobre ${at}` : `${name} · ${at}`,
+    note: base.newBranch ? `${base.newBranch} (rama nueva) sobre ${at}` : at,
     warnings: [...rejected, ...base.warnings],
   };
 }
@@ -191,7 +192,7 @@ export async function prepareRunWorktree(repoPath: string, runId: number, branch
   const dir = path.join(worktreesDir(repoPath), name);
   // el mismo run re-encolado (respuesta a su pregunta) tras un segmento fallido: su worktree sigue ahí.
   const reused = await reuseWorktree(repoPath, dir, env);
-  if (reused !== null) return { workdir: dir, note: `${name} · ${reused}`, warnings: [] };
+  if (reused !== null) return { workdir: dir, note: reused, warnings: [] };
   const usable = branch !== null && (await isUsableBranch(repoPath, branch, env));
   const candidates = usable ? [`refs/heads/${branch}`, `refs/remotes/${REMOTE}/${branch}`] : [];
   // i/o secuencial con early-exit: la primera ref que exista gana.
@@ -200,7 +201,7 @@ export async function prepareRunWorktree(repoPath: string, runId: number, branch
   if (!sha) throw new Error('el checkout no tiene ningún commit (HEAD vacío)');
   await addDetached(repoPath, dir, sha, env);
   const warnings = branch !== null && !found ? [`branch ${branch} no existe localmente: worktree sobre HEAD`] : [];
-  return { workdir: dir, note: `${name} · ${found ? branch : 'HEAD'}@${sha.slice(0, SHORT_SHA_CHARS)}`, warnings };
+  return { workdir: dir, note: `${found ? branch : 'HEAD'}@${sha.slice(0, SHORT_SHA_CHARS)}`, warnings };
 }
 
 /** borra un worktree de run de reglas (forzado: son de solo lectura). nunca lanza. */

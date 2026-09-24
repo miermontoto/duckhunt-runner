@@ -60,18 +60,20 @@ test('ramas: decide check-ref-format (ñ, + y # valen; -x, x.lock y a..b no)', a
 test('conversación sobre origin/<rama>, rama nueva sobre origin/HEAD y reutilización', async () => {
   const feat = await prepareConversationWorktree(clone, 1, 'feat/x', env);
   assert.equal(git(feat.workdir, 'rev-parse', 'HEAD'), featSha);
-  assert.equal(feat.note, `conv-1 · origin/feat/x@${featSha.slice(0, 7)}`);
+  assert.equal(feat.note, `origin/feat/x@${featSha.slice(0, 7)}`);
   assert.ok(!feat.note.includes(root));
+  // el nombre del directorio (conv-<id>) no viaja: en la ui se leía como id del run.
+  assert.ok(!/^(?:conv|run)-\d/.test(feat.note));
 
   const fresh = await prepareConversationWorktree(clone, 2, 'feat/nueva', env);
   assert.equal(git(fresh.workdir, 'rev-parse', 'HEAD'), mainSha);
-  assert.match(fresh.note, /^conv-2 · feat\/nueva \(rama nueva\) sobre origin\/main@/);
+  assert.match(fresh.note, /^feat\/nueva \(rama nueva\) sobre origin\/main@/);
 
   // segundo segmento: mismo directorio, con lo que el perfil edit dejó dentro.
   fs.writeFileSync(path.join(feat.workdir, 'wip.txt'), 'x');
   const again = await prepareConversationWorktree(clone, 1, 'feat/x', env);
   assert.equal(again.workdir, feat.workdir);
-  assert.match(again.note, /^conv-1 · HEAD@\w+ \(1 cambios sin commitear\)$/);
+  assert.match(again.note, /^HEAD@\w+ \(1 cambios sin commitear\)$/);
   assert.equal(await unsavedWork(feat.workdir, env), '1 cambios sin commitear');
 
   // una rama que git no acepta no tumba el run: base por defecto con aviso.
