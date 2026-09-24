@@ -8,7 +8,7 @@
 // un prompt run SIEMPRE lleva --strict-mcp-config (un .mcp.json del checkout no carga nada). uno de
 // LECTURA además lleva `--setting-sources user`: corre en un checkout de origin/<rama> que puede
 // haber empujado cualquiera, y su .claude/settings.json (hooks, apiKeyHelper, statusLine…) se
-// ejecutaría sin preguntar — lectura promete que no se ejecuta código del repo. verificado con el
+// ejecutaría sin preguntar, y lectura promete que no se ejecuta código del repo. verificado con el
 // cli 2.1.281: sin el flag el hook SessionStart del repo corre; con él no (y tampoco carga el
 // CLAUDE.md del proyecto: el prompt de lectura le pide leerlo con Read). los settings, hooks y
 // plugins del USUARIO se conservan (sin --restricted, decisión de t#378). edición no lo lleva: ya
