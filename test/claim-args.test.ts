@@ -37,19 +37,25 @@ const argsFor = (claimRaw: Record<string, unknown>, over: Partial<ClaudeArgsInpu
     ...over,
   });
 
-test('parseClaim normaliza un prompt run con su perfil y el bloque events', () => {
-  const claim = parseClaim(rawClaim());
+test('parseClaim normaliza un prompt run con su perfil, su segmento y el bloque events', () => {
+  const claim = parseClaim(rawClaim({ segment: 3 }));
   assert.equal(claim.run.kind, 'prompt');
   assert.equal(claim.run.profile, 'edit');
+  assert.equal(claim.run.segment, 3);
   assert.equal(claim.maxTurns, null);
   assert.equal(claim.events?.enabled, true);
   assert.equal(claim.events?.nextSeq, 7);
+  assert.deepEqual(claim.warnings, []);
+  assert.equal(parseClaim(rawClaim()).run.segment, null, 'server sin segmentos');
 });
 
 test('parseClaim rechaza lo que acabaría en argv o en paths', () => {
   assert.throws(() => parseClaim(rawClaim({ id: '../../x' })), /run\.id/);
-  assert.throws(() => parseClaim(rawClaim({ branch: '--upload-pack=evil' })), /rama/);
-  assert.throws(() => parseClaim(rawClaim({ branch: 'a..b' })), /rama/);
+  // una rama que parece un flag no llega a git: se ignora con aviso y el run sigue (base por defecto).
+  const evil = parseClaim(rawClaim({ branch: '--upload-pack=evil' }));
+  assert.equal(evil.run.branch, null);
+  assert.match(evil.warnings[0] ?? '', /ignorada/);
+  assert.equal(parseClaim(rawClaim({ branch: 'con espacio' })).run.branch, null);
   assert.throws(() => parseClaim(rawClaim({ sessionId: '--dangerously-skip-permissions' })), /sessionId/);
   assert.throws(() => parseClaim(rawClaim({ profile: null })), /perfil/);
   assert.throws(() => parseClaim(rawClaim({}, { permissionMode: 'bypassPermissions' })), /permission mode/);
@@ -120,4 +126,47 @@ test('clampReport recorta al tope del server', () => {
   assert.equal(r.error, 'error');
   assert.ok(r.stderrTail?.endsWith('FIN'));
   assert.equal(r.stderrTail?.length, 4000);
+});
+
+test('ramas reales de prs (ñ, +, #) llegan tal cual al worktree: decide git check-ref-format', () => {
+  const branches = ['feature/OKT-12_añadir-login', 'hotfix/v1.2+1', 'feat/x#3'];
+  assert.deepEqual(branches.map((branch) => parseClaim(rawClaim({ branch })).run.branch), branches);
+});
+
+test('perfil read de un prompt run: el daemon lo hace cumplir aunque el server se equivoque', () => {
+  const readClaim = (tools: { allowed: string[]; disallowed: string[] }, extra: Record<string, unknown> = {}): Record<string, unknown> =>
+    rawClaim({ profile: 'read' }, { tools, ...extra });
+  assert.throws(() => parseClaim(readClaim({ allowed: ['Read', 'Bash'], disallowed: [] })), /lectura no puede permitir Bash/);
+  assert.throws(() => parseClaim(readClaim({ allowed: ['Read', 'Bash(git log:*)'], disallowed: [] })), /Bash\(git log:\*\)/);
+  const forced = parseClaim(readClaim({ allowed: ['Read', 'Grep'], disallowed: ['WebFetch'] }));
+  assert.deepEqual(forced.tools.disallowed, ['WebFetch', 'Bash', 'Edit', 'Write', 'NotebookEdit']);
+  assert.throws(() => parseClaim(rawClaim({}, { permissionMode: 'acceptEdits' })), /exige permission mode dontAsk/);
+  // un run de reglas conserva el techo local de siempre.
+  assert.equal(parseClaim(rawClaim({ kind: 'investigate', profile: undefined }, { permissionMode: 'default' })).permissionMode, 'default');
+});
+
+test('prompt run de lectura: settings solo del usuario (sin hooks ni settings del checkout) y mcp estricto', () => {
+  const readRaw = rawClaim({ profile: 'read' }, { tools: { allowed: ['Read', 'Grep', 'Glob'], disallowed: ['WebFetch'] } });
+  const read = argsFor(readRaw);
+  assert.deepEqual(read.slice(read.indexOf('--setting-sources'), read.indexOf('--setting-sources') + 2), ['--setting-sources', 'user']);
+  assert.ok(read.includes('--strict-mcp-config'));
+  assert.equal(read[read.indexOf('--disallowedTools') + 1], 'WebFetch,Bash,Edit,Write,NotebookEdit');
+  assert.ok(!argsFor(rawClaim()).includes('--setting-sources'), 'edición conserva el CLAUDE.md y los settings del repo');
+  const without = (flag: string): Set<(typeof OPTIONAL_FLAGS)[number]> => new Set(OPTIONAL_FLAGS.filter((f) => f !== flag));
+  assert.throws(() => argsFor(readRaw, { supported: without('--setting-sources') }), /--setting-sources/);
+  assert.throws(() => argsFor(rawClaim(), { supported: without('--strict-mcp-config') }), /--strict-mcp-config/);
+  // un run de reglas no exige los flags de los prompt runs.
+  const rule = rawClaim({ kind: 'investigate', profile: undefined }, { maxTurns: 40 });
+  assert.ok(argsFor(rule, { supported: without('--setting-sources') }).includes('--permission-mode'));
+});
+
+test('clampReport enmascara secretos del result, el error y el stderr', () => {
+  const r = clampReport({
+    status: 'failed',
+    result: 'ok ghp_abcdefghijklmnopqrstuvwxyz0123',
+    error: 'push a https://x-token-auth:ATBBabcdefghijklmnopqrstuv12@bitbucket.org/o/r falló',
+    stderrTail: 'DB_PASSWORD=hunter2',
+  });
+  assert.ok(!r.result?.includes('ghp_') && !r.error?.includes('ATBB') && !r.stderrTail?.includes('hunter2'));
+  assert.match(r.error ?? '', /https:\/\/\*\*\*@bitbucket\.org/);
 });

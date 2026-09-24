@@ -5,8 +5,11 @@
 //   `git fetch`; si la rama no existe aún, sobre la rama por defecto del remoto (origin/HEAD) y el
 //   agente la crea si el prompt lo pide. se CONSERVA entre segmentos (waiting/done/failed): lo que
 //   edite el perfil edit sobrevive a una pregunta o a un seguimiento. lo recoge conversation-gc.ts.
-// toda rama que viene del server se valida (regex del claim + `git check-ref-format --branch`) y
-// ningún argumento de git va sin `--end-of-options`: un nombre que empiece por '-' no es un flag.
+// toda rama que viene del server se valida (cordura del claim + `git check-ref-format --branch`, que
+// es quien decide) y ningún argumento de git va sin `--end-of-options`: un nombre que empiece por
+// '-' no es un flag. una rama que git no acepta NO falla el run: worktree sobre la base por defecto
+// con un aviso (como hacía 0.3.1 con HEAD). un conv-<id> borrado a mano sin `git worktree remove`
+// sigue registrado y el `worktree add` fallaría para siempre: antes de crearlo, `git worktree prune`.
 // al server solo viaja una nota corta (`conv-88 · origin/main@a1b2c3d`), nunca un path absoluto.
 
 import { execFile } from 'node:child_process';
@@ -57,7 +60,7 @@ export function resolveCommit(repoPath: string, ref: string, env: NodeJS.Process
   return gitMaybe(repoPath, ['rev-parse', '--verify', '--quiet', '--end-of-options', `${ref}^{commit}`], env);
 }
 
-/** regex del claim + `git check-ref-format --branch` (que ya rechaza un nombre que empiece por '-'). */
+/** cordura del claim + `git check-ref-format --branch` (que ya rechaza un nombre que empiece por '-'). */
 export async function isUsableBranch(repoPath: string, branch: string, env: NodeJS.ProcessEnv): Promise<boolean> {
   if (!isValidBranchName(branch)) return false;
   return git(repoPath, ['check-ref-format', '--branch', branch], env).then(
@@ -100,16 +103,25 @@ export function touchWorktree(dir: string): void {
   }
 }
 
+// registros de worktrees cuyo directorio ya no existe: sin esto `worktree add` sobre el mismo path
+// falla con "missing but already registered worktree". barato y nunca toca directorios existentes.
+async function pruneWorktrees(repoPath: string, env: NodeJS.ProcessEnv): Promise<void> {
+  await git(repoPath, ['worktree', 'prune'], env).catch((err: Error) => console.error(`[runner] git worktree prune falló: ${err.message}`));
+}
+
 // reutiliza el worktree si ya existe (segmento siguiente de la misma fila). null = hay que crearlo.
 async function reuseWorktree(repoPath: string, dir: string, env: NodeJS.ProcessEnv): Promise<string | null> {
-  if (!fs.existsSync(dir)) return null;
+  if (!fs.existsSync(dir)) {
+    await pruneWorktrees(repoPath, env);
+    return null;
+  }
   if (await isWorktreeRoot(dir, env)) {
     touchWorktree(dir);
     return describeHead(dir, env);
   }
   // registro huérfano (alguien borró el .git del worktree): prune y, si el directorio sigue con
   // contenido, no se toca: podría ser trabajo del usuario.
-  await git(repoPath, ['worktree', 'prune'], env).catch((err: Error) => console.error(`[runner] git worktree prune falló: ${err.message}`));
+  await pruneWorktrees(repoPath, env);
   if (fs.existsSync(dir) && fs.readdirSync(dir).length > 0) {
     throw new Error(`${path.join(WORKTREES_SUBDIR, path.basename(dir))} existe pero no es un worktree git válido: revísalo y bórralo a mano`);
   }
@@ -151,9 +163,10 @@ export async function prepareConversationWorktree(repoPath: string, runId: numbe
   const reused = await reuseWorktree(repoPath, dir, env);
   if (reused !== null) return { workdir: dir, note: `${name} · ${reused}`, warnings: [] };
 
-  if (branch !== null && !(await isUsableBranch(repoPath, branch, env))) throw new Error(`rama inválida: ${branch}`);
+  const usable = branch !== null && (await isUsableBranch(repoPath, branch, env));
+  const rejected = branch !== null && !usable ? [`rama ${JSON.stringify(branch)} no válida para git: worktree sobre la rama por defecto`] : [];
   const base = await (async (): Promise<Base & { newBranch: string | null }> => {
-    if (branch === null) return { ...(await defaultBase(repoPath, env)), newBranch: null };
+    if (branch === null || !usable) return { ...(await defaultBase(repoPath, env)), newBranch: null };
     const fetched = await fetchRef(repoPath, branch, env);
     const remote = await resolveCommit(repoPath, `refs/remotes/${REMOTE}/${branch}`, env);
     if (remote) {
@@ -168,7 +181,7 @@ export async function prepareConversationWorktree(repoPath: string, runId: numbe
   return {
     workdir: dir,
     note: base.newBranch ? `${name} · ${base.newBranch} (rama nueva) sobre ${at}` : `${name} · ${at}`,
-    warnings: base.warnings,
+    warnings: [...rejected, ...base.warnings],
   };
 }
 

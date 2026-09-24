@@ -9,7 +9,7 @@ import path from 'node:path';
 import { after, before, test } from 'node:test';
 import { listWorktreeCandidates, removeWorktrees, selectForRemoval } from '../src/conversation-gc.js';
 import { scrubEnv } from '../src/scrub-env.js';
-import { isUsableBranch, prepareConversationWorktree, prepareRunWorktree, unsavedWork } from '../src/worktree.js';
+import { isUsableBranch, prepareConversationWorktree, prepareRunWorktree, removeCleanWorktree, unsavedWork } from '../src/worktree.js';
 
 const DAY_MS = 24 * 60 * 60_000;
 // identidad y firma fuera: el test no depende de la config git de la máquina.
@@ -47,10 +47,14 @@ before(() => {
 
 after(() => fs.rmSync(root, { recursive: true, force: true }));
 
-test('ramas: formato del server + check-ref-format', async () => {
+test('ramas: decide check-ref-format (ñ, + y # valen; -x, x.lock y a..b no)', async () => {
   assert.equal(await isUsableBranch(clone, 'feat/x', env), true);
+  assert.equal(await isUsableBranch(clone, 'feature/OKT-12_añadir-login', env), true);
+  assert.equal(await isUsableBranch(clone, 'hotfix/v1.2+1', env), true);
+  assert.equal(await isUsableBranch(clone, 'feat/x#3', env), true);
   assert.equal(await isUsableBranch(clone, '-x', env), false);
   assert.equal(await isUsableBranch(clone, 'x.lock', env), false);
+  assert.equal(await isUsableBranch(clone, 'a..b', env), false);
 });
 
 test('conversación sobre origin/<rama>, rama nueva sobre origin/HEAD y reutilización', async () => {
@@ -70,7 +74,11 @@ test('conversación sobre origin/<rama>, rama nueva sobre origin/HEAD y reutiliz
   assert.match(again.note, /^conv-1 · HEAD@\w+ \(1 cambios sin commitear\)$/);
   assert.equal(await unsavedWork(feat.workdir, env), '1 cambios sin commitear');
 
-  await assert.rejects(prepareConversationWorktree(clone, 3, 'bad.lock', env), /rama inválida/);
+  // una rama que git no acepta no tumba el run: base por defecto con aviso.
+  const bad = await prepareConversationWorktree(clone, 3, 'bad.lock', env);
+  assert.equal(git(bad.workdir, 'rev-parse', 'HEAD'), mainSha);
+  assert.match(bad.warnings[0] ?? '', /"bad\.lock" no válida para git/);
+  await removeCleanWorktree(clone, bad.workdir, env);
 });
 
 test('run de reglas: rama local u origin, si no HEAD', async () => {
@@ -103,4 +111,12 @@ test('gc: borra cerradas y limpias, conserva cambios sin commitear y commits hu�
   assert.ok(!fs.existsSync(clean.workdir));
   assert.ok(!fs.existsSync(openOld.workdir));
   assert.equal(await unsavedWork(committed.workdir, env), 'commits que ninguna rama ni remoto contiene');
+});
+
+test('conv-<id> borrado a mano sin git worktree remove: el siguiente segmento lo recrea', async () => {
+  const conv = await prepareConversationWorktree(clone, 20, null, env);
+  fs.rmSync(conv.workdir, { recursive: true, force: true });
+  const again = await prepareConversationWorktree(clone, 20, null, env);
+  assert.equal(again.workdir, conv.workdir);
+  assert.equal(git(again.workdir, 'rev-parse', 'HEAD'), mainSha);
 });

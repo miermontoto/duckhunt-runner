@@ -3,6 +3,7 @@
 // daba 400 y el run se quedaba colgado en running → lost → failed).
 
 import { configPath } from './config.js';
+import { maskSecrets } from './secret-mask.js';
 import type { StreamState } from './claude.js';
 
 // por qué el daemon mató al proceso: cancel del server, timeout wall clock o parada del daemon.
@@ -21,6 +22,8 @@ export interface StatusReport {
   model?: string;
   resumed?: boolean;
   stderrTail?: string;
+  // segmento del claim: el server rechaza (409) el informe de un segmento que ya no es el suyo.
+  segment?: number;
 }
 
 // resultado de una ejecución de claude (un intento).
@@ -71,15 +74,18 @@ export function reportFor(attempt: Attempt, resumed: boolean | undefined): Statu
   return { ...base, status: 'failed', error: reason };
 }
 
-/** recorta cada campo al tope del server: un 400 por longitud dejaría el run sin cerrar. */
+/**
+ * enmascara secretos (el result, el error y el stderr acaban en notas y pushes; el server vuelve a
+ * enmascarar) y recorta cada campo al tope del server: un 400 por longitud dejaría el run sin cerrar.
+ */
 export function clampReport(report: StatusReport): StatusReport {
   return {
     ...report,
-    ...(report.result !== undefined ? { result: clipEnd(report.result, RESULT_MAX_CHARS) } : {}),
-    ...(report.error !== undefined ? { error: clipEnd(report.error, ERROR_MAX_CHARS) || 'error' } : {}),
+    ...(report.result !== undefined ? { result: clipEnd(maskSecrets(report.result), RESULT_MAX_CHARS) } : {}),
+    ...(report.error !== undefined ? { error: clipEnd(maskSecrets(report.error), ERROR_MAX_CHARS) || 'error' } : {}),
     ...(report.sessionId !== undefined ? { sessionId: report.sessionId.slice(0, SESSION_MAX_CHARS) } : {}),
     ...(report.model !== undefined ? { model: report.model.slice(0, MODEL_MAX_CHARS) } : {}),
     // del stderr interesa el final (donde está el error).
-    ...(report.stderrTail !== undefined ? { stderrTail: report.stderrTail.slice(-STDERR_MAX_CHARS) } : {}),
+    ...(report.stderrTail !== undefined ? { stderrTail: maskSecrets(report.stderrTail).slice(-STDERR_MAX_CHARS) } : {}),
   };
 }

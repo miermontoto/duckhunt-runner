@@ -10,7 +10,15 @@ const execFileP = promisify(execFile);
 
 // flags que el daemon quiere pasar pero que no todas las versiones del cli aceptan; un flag
 // desconocido aborta el proceso, así que se detectan una vez por arranque.
-export const OPTIONAL_FLAGS = ['--max-turns', '--max-budget-usd', '--strict-mcp-config', '--permission-mode', '--disallowedTools', '--verbose'] as const;
+export const OPTIONAL_FLAGS = [
+  '--max-turns',
+  '--max-budget-usd',
+  '--strict-mcp-config',
+  '--permission-mode',
+  '--disallowedTools',
+  '--verbose',
+  '--setting-sources',
+] as const;
 export type OptionalFlag = (typeof OPTIONAL_FLAGS)[number];
 
 export interface ClaudeInfo {

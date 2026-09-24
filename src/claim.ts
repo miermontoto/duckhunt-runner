@@ -2,6 +2,14 @@
 // local. el daemon ejecuta lo que el server compone, pero lo que acaba en paths o en argv (id del
 // run, sesión, rama, permission mode, ids de tools) se valida aquí: ni un server comprometido ni un
 // bug suyo deben poder colar un flag en `claude`/`git` ni un `..` en un path.
+// decisiones:
+// - una rama inutilizable NO tumba el claim: se ignora con un aviso y el worktree cae en la base por
+//   defecto (las ramas de prs de bitbucket/github llevan ñ, '+', '#'…; quien decide es
+//   `git check-ref-format`, y todo argumento de git va tras `--end-of-options`).
+// - el perfil read de un prompt run se hace cumplir AQUÍ también: permission mode dontAsk, nada de
+//   Bash/Edit/Write/NotebookEdit en las permitidas y las cuatro forzadas en las denegadas. un bug o
+//   una deriva del server nunca le da Bash a una lectura.
+// - `run.segment` es la identidad del proceso: viaja de vuelta en heartbeat/progress/events/status.
 
 // capacidades que el daemon anuncia en el claim. el server entrega kind=prompt solo a quien
 // anuncia `prompt` y pide el feed de progreso solo a quien anuncia `events`.
@@ -42,9 +50,15 @@ export const EVENTS_DEFAULTS = {
   toolArgMaxChars: 200,
 } as const;
 
-// mismas reglas que el server (AGENT_BRANCH_MAX_CHARS 120, sin '-' inicial ni '..'); git
-// check-ref-format lo remata antes de usarla.
-export const BRANCH_RE = /^(?!-)(?!.*\.\.)[\w./-]{1,120}$/;
+// cordura mínima de una rama ANTES de tocar git: sin '-' inicial (no puede parecer una opción), sin
+// espacios ni caracteres de control, acotada. quien decide de verdad es `git check-ref-format --branch`.
+export const BRANCH_RE = /^(?!-)[^\s\x00-\x1f\x7f]{1,250}$/;
+// permission mode que exige un prompt run (el server lo manda siempre; sin él heredaría el del usuario).
+export const PROMPT_PERMISSION_MODE = 'dontAsk';
+// built-in que un prompt run de lectura nunca puede tener (ni con patrón: `Bash(git log:*)`).
+export const READ_FORBIDDEN_TOOLS: readonly string[] = ['Bash', 'Edit', 'Write', 'NotebookEdit'];
+// longitud con la que una rama descartada aparece en el aviso.
+const WARNING_BRANCH_CHARS = 80;
 // workspace/slug u owner/repo (REPO_KEY_RE del server).
 export const REPO_KEY_RE = /^[^/\s]+\/[^/\s]+$/;
 // session id de claude (uuid): va tras --resume, nunca debe parecer un flag.
@@ -69,6 +83,8 @@ export interface ClaimedRun {
   sessionId: string | null;
   parentRunId: number | null;
   profile: PromptProfile | null;
+  // segmento del claim (null = server anterior a los segmentos).
+  segment: number | null;
 }
 
 export interface EventsConfig {
@@ -98,6 +114,8 @@ export interface ClaimResponse {
   // null = server sin feed (anterior a t#378): no se suben eventos.
   events: EventsConfig | null;
   mcp: { serverName: string; url: string; token: string; expiresAt: number };
+  // avisos de la validación local (rama ignorada…): el daemon los loguea y los sube al feed.
+  warnings: string[];
 }
 
 type Obj = Record<string, unknown>;
@@ -112,10 +130,13 @@ export function claimRunId(raw: unknown): number | null {
   return isObj(raw) && isObj(raw.run) ? posInt(raw.run.id) : null;
 }
 
-/** true si la rama cumple el formato que acepta el server (git check-ref-format va aparte). */
+/** cordura mínima de una rama para pasarla a git (git check-ref-format decide aparte). */
 export function isValidBranchName(branch: string): boolean {
   return BRANCH_RE.test(branch);
 }
+
+// ¿una tool permitida es (o acota) una de las prohibidas en lectura? `Bash` y `Bash(git:*)` lo son.
+const isForbiddenInRead = (tool: string): boolean => READ_FORBIDDEN_TOOLS.some((f) => tool === f || tool.startsWith(`${f}(`));
 
 function toolList(v: unknown, field: string): string[] {
   if (v === undefined || v === null) return [];
@@ -148,8 +169,12 @@ export function parseClaim(raw: unknown): ClaimResponse {
   if (!kind) throw new Error('claim inválido: run.kind ausente');
   const repo = str(r.repo);
   if (repo !== null && !REPO_KEY_RE.test(repo)) throw new Error(`claim inválido: repo "${repo}"`);
-  const branch = str(r.branch);
-  if (branch !== null && !isValidBranchName(branch)) throw new Error(`claim inválido: rama "${branch}"`);
+  const warnings: string[] = [];
+  const rawBranch = str(r.branch);
+  const branch = rawBranch !== null && isValidBranchName(rawBranch) ? rawBranch : null;
+  if (rawBranch !== null && branch === null) {
+    warnings.push(`rama ${JSON.stringify(rawBranch.slice(0, WARNING_BRANCH_CHARS))} ignorada (nombre no utilizable): worktree sobre la rama por defecto`);
+  }
   const sessionId = str(r.sessionId);
   if (sessionId !== null && !SESSION_ID_RE.test(sessionId)) throw new Error('claim inválido: sessionId con formato inesperado');
   const profile = r.profile === PROMPT_PROFILE.read || r.profile === PROMPT_PROFILE.edit ? r.profile : null;
@@ -161,7 +186,15 @@ export function parseClaim(raw: unknown): ClaimResponse {
   if (!ALLOWED_PERMISSION_MODES.includes(permissionMode)) {
     throw new Error(`claim inválido: permission mode "${permissionMode}" fuera del techo local (${ALLOWED_PERMISSION_MODES.join(', ')})`);
   }
+  if (kind === RUN_KIND.prompt && permissionMode !== PROMPT_PERMISSION_MODE) {
+    throw new Error(`claim inválido: un prompt run exige permission mode ${PROMPT_PERMISSION_MODE} (llegó "${permissionMode}")`);
+  }
   const tools = isObj(raw.tools) ? raw.tools : {};
+  const allowed = toolList(tools.allowed, 'tools.allowed');
+  const readPrompt = kind === RUN_KIND.prompt && profile === PROMPT_PROFILE.read;
+  const leaked = readPrompt ? allowed.filter(isForbiddenInRead) : [];
+  if (leaked.length > 0) throw new Error(`claim inválido: un prompt run de lectura no puede permitir ${leaked.join(', ')}`);
+  const disallowed = Array.from(new Set([...toolList(tools.disallowed, 'tools.disallowed'), ...(readPrompt ? READ_FORBIDDEN_TOOLS : [])]));
   const mcp = isObj(raw.mcp) ? raw.mcp : {};
   const serverName = str(mcp.serverName) ?? '';
   const url = str(mcp.url) ?? '';
@@ -186,11 +219,12 @@ export function parseClaim(raw: unknown): ClaimResponse {
       sessionId,
       parentRunId: posInt(r.parentRunId),
       profile,
+      segment: posInt(r.segment),
     },
     prompt,
     fallbackPrompt: str(raw.fallbackPrompt),
     tier: str(raw.tier),
-    tools: { allowed: toolList(tools.allowed, 'tools.allowed'), disallowed: toolList(tools.disallowed, 'tools.disallowed') },
+    tools: { allowed, disallowed },
     permissionMode,
     maxTurns: numOrNull(raw.maxTurns),
     maxBudgetUsd: numOrNull(raw.maxBudgetUsd),
@@ -198,5 +232,6 @@ export function parseClaim(raw: unknown): ClaimResponse {
     heartbeatMs: posNum(raw.heartbeatMs) ?? DEFAULT_HEARTBEAT_MS,
     events: eventsConfig(raw.events),
     mcp: { serverName, url, token, expiresAt: numOrNull(mcp.expiresAt) ?? 0 },
+    warnings,
   };
 }

@@ -20,6 +20,14 @@ const SECRET_MASK_PATTERNS: readonly RegExp[] = [
   /\bBearer\s+[A-Za-z0-9._~+/=-]{8,}/gi,
   // bloque de clave privada pegado en la prosa.
   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z ]*PRIVATE KEY-----|$)/g,
+  // credenciales en la url de un remoto (git push https://usuario:token@bitbucket.org/…): el userinfo entero.
+  /(?<=:\/\/)[^/\s:@]+:[^@\s/]+(?=@)/g,
+  // atlassian (api token ATATT…), bitbucket (app password ATBB…) y anthropic (sk-ant-…).
+  /\bATATT[A-Za-z0-9_=-]{20,}/g,
+  /\bATBB[A-Za-z0-9]{20,}/g,
+  /\bsk-ant-[A-Za-z0-9_-]{20,}/g,
+  // asignaciones genéricas (DB_PASSWORD=…, api_key: …, "token": "…"): se enmascara la clave y su valor.
+  /(?<![A-Za-z0-9])(?:password|passwd|secret|token|api[_-]?key)["']?\s*[=:]\s*["']?[^\s"',;]+/gi,
 ];
 
 /** sustituye cada secreto reconocible por `***`. aplícalo ANTES de recortar el texto. */

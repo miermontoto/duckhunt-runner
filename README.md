@@ -103,20 +103,26 @@ said yes to that specific action, spelled out with the literal command.
 A prompt run is a conversation you start from the *Agents* page: you pick one of the repos mapped
 on this runner (or none), optionally a branch, and write what you want. The daemon runs it like any
 other run, with your Claude login, and every reply or follow-up resumes the same Claude session.
-Requires daemon 0.4.0+; older daemons are never handed a prompt run.
+Requires daemon 0.4.0+ and a Claude CLI that supports `--permission-mode`, `--strict-mcp-config`,
+`--disallowedTools` and `--setting-sources`; otherwise the daemon does not offer prompt runs and is
+never handed one.
 
 ### Profiles
 
-Each conversation has a profile, fixed when it starts. The Claude CLI enforces it (tool allowlist
-and an explicit `--permission-mode dontAsk`), not the prompt:
+Each conversation has a profile, chosen when it starts. The Claude CLI enforces it (tool allowlist,
+deny list and an explicit `--permission-mode dontAsk`), not the prompt, and the daemon refuses a
+`read` claim that would allow `Bash`, `Edit`, `Write` or `NotebookEdit`:
 
 | Profile | Built-in tools | Also |
 | --- | --- | --- |
-| `read` | `Read`, `Grep`, `Glob` | duckhunt tools (notes, tasks, questions). No shell, no edits. |
-| `edit` | `Read`, `Grep`, `Glob`, `Bash`, `Edit`, `Write` | Git included: the agent commits, pushes or opens a pull request only when your prompt asks for it. Starting an `edit` conversation asks you to confirm your identity again. |
+| `read` | `Read`, `Grep`, `Glob` | duckhunt tools (notes, tasks, questions). No shell, no edits. Runs with `--setting-sources user`: your own settings, hooks and plugins apply, but the checked-out branch's `.claude/` settings and hooks do not (the agent reads the repo's `CLAUDE.md` with `Read` instead). |
+| `edit` | `Read`, `Grep`, `Glob`, `Bash`, `Edit`, `Write` | Git included: the agent commits, pushes or opens a pull request only when your prompt asks for it. Starting an `edit` conversation, and every later message or answer to it, asks you to confirm your identity again; its notifications have no reply buttons. |
 
+Every prompt run uses `--strict-mcp-config`, so a `.mcp.json` in the checkout never loads.
 Settings → Agents can force `read` for everything (read-only mode) or per repo, pause the runner,
-or stop it from accepting prompt runs. Prompt runs have no turn or budget limit: each step is capped
+or stop it from accepting prompt runs. Read-only mode applies to existing `edit` conversations from
+their next step on. A per-repo `read` lock covers conversations on that repo; it is not a sandbox,
+since an `edit` conversation on another repo (or none) still has a shell. Prompt runs have no turn or budget limit: each step is capped
 at 30 minutes of wall-clock time, and the model is your `defaults.model` (or the CLI default).
 `worktree: false` and `--dangerously-skip-permissions` in the repo map only apply to automation runs.
 
@@ -124,8 +130,15 @@ at 30 minutes of wall-clock time, and the model is your `defaults.model` (or the
 
 A prompt run works in its own git worktree, `<checkout>/.duckhunt/worktrees/conv-<id>`. It is
 created detached on `origin/<branch>` right after a `git fetch`; if the branch does not exist yet,
-on the remote's default branch, and the agent creates the branch if you ask for one. The worktree
-survives between steps, so edits are still there when you answer a question or send a follow-up.
+on the remote's default branch, and the agent creates the branch if you ask for one. A branch name
+that `git check-ref-format` rejects falls back to the default branch, with a note in the feed. The
+worktree survives between steps, so edits are still there when you answer a question or send a
+follow-up; if you delete its directory by hand, the next step recreates it.
+
+Each claim carries a step number that the daemon sends back with every heartbeat, progress update,
+feed batch and status report. When you stop a conversation, write to it again, or duckhunt gives up
+on a step, the next heartbeat tells the daemon the run is no longer its own and it kills Claude and
+its whole process group; a late report from that step never closes the step that replaced it.
 
 Between runs (at most every 30 minutes) the daemon removes the worktrees of conversations that
 duckhunt reports as closed, and any worktree unused for 7 days. It never removes one with
@@ -140,8 +153,9 @@ per tool call: the tool name and a short argument (a path relative to the worktr
 pattern, the first line of a shell command, the task or entry a duckhunt tool touches). It never
 sends tool results, file contents or command output. Paths are shortened (`.` for the worktree, `~`
 for your home; a file opened outside the worktree shows only its name) and anything that looks like
-a secret (AWS keys, GitHub and Slack tokens, `Bearer` headers, private keys) is masked before it
-leaves the machine; the server masks it again. Set *progress feed* to *counter only* in Settings → Agents to send just the
+a secret (AWS keys, GitHub, Slack, Atlassian, Bitbucket and Anthropic tokens, credentials in a remote
+URL, `password=`/`token=`-style assignments, `Bearer` headers, private keys) is masked before it
+leaves the machine, also in the final result, error and stderr; the server masks it again. Set *progress feed* to *counter only* in Settings → Agents to send just the
 tool-call count.
 
 The daemon also strips variables of the Claude Code session it may have been started from

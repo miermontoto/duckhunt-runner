@@ -11,6 +11,10 @@
 //   recoge conversation-gc.ts entre runs. los runs de reglas siguen con su worktree efímero.
 // - el feed (event-uploader.ts) se vacía ANTES de reportar el status: el server rechaza eventos de
 //   un run cerrado.
+// - el segmento del claim viaja en heartbeat/progress/events/status: es lo que distingue a ESTE
+//   proceso del siguiente turno de la misma fila. el latido mata claude en cuanto el run deja de ser
+//   suyo (cancelado, re-encolado tras detenerlo, dado por fallido, borrado → 404, reclamado por otro
+//   segmento), no solo con `cancel`: un proceso detenido no puede seguir 30 min con Bash.
 
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import crypto from 'node:crypto';
@@ -22,7 +26,7 @@ import { promisify } from 'node:util';
 import { refreshAccess, type AccessState } from './oauth.js';
 import { logsDir, scratchDir, type RepoConfig, type RunnerConfig } from './config.js';
 import { consumeStreamLine, detectClaude, newStreamState, type ClaudeInfo } from './claude.js';
-import { buildClaudeArgs } from './claude-args.js';
+import { buildClaudeArgs, PROMPT_REQUIRED_FLAGS } from './claude-args.js';
 import { claimRunId, EVENTS_DEFAULTS, parseClaim, RUN_KIND, RUNNER_CAPABILITY, type ClaimedRun, type ClaimResponse } from './claim.js';
 import { EventUploader, type SeqEvent } from './event-uploader.js';
 import { clip, feedEventsFromStream, systemEvent, type FeedContext } from './feed.js';
@@ -62,7 +66,10 @@ const EXIT_CODE_SIGTERM = 143;
 const CLAUDE_VERSION_MAX_CHARS = 80;
 const WORKDIR_MAX_CHARS = 300;
 const HTTP_CONFLICT = 409;
+const HTTP_NOT_FOUND = 404;
 const HTTP_TIMEOUT = 408;
+// estado del run que el latido espera mientras el proceso es su dueño.
+const RUN_STATUS_RUNNING = 'running';
 const HTTP_TOO_MANY = 429;
 const HTTP_SERVER_ERROR = 500;
 
@@ -143,12 +150,12 @@ export class RunnerDaemon {
     return this.cfg.label ?? os.hostname();
   }
 
-  // capacidades que se anuncian: prompt solo si el cli puede fijar el permission mode (sin él un
-  // prompt run heredaría el defaultMode del usuario).
+  // capacidades que se anuncian: prompt solo si el cli puede cumplir su perfil (permission mode
+  // explícito, sin mcp del repo, deny list y settings solo del usuario en lectura).
   private capabilities(): string[] {
     return [
       ...(this.hasAws ? [RUNNER_CAPABILITY.aws] : []),
-      ...(this.claude.supported.has('--permission-mode') ? [RUNNER_CAPABILITY.prompt] : []),
+      ...(PROMPT_REQUIRED_FLAGS.every((f) => this.claude.supported.has(f)) ? [RUNNER_CAPABILITY.prompt] : []),
       RUNNER_CAPABILITY.events,
     ];
   }
@@ -342,14 +349,16 @@ export class RunnerDaemon {
       `[runner] ${tag} reclamado (${run.kind}${run.profile ? `, perfil ${run.profile}` : ''}, entry ${run.entryId}${claim.tier ? `, tier ${claim.tier}` : ''}${run.repo ? `, repo ${run.repo}${run.branch ? `@${run.branch}` : ''}` : ''}${run.sessionId ? `, sesión ${run.sessionId}` : ''})`,
     );
     const env = this.envFor(run);
-    const feed = claim.events?.enabled ? new EventUploader((events) => this.postEvents(run.id, events), claim.events, tag) : null;
+    // identidad del proceso en cada llamada del run (servers anteriores a los segmentos: nada).
+    const seg = run.segment !== null ? { segment: run.segment } : {};
+    const feed = claim.events?.enabled ? new EventUploader((events) => this.postEvents(run.id, events, seg), claim.events, tag) : null;
 
     let prepared: Workdir;
     try {
       prepared = await this.prepareWorkdir(run, env);
     } catch (err) {
       await feed?.close();
-      await this.postStatus(run.id, { status: 'failed', error: `no se pudo preparar el directorio del run: ${(err as Error).message}` });
+      await this.postStatus(run.id, { status: 'failed', error: `no se pudo preparar el directorio del run: ${(err as Error).message}`, ...seg });
       return;
     }
     const ctx: FeedContext = {
@@ -363,7 +372,7 @@ export class RunnerDaemon {
       feed?.push(systemEvent(text, ctx));
     };
     note(prepared.note);
-    prepared.warnings.forEach(note);
+    [...claim.warnings, ...prepared.warnings].forEach(note);
 
     // mcp-config temporal con el token per-run (0600; se borra al terminar).
     const mcpFile = path.join(os.tmpdir(), `duckhunt-runner-${run.id}-${crypto.randomBytes(4).toString('hex')}.json`);
@@ -386,7 +395,7 @@ export class RunnerDaemon {
     }
 
     await feed?.close();
-    await this.postStatus(run.id, report);
+    await this.postStatus(run.id, { ...report, ...seg });
     if (prepared.worktree && prepared.conversation) {
       touchWorktree(prepared.worktree);
     } else if (prepared.worktree && prepared.repoCfg) {
@@ -438,6 +447,7 @@ export class RunnerDaemon {
   // resuelve siempre (nunca rechaza).
   private spawnClaude(claim: ClaimResponse, args: string[], prepared: Workdir, env: NodeJS.ProcessEnv, feed: EventUploader | null, ctx: FeedContext): Promise<Attempt> {
     const runId = claim.run.id;
+    const seg = claim.run.segment !== null ? { segment: claim.run.segment } : {};
     return new Promise((resolve) => {
       const stream = newStreamState();
       const stderrTail: string[] = [];
@@ -483,14 +493,20 @@ export class RunnerDaemon {
         if (logFile !== null) fs.writeSync(logFile, `${JSON.stringify({ type: 'stderr', line })}\n`);
       });
 
-      // heartbeat: transporta el soft-cancel del server (y refresca la presencia del runner).
+      // heartbeat: transporta el soft-cancel del server (y refresca la presencia del runner). el
+      // proceso muere si el run ya no es suyo: cancel, un estado que no es running, o el run no existe.
       const heartbeat = setInterval(() => {
-        void this.api(`/runs/${runId}/heartbeat`)
+        void this.api(`/runs/${runId}/heartbeat`, seg)
           .then(async (res) => {
+            if (res.status === HTTP_NOT_FOUND) {
+              console.log(`[runner] run ${runId} ya no existe en el server; deteniendo claude`);
+              kill('cancel');
+              return;
+            }
             if (!res.ok) return;
-            const body = (await res.json().catch(() => null)) as { cancel?: boolean } | null;
-            if (body?.cancel) {
-              console.log(`[runner] run ${runId} cancelado desde el server; deteniendo claude`);
+            const body = (await res.json().catch(() => null)) as { cancel?: boolean; status?: string } | null;
+            if (body?.cancel || (typeof body?.status === 'string' && body.status !== RUN_STATUS_RUNNING)) {
+              console.log(`[runner] run ${runId} ya no es de este proceso (${body?.status ?? 'cancelado'}); deteniendo claude`);
               kill('cancel');
             }
           })
@@ -499,7 +515,7 @@ export class RunnerDaemon {
 
       // progreso: tool calls del segmento (throttled) + la nota de workdir en el primer envío.
       const postProgress = (toolCalls: number, workdir?: string): void => {
-        void this.api(`/runs/${runId}/progress`, { toolCalls, ...(workdir ? { workdir } : {}) }).catch((err) =>
+        void this.api(`/runs/${runId}/progress`, { toolCalls, ...(workdir ? { workdir } : {}), ...seg }).catch((err) =>
           console.error(`[runner] progress falló: ${(err as Error).message}`),
         );
       };
@@ -543,8 +559,8 @@ export class RunnerDaemon {
     });
   }
 
-  private async postEvents(runId: number, events: SeqEvent[]): Promise<number> {
-    const res = await this.api(`/runs/${runId}/events`, { events });
+  private async postEvents(runId: number, events: SeqEvent[], seg: { segment?: number }): Promise<number> {
+    const res = await this.api(`/runs/${runId}/events`, { events, ...seg });
     return res.status;
   }
 

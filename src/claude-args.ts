@@ -5,12 +5,20 @@
 // --max-turns ni --max-budget-usd (el tope es el wall clock por segmento) ni el opt-in local
 // --dangerously-skip-permissions (su perfil read|edit lo fija el server y debe cumplirse); el prompt
 // va el último tras `--`, así un texto que empiece por '-' nunca se lee como flag.
+// un prompt run SIEMPRE lleva --strict-mcp-config (un .mcp.json del checkout no carga nada). uno de
+// LECTURA además lleva `--setting-sources user`: corre en un checkout de origin/<rama> que puede
+// haber empujado cualquiera, y su .claude/settings.json (hooks, apiKeyHelper, statusLine…) se
+// ejecutaría sin preguntar — lectura promete que no se ejecuta código del repo. verificado con el
+// cli 2.1.281: sin el flag el hook SessionStart del repo corre; con él no (y tampoco carga el
+// CLAUDE.md del proyecto: el prompt de lectura le pide leerlo con Read). los settings, hooks y
+// plugins del USUARIO se conservan (sin --restricted, decisión de t#378). edición no lo lleva: ya
+// ejecuta código del repo con Bash tras la verificación escalonada, y necesita su CLAUDE.md.
 
-import { RUN_KIND, type ClaimResponse } from './claim.js';
+import { PROMPT_PROFILE, RUN_KIND, type ClaimResponse, type PromptProfile } from './claim.js';
 import type { OptionalFlag } from './claude.js';
 
 export interface ClaudeArgsInput {
-  claim: Pick<ClaimResponse, 'tools' | 'permissionMode' | 'maxTurns' | 'maxBudgetUsd'> & { run: { kind: string } };
+  claim: Pick<ClaimResponse, 'tools' | 'permissionMode' | 'maxTurns' | 'maxBudgetUsd'> & { run: { kind: string; profile: PromptProfile | null } };
   prompt: string;
   mcpConfigFile: string;
   // flags opcionales que `claude --help` lista en esta máquina.
@@ -24,13 +32,21 @@ export interface ClaudeArgsInput {
   payingWithApiKey: boolean;
 }
 
-/** argv de `claude` (sin el binario). lanza si el cli no puede fijar el permission mode. */
+/** flags sin los que el cli no puede cumplir un prompt run (el daemon solo anuncia `prompt` si los tiene todos). */
+export const PROMPT_REQUIRED_FLAGS: readonly OptionalFlag[] = ['--permission-mode', '--strict-mcp-config', '--disallowedTools', '--setting-sources'];
+
+/** argv de `claude` (sin el binario). lanza si el cli no puede cumplir el perfil del run. */
 export function buildClaudeArgs(i: ClaudeArgsInput): string[] {
   const { claim } = i;
   const has = (f: OptionalFlag): boolean => i.supported.has(f);
   const isPrompt = claim.run.kind === RUN_KIND.prompt;
+  const readPrompt = isPrompt && claim.run.profile === PROMPT_PROFILE.read;
   if (!has('--permission-mode')) {
     throw new Error('el claude instalado no soporta --permission-mode: actualiza claude code (sin él heredaría tus permisos por defecto)');
+  }
+  const missing = isPrompt ? PROMPT_REQUIRED_FLAGS.filter((f) => !has(f)) : [];
+  if (missing.length > 0) {
+    throw new Error(`el claude instalado no soporta ${missing.join(', ')}: actualiza claude code (sin ellos un prompt run no cumple su perfil)`);
   }
   // presupuesto: solo tiene sentido cuando el coste es REAL (api key). con login de suscripción el
   // cli lo aplicaría sobre un coste nominal que nadie paga y mata runs legítimos (el guard contra
@@ -45,6 +61,7 @@ export function buildClaudeArgs(i: ClaudeArgsInput): string[] {
     '--mcp-config',
     i.mcpConfigFile,
     ...(has('--strict-mcp-config') ? ['--strict-mcp-config'] : []),
+    ...(readPrompt ? ['--setting-sources', 'user'] : []),
     ...(claim.tools.allowed.length > 0 ? ['--allowedTools', claim.tools.allowed.join(',')] : []),
     ...(has('--disallowedTools') && claim.tools.disallowed.length > 0 ? ['--disallowedTools', claim.tools.disallowed.join(',')] : []),
     '--permission-mode',
