@@ -7,9 +7,13 @@ queues an *agent run*. This daemon claims it and launches **Claude Code headless
 machine**, so the agent works with your Claude login, your git checkouts and your AWS CLI. It
 writes the verdict back to duckhunt as a work note, which reaches you as a push notification.
 
+You can also start a run yourself: the *Agents* page in duckhunt is a chat with an agent running
+on this machine, in a checkout of one of your repos (see [Prompt runs](#prompt-runs)).
+
 The server never sees your credentials, your filesystem paths or your git tokens. It only ever
 learns a repo's `workspace/slug` key and, optionally, an AWS account id — never where they live on
-disk.
+disk. With the progress feed on, it also receives what the agent says and one line per tool call
+(see [Progress feed](#progress-feed)), never file contents or command output.
 
 ## Requirements
 
@@ -42,7 +46,10 @@ That is the whole thing. Step by step:
 | `start [--verbose]` | Starts the claim loop. |
 
 Configuration lives in `~/.duckhunt-runner.json`. It holds the base URL, the OAuth credential, the
-repo and AWS maps, and optional defaults (`model`, `maxBudgetUsd`).
+repo and AWS maps, and optional defaults (`model`, `maxBudgetUsd`). Set `DUCKHUNT_RUNNER_CONFIG` to use
+another file (a second account, a test instance) and `DUCKHUNT_RUNNER_HOME` to move the state
+directory (`~/.duckhunt-runner`: the scratch directory and `--verbose` logs). `--version` prints the
+daemon version.
 
 ### Keeping it running
 
@@ -62,6 +69,9 @@ Restart=always
 WantedBy=default.target
 ```
 
+Stopping the daemon (`ctrl-c`, `SIGTERM`) stops the run in progress, including anything its shell
+commands started, and reports it as failed. A second signal exits immediately.
+
 ## How a run works
 
 1. **A run is queued** from duckhunt: the *investigate with agent* action on an entry, the same
@@ -76,7 +86,8 @@ WantedBy=default.target
 
 ### What an agent is allowed to touch
 
-Permission is derived from the conversation, and the server enforces it on the run's token:
+For automation runs, permission is derived from the conversation, and the server enforces it on the
+run's token:
 
 | The run | Can |
 | --- | --- |
@@ -86,6 +97,56 @@ Permission is derived from the conversation, and the server enforces it on the r
 
 So an unattended run can never change anything, and anything that leaves duckhunt needs you to have
 said yes to that specific action, spelled out with the literal command.
+
+## Prompt runs
+
+A prompt run is a conversation you start from the *Agents* page: you pick one of the repos mapped
+on this runner (or none), optionally a branch, and write what you want. The daemon runs it like any
+other run, with your Claude login, and every reply or follow-up resumes the same Claude session.
+Requires daemon 0.4.0+; older daemons are never handed a prompt run.
+
+### Profiles
+
+Each conversation has a profile, fixed when it starts. The Claude CLI enforces it (tool allowlist
+and an explicit `--permission-mode dontAsk`), not the prompt:
+
+| Profile | Built-in tools | Also |
+| --- | --- | --- |
+| `read` | `Read`, `Grep`, `Glob` | duckhunt tools (notes, tasks, questions). No shell, no edits. |
+| `edit` | `Read`, `Grep`, `Glob`, `Bash`, `Edit`, `Write` | Git included: the agent commits, pushes or opens a pull request only when your prompt asks for it. Starting an `edit` conversation asks you to confirm your identity again. |
+
+Settings → Agents can force `read` for everything (read-only mode) or per repo, pause the runner,
+or stop it from accepting prompt runs. Prompt runs have no turn or budget limit: each step is capped
+at 30 minutes of wall-clock time, and the model is your `defaults.model` (or the CLI default).
+`worktree: false` and `--dangerously-skip-permissions` in the repo map only apply to automation runs.
+
+### One worktree per conversation
+
+A prompt run works in its own git worktree, `<checkout>/.duckhunt/worktrees/conv-<id>`. It is
+created detached on `origin/<branch>` right after a `git fetch`; if the branch does not exist yet,
+on the remote's default branch, and the agent creates the branch if you ask for one. The worktree
+survives between steps, so edits are still there when you answer a question or send a follow-up.
+
+Between runs (at most every 30 minutes) the daemon removes the worktrees of conversations that
+duckhunt reports as closed, and any worktree unused for 7 days. It never removes one with
+uncommitted changes or with commits that no branch or remote contains: those are kept and logged, and
+you can remove them with `git worktree remove` when you are done. Worktrees kept from failed
+automation runs (`run-<id>`) expire after the same 7 days.
+
+### Progress feed
+
+While a run works, the daemon streams a short feed to duckhunt with what the agent says and one line
+per tool call: the tool name and a short argument (a path relative to the worktree, a search
+pattern, the first line of a shell command, the task or entry a duckhunt tool touches). It never
+sends tool results, file contents or command output. Paths are shortened (`.` for the worktree, `~`
+for your home; a file opened outside the worktree shows only its name) and anything that looks like
+a secret (AWS keys, GitHub and Slack tokens, `Bearer` headers, private keys) is masked before it
+leaves the machine; the server masks it again. Set *progress feed* to *counter only* in Settings → Agents to send just the
+tool-call count.
+
+The daemon also strips variables of the Claude Code session it may have been started from
+(`CLAUDECODE`, `CLAUDE_CODE_SESSION_ID`…), empty `ANTHROPIC_*` values and a dead `SSH_AUTH_SOCK` from
+the environment of each run, and disables git's terminal prompts.
 
 ## Licence
 

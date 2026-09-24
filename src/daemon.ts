@@ -1,8 +1,16 @@
-// loop del daemon (contrato 42): reclama runs por poll, lanza `claude -p` headless en el
-// checkout del repo (o en el scratch dir si no hay repo) con el mcp de duckhunt adjunto y el
-// perfil de tools del claim, y reporta el cierre. un run a la vez: el cómputo es la máquina del
-// usuario. el server nunca ve paths ni perfiles — el mapa repo→checkout y cuenta→perfil vive
-// en la config local.
+// loop del daemon (contrato 42 + prompts libres t#378): reclama runs por poll, lanza `claude -p`
+// headless en un worktree del checkout del repo (o en el scratch dir si no hay repo) con el mcp de
+// duckhunt adjunto y el perfil de tools del claim, sube el feed de progreso y reporta el cierre. un
+// run a la vez: el cómputo es la máquina del usuario. el server nunca ve paths ni perfiles — el mapa
+// repo→checkout y cuenta→perfil vive en la config local.
+// decisiones:
+// - claude corre en su PROPIO grupo de procesos (detached): cancelar, el timeout o parar el daemon
+//   matan también lo que lanzó la tool Bash (tests, servidores). por eso el daemon instala sus
+//   handlers de SIGINT/SIGTERM: ctrl-c ya no le llega al hijo por la terminal.
+// - kind=prompt usa un worktree POR CONVERSACIÓN que sobrevive entre segmentos (worktree.ts); lo
+//   recoge conversation-gc.ts entre runs. los runs de reglas siguen con su worktree efímero.
+// - el feed (event-uploader.ts) se vacía ANTES de reportar el status: el server rechaza eventos de
+//   un run cerrado.
 
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import crypto from 'node:crypto';
@@ -13,81 +21,93 @@ import readline from 'node:readline';
 import { promisify } from 'node:util';
 import { refreshAccess, type AccessState } from './oauth.js';
 import { logsDir, scratchDir, type RepoConfig, type RunnerConfig } from './config.js';
-import { consumeStreamLine, detectClaude, newStreamState, type ClaudeInfo, type StreamState } from './claude.js';
+import { consumeStreamLine, detectClaude, newStreamState, type ClaudeInfo } from './claude.js';
+import { buildClaudeArgs } from './claude-args.js';
+import { claimRunId, EVENTS_DEFAULTS, parseClaim, RUN_KIND, RUNNER_CAPABILITY, type ClaimedRun, type ClaimResponse } from './claim.js';
+import { EventUploader, type SeqEvent } from './event-uploader.js';
+import { clip, feedEventsFromStream, systemEvent, type FeedContext } from './feed.js';
+import { scrubEnv } from './scrub-env.js';
+import { clampReport, reportFor, type Attempt, type KillReason, type StatusReport } from './status-report.js';
+import { prepareConversationWorktree, prepareRunWorktree, removeRunWorktree, touchWorktree } from './worktree.js';
+import { chunk, CONVERSATION_GC_INTERVAL_MS, listWorktreeCandidates, removeWorktrees, selectForRemoval } from './conversation-gc.js';
+import { runnerVersion } from './version.js';
 
 const execFileP = promisify(execFile);
 
 const CLAIM_POLL_MS = 5_000;
 // margen para refrescar el access token del daemon antes de que caduque.
 const TOKEN_REFRESH_MARGIN_MS = 5 * 60_000;
-// SIGTERM → SIGKILL si el proceso no muere en este margen.
+// SIGTERM → SIGKILL (al grupo) si el proceso no muere en este margen.
 const KILL_GRACE_MS = 10_000;
+// tras la salida de claude, espera máxima a que se cierren sus pipes: un proceso en background que
+// los heredó retendría el 'close' para siempre.
+const EXIT_DRAIN_MS = 5_000;
 // throttle del reporte de tool calls al server.
 const PROGRESS_MIN_INTERVAL_MS = 5_000;
+const PROGRESS_TICK_MS = 1_000;
+const MIN_HEARTBEAT_MS = 5_000;
+const MIN_RUN_TIMEOUT_MS = 60_000;
 const STDERR_TAIL_LINES = 20;
 const STDERR_TAIL_MAX_CHARS = 4000;
+// toda llamada al server: sin respuesta en este plazo cuenta como fallo de red.
+const API_TIMEOUT_MS = 30_000;
+// POST /status: intentos con backoff exponencial (2 s, 4 s, 8 s, 16 s).
+const STATUS_POST_ATTEMPTS = 5;
+const STATUS_POST_BACKOFF_MS = 2_000;
+// tras SIGINT/SIGTERM: margen para cerrar el run en curso antes de salir a la fuerza.
+const SHUTDOWN_GRACE_MS = 20_000;
+const EXIT_CODE_SIGINT = 130;
+const EXIT_CODE_SIGTERM = 143;
+// topes de lo que el claim anuncia (RUNNER_CLAUDE_VERSION_MAX_CHARS) y de la nota de workdir.
+const CLAUDE_VERSION_MAX_CHARS = 80;
+const WORKDIR_MAX_CHARS = 300;
+const HTTP_CONFLICT = 409;
+const HTTP_TIMEOUT = 408;
+const HTTP_TOO_MANY = 429;
+const HTTP_SERVER_ERROR = 500;
 
-interface ClaimedRun {
-  id: number;
-  kind: 'investigate' | 'resume';
-  entryId: number;
-  workspaceId: number;
-  repo: string | null;
-  branch: string | null;
-  repoSource: string;
-  repoAvailable: boolean;
-  aws: { accountId: string | null; region: string | null } | null;
-  sessionId: string | null;
-  parentRunId: number | null;
-}
-
-interface ClaimResponse {
-  run: ClaimedRun;
-  prompt: string;
-  fallbackPrompt: string | null;
-  // tier del perfil que compuso el server (investigate|act|world). informativo: quien acota de
-  // verdad es tools.allowed, pero saberlo en el log explica por qué un run no pudo escribir.
-  tier?: string;
-  tools: { allowed: string[]; disallowed: string[] };
-  permissionMode: string;
-  maxTurns: number;
-  maxBudgetUsd: number;
-  timeoutMs: number;
-  heartbeatMs: number;
-  mcp: { serverName: string; url: string; token: string; expiresAt: number };
-}
-
-type RunStatus = 'done' | 'failed' | 'canceled';
-
-interface StatusReport {
-  status: RunStatus;
-  result?: string;
-  error?: string;
-  costUsd?: number;
-  numTurns?: number;
-  toolCalls?: number;
-  sessionId?: string;
-  model?: string;
-  resumed?: boolean;
-  stderrTail?: string;
-}
-
-// resultado de una ejecución de claude (un intento).
-interface Attempt {
-  exitCode: number | null;
-  killedBy: 'cancel' | 'timeout' | null;
-  stream: StreamState;
-  stderrTail: string;
+// cwd del run y lo que hay que hacer con él al terminar.
+interface Workdir {
+  workdir: string;
+  repoCfg: RepoConfig | null;
+  // worktree creado o reutilizado por el daemon (null = scratch o checkout directo).
+  worktree: string | null;
+  // conv-<id> de un prompt run: se conserva siempre.
+  conversation: boolean;
+  // nota para agent_run.workdir y el feed (sin paths absolutos).
+  note: string;
+  warnings: string[];
 }
 
 export interface DaemonOptions {
   verboseLog?: boolean;
 }
 
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+const isTransient = (status: number): boolean => status === HTTP_TIMEOUT || status === HTTP_TOO_MANY || status >= HTTP_SERVER_ERROR;
+
+// señal a todo el grupo de procesos del hijo (spawn detached → pgid = pid del hijo).
+function signalGroup(child: ChildProcess, signal: NodeJS.Signals): void {
+  if (child.pid === undefined) return;
+  try {
+    process.kill(-child.pid, signal);
+  } catch (err) {
+    // ESRCH: el grupo ya no existe. cualquier otro fallo: al menos al hijo directo.
+    if ((err as NodeJS.ErrnoException).code !== 'ESRCH') child.kill(signal);
+  }
+}
+
 export class RunnerDaemon {
   private access: AccessState | null = null;
   private claude: ClaudeInfo = { version: null, supported: new Set() };
   private hasAws = false;
+  // hijo en curso (un run a la vez) y su kill con motivo.
+  private active: ChildProcess | null = null;
+  private killActive: ((reason: KillReason) => void) | null = null;
+  private stopping = false;
+  private exitCode = 0;
+  private wake: (() => void) | null = null;
+  private lastGcAt = 0;
 
   constructor(
     private readonly cfg: RunnerConfig,
@@ -101,7 +121,7 @@ export class RunnerDaemon {
     return this.access.token;
   }
 
-  // fetch autenticado contra /api/runner con un reintento tras refresh en 401.
+  // fetch autenticado contra /api/runner con timeout y un reintento tras refresh en 401.
   private async api(pathname: string, body?: unknown): Promise<Response> {
     const call = async (): Promise<Response> =>
       fetch(`${this.cfg.baseUrl}/api/runner${pathname}`, {
@@ -111,6 +131,7 @@ export class RunnerDaemon {
           'Content-Type': 'application/json',
         },
         body: body === undefined ? '{}' : JSON.stringify(body),
+        signal: AbortSignal.timeout(API_TIMEOUT_MS),
       });
     const first = await call();
     if (first.status !== 401) return first;
@@ -122,82 +143,186 @@ export class RunnerDaemon {
     return this.cfg.label ?? os.hostname();
   }
 
-  /** loop principal: claim → ejecutar → repetir. nunca retorna (ctrl-c para salir). */
-  async run(): Promise<never> {
+  // capacidades que se anuncian: prompt solo si el cli puede fijar el permission mode (sin él un
+  // prompt run heredaría el defaultMode del usuario).
+  private capabilities(): string[] {
+    return [
+      ...(this.hasAws ? [RUNNER_CAPABILITY.aws] : []),
+      ...(this.claude.supported.has('--permission-mode') ? [RUNNER_CAPABILITY.prompt] : []),
+      RUNNER_CAPABILITY.events,
+    ];
+  }
+
+  /** loop principal: gc → claim → ejecutar → repetir, hasta SIGINT/SIGTERM. devuelve el exit code. */
+  async run(): Promise<number> {
     this.claude = await detectClaude();
     if (!this.claude.version) {
       throw new Error('no se encuentra `claude` en el PATH: instala claude code y haz login antes de arrancar el daemon');
     }
-    this.hasAws = await execFileP('aws', ['--version']).then(() => true).catch(() => false);
-    console.log(
-      `[runner] ${this.label()} → ${this.cfg.baseUrl} (claude ${this.claude.version}, aws cli ${this.hasAws ? 'sí' : 'no'}, ${Object.keys(this.cfg.repos).length} repos, ${Object.keys(this.cfg.aws).length} cuentas aws, poll ${CLAIM_POLL_MS / 1000}s)`,
+    this.hasAws = await execFileP('aws', ['--version']).then(
+      () => true,
+      () => false,
     );
-    for (;;) {
-      let claim: ClaimResponse | null = null;
-      try {
-        const res = await this.api('/claim', {
-          runnerLabel: this.label(),
-          repos: Object.keys(this.cfg.repos),
-          awsAccounts: Object.keys(this.cfg.aws),
-          capabilities: this.hasAws ? ['aws'] : [],
-        });
-        if (res.status === 200) claim = (await res.json()) as ClaimResponse;
-        else if (res.status !== 204) {
-          console.error(`[runner] claim falló: http ${res.status} ${await res.text().catch(() => '')}`);
-        }
-      } catch (err) {
-        console.error(`[runner] claim inaccesible: ${(err as Error).message}`);
-      }
+    this.installSignalHandlers();
+    console.log(
+      `[runner] duckhunt-runner ${runnerVersion() ?? '?'} · ${this.label()} → ${this.cfg.baseUrl} (claude ${this.claude.version}, aws cli ${this.hasAws ? 'sí' : 'no'}, ${Object.keys(this.cfg.repos).length} repos, ${Object.keys(this.cfg.aws).length} cuentas aws, capacidades ${this.capabilities().join(',')}, poll ${CLAIM_POLL_MS / 1000}s)`,
+    );
+    while (!this.stopping) {
+      await this.collectWorktrees();
+      const claim = this.stopping ? null : await this.claim();
       if (claim) {
         await this.executeRun(claim).catch((err) => {
           console.error(`[runner] run ${claim.run.id} reventó: ${(err as Error).message}`);
         });
-      } else {
-        await new Promise((r) => setTimeout(r, CLAIM_POLL_MS));
+      } else if (!this.stopping) {
+        await this.idle(CLAIM_POLL_MS);
       }
     }
+    console.log('[runner] detenido');
+    return this.exitCode;
   }
 
-  // --- cwd del run: checkout mapeado (worktree opcional) o scratch fijo ---
-
-  private async prepareWorkdir(run: ClaimedRun): Promise<{ workdir: string; repoCfg: RepoConfig | null; worktree: string | null; note: string | null }> {
-    const repoCfg = run.repo ? this.cfg.repos[run.repo] ?? null : null;
-    if (!repoCfg) {
-      const note = run.repo ? `repo ${run.repo} no mapeado en este runner: corriendo en scratch` : null;
-      return { workdir: scratchDir(), repoCfg: null, worktree: null, note };
-    }
-    if (!fs.existsSync(repoCfg.path)) {
-      return { workdir: scratchDir(), repoCfg: null, worktree: null, note: `checkout de ${run.repo} no existe (${repoCfg.path}): corriendo en scratch` };
-    }
-    if (repoCfg.worktree === false) return { workdir: repoCfg.path, repoCfg, worktree: null, note: null };
-    // aislamiento: worktree git detached por run. la branch del run si existe (local u origin);
-    // si no, HEAD. en done se borra; en failed se conserva para autopsia.
-    const worktree = path.join(repoCfg.path, '.duckhunt', 'worktrees', `run-${run.id}`);
-    const refs = run.branch ? [run.branch, `origin/${run.branch}`, 'HEAD'] : ['HEAD'];
-    let lastErr: Error | null = null;
-    for (const ref of refs) {
-      try {
-        await execFileP('git', ['worktree', 'add', '--detach', worktree, ref], { cwd: repoCfg.path });
-        const note = run.branch && ref === 'HEAD' ? `branch ${run.branch} no existe localmente: worktree sobre HEAD` : null;
-        return { workdir: worktree, repoCfg, worktree, note };
-      } catch (err) {
-        lastErr = err as Error;
-      }
-    }
-    throw new Error(`git worktree add falló: ${lastErr?.message ?? 'desconocido'}`);
-  }
-
-  private async removeWorktree(repoPath: string, worktree: string): Promise<void> {
-    await execFileP('git', ['worktree', 'remove', '--force', worktree], { cwd: repoPath }).catch((err) => {
-      console.error(`[runner] limpieza del worktree falló: ${(err as Error).message}`);
+  // espera interrumpible por una señal de parada.
+  private idle(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.wake = null;
+        resolve();
+      }, ms);
+      this.wake = () => {
+        clearTimeout(timer);
+        this.wake = null;
+        resolve();
+      };
     });
   }
 
-  // --- env del run: el del usuario + perfil aws mapeado ---
+  // primera señal: parar tras cerrar el run en curso (se mata su grupo y se reporta); segunda
+  // señal o margen agotado: salida inmediata matando el grupo.
+  private installSignalHandlers(): void {
+    const onSignal = (signal: NodeJS.Signals, code: number): void => {
+      const forceExit = (): never => {
+        if (this.active) signalGroup(this.active, 'SIGKILL');
+        process.exit(code);
+      };
+      if (this.stopping) forceExit();
+      this.stopping = true;
+      this.exitCode = code;
+      console.log(`[runner] ${signal}: deteniendo${this.killActive ? ' el run en curso' : ''} (otra señal fuerza la salida)`);
+      this.killActive?.('shutdown');
+      this.wake?.();
+      setTimeout(forceExit, SHUTDOWN_GRACE_MS).unref();
+    };
+    process.on('SIGINT', () => onSignal('SIGINT', EXIT_CODE_SIGINT));
+    process.on('SIGTERM', () => onSignal('SIGTERM', EXIT_CODE_SIGTERM));
+  }
+
+  // --- claim ---
+
+  private async claim(): Promise<ClaimResponse | null> {
+    let res: Response;
+    try {
+      res = await this.api('/claim', {
+        runnerLabel: this.label(),
+        repos: Object.keys(this.cfg.repos),
+        awsAccounts: Object.keys(this.cfg.aws),
+        capabilities: this.capabilities(),
+        ...(runnerVersion() ? { version: runnerVersion() } : {}),
+        ...(this.claude.version ? { claudeVersion: this.claude.version.slice(0, CLAUDE_VERSION_MAX_CHARS) } : {}),
+      });
+    } catch (err) {
+      console.error(`[runner] claim inaccesible: ${(err as Error).message}`);
+      return null;
+    }
+    // 204 = nada que hacer (o runner pausado desde /settings/agents).
+    if (res.status === 204) return null;
+    if (res.status !== 200) {
+      console.error(`[runner] claim falló: http ${res.status} ${await res.text().catch(() => '')}`);
+      return null;
+    }
+    const raw: unknown = await res.json().catch((err: Error) => {
+      console.error(`[runner] claim con json ilegible: ${err.message}`);
+      return null;
+    });
+    try {
+      return parseClaim(raw);
+    } catch (err) {
+      // el run ya está reclamado (running): si su id es usable se cierra con el motivo; si no, lo
+      // cerrará el sweeper del server.
+      const message = (err as Error).message;
+      console.error(`[runner] ${message}`);
+      const id = claimRunId(raw);
+      if (id !== null) await this.postStatus(id, { status: 'failed', error: message });
+      return null;
+    }
+  }
+
+  // --- gc de worktrees (entre runs, throttled) ---
+
+  // conversaciones abiertas según el server. si no contesta (o es anterior a t#378), todas se dan
+  // por abiertas: entonces solo actúa el ttl de inactividad, que nunca pierde trabajo.
+  private async openConversations(runIds: number[]): Promise<Set<number>> {
+    const open = new Set<number>();
+    // i/o secuencial: pocas llamadas, en orden.
+    for (const ids of chunk(runIds)) {
+      const res = await this.api('/conversations', { runIds: ids }).catch((err: Error) => {
+        console.error(`[runner] gc: /conversations inaccesible: ${err.message}`);
+        return null;
+      });
+      const body = res?.ok ? ((await res.json().catch(() => null)) as { open?: unknown } | null) : null;
+      if (!body || !Array.isArray(body.open)) {
+        if (res && !res.ok) console.error(`[runner] gc: /conversations respondió http ${res.status}: solo se aplica el ttl`);
+        ids.forEach((id) => open.add(id));
+        continue;
+      }
+      body.open.filter((id): id is number => Number.isSafeInteger(id)).forEach((id) => open.add(id));
+    }
+    return open;
+  }
+
+  private async collectWorktrees(): Promise<void> {
+    if (Date.now() - this.lastGcAt < CONVERSATION_GC_INTERVAL_MS) return;
+    this.lastGcAt = Date.now();
+    try {
+      const candidates = listWorktreeCandidates(Object.values(this.cfg.repos).map((r) => r.path));
+      if (candidates.length === 0) return;
+      const open = await this.openConversations(candidates.filter((c) => c.kind === 'conversation').map((c) => c.runId));
+      const targets = selectForRemoval(candidates, open, Date.now());
+      if (targets.length === 0) return;
+      const removed = await removeWorktrees(targets, scrubEnv(process.env));
+      if (removed > 0) console.log(`[runner] gc: ${removed} worktree(s) recogido(s)`);
+    } catch (err) {
+      console.error(`[runner] gc de worktrees falló: ${(err as Error).message}`);
+    }
+  }
+
+  // --- cwd del run: worktree de conversación, worktree por run, checkout o scratch ---
+
+  private async prepareWorkdir(run: ClaimedRun, env: NodeJS.ProcessEnv): Promise<Workdir> {
+    const repoCfg = run.repo && Object.hasOwn(this.cfg.repos, run.repo) ? this.cfg.repos[run.repo]! : null;
+    const scratch = (note: string, warnings: string[] = []): Workdir => ({ workdir: scratchDir(), repoCfg: null, worktree: null, conversation: false, note, warnings });
+    if (!run.repo) return scratch('scratch · sin repo');
+    if (!repoCfg) return scratch('scratch · sin repo mapeado', [`repo ${run.repo} no mapeado en este runner: corriendo en scratch`]);
+    if (!fs.existsSync(repoCfg.path)) {
+      console.log(`[runner] run ${run.id}: el checkout ${repoCfg.path} no existe`);
+      return scratch('scratch · checkout no encontrado', [`el checkout de ${run.repo} no existe en este runner: corriendo en scratch`]);
+    }
+    if (run.kind === RUN_KIND.prompt) {
+      // worktree siempre: `worktree: false` y skip-permissions del repo son solo para runs de reglas.
+      const wt = await prepareConversationWorktree(repoCfg.path, run.id, run.branch, env);
+      return { ...wt, repoCfg, worktree: wt.workdir, conversation: true };
+    }
+    if (repoCfg.worktree === false) return { workdir: repoCfg.path, repoCfg, worktree: null, conversation: false, note: 'checkout · sin worktree', warnings: [] };
+    const wt = await prepareRunWorktree(repoCfg.path, run.id, run.branch, env);
+    return { ...wt, repoCfg, worktree: wt.workdir, conversation: false };
+  }
+
+  // --- env del run: el del usuario saneado + perfil aws mapeado ---
 
   private envFor(run: ClaimedRun): NodeJS.ProcessEnv {
-    const env: NodeJS.ProcessEnv = { ...process.env, AWS_PAGER: '' };
-    const account = run.aws?.accountId ? this.cfg.aws[run.aws.accountId] : undefined;
+    const env: NodeJS.ProcessEnv = { ...scrubEnv(process.env), AWS_PAGER: '' };
+    const accountId = run.aws?.accountId;
+    const account = accountId && Object.hasOwn(this.cfg.aws, accountId) ? this.cfg.aws[accountId] : undefined;
     if (account) {
       env.AWS_PROFILE = account.profile;
       const region = account.region ?? run.aws?.region ?? undefined;
@@ -208,120 +333,117 @@ export class RunnerDaemon {
     return env;
   }
 
-  // --- args de claude ---
-
-  private claudeArgs(claim: ClaimResponse, prompt: string, mcpFile: string, repoCfg: RepoConfig | null, resumeSessionId: string | null): string[] {
-    const has = (f: string): boolean => this.claude.supported.has(f as never);
-    const args = ['-p', prompt, '--output-format', 'stream-json'];
-    if (has('--verbose')) args.push('--verbose');
-    args.push('--mcp-config', mcpFile);
-    if (has('--strict-mcp-config')) args.push('--strict-mcp-config');
-    if (claim.tools.allowed.length > 0) args.push('--allowedTools', claim.tools.allowed.join(','));
-    if (has('--disallowedTools') && claim.tools.disallowed.length > 0) args.push('--disallowedTools', claim.tools.disallowed.join(','));
-    if (has('--permission-mode') && claim.permissionMode) args.push('--permission-mode', claim.permissionMode);
-    if (has('--max-turns') && claim.maxTurns > 0) args.push('--max-turns', String(claim.maxTurns));
-    // presupuesto: solo tiene sentido cuando el coste es REAL (api key). con login de
-    // suscripción el cli lo aplicaría sobre un coste nominal que nadie paga y mata runs
-    // legítimos (el guard contra loops es el timeout). config manda: número = forzar, 0 = nunca.
-    const payingWithApiKey = !!process.env.ANTHROPIC_API_KEY;
-    const budget = this.cfg.defaults.maxBudgetUsd ?? (payingWithApiKey ? claim.maxBudgetUsd : 0);
-    if (has('--max-budget-usd') && budget > 0) args.push('--max-budget-usd', String(budget));
-    if (this.cfg.defaults.model) args.push('--model', this.cfg.defaults.model);
-    if (repoCfg?.dangerouslySkipPermissions) args.push('--dangerously-skip-permissions');
-    if (resumeSessionId) args.push('--resume', resumeSessionId);
-    return args;
-  }
-
   // --- ejecución ---
 
   private async executeRun(claim: ClaimResponse): Promise<void> {
     const { run } = claim;
+    const tag = `run ${run.id}`;
     console.log(
-      `[runner] run ${run.id} reclamado (${run.kind}, entry ${run.entryId}${claim.tier ? `, tier ${claim.tier}` : ''}${run.repo ? `, repo ${run.repo}` : ''}${run.sessionId ? `, sesión ${run.sessionId}` : ''})`,
+      `[runner] ${tag} reclamado (${run.kind}${run.profile ? `, perfil ${run.profile}` : ''}, entry ${run.entryId}${claim.tier ? `, tier ${claim.tier}` : ''}${run.repo ? `, repo ${run.repo}${run.branch ? `@${run.branch}` : ''}` : ''}${run.sessionId ? `, sesión ${run.sessionId}` : ''})`,
     );
+    const env = this.envFor(run);
+    const feed = claim.events?.enabled ? new EventUploader((events) => this.postEvents(run.id, events), claim.events, tag) : null;
 
-    let prepared: Awaited<ReturnType<RunnerDaemon['prepareWorkdir']>>;
+    let prepared: Workdir;
     try {
-      prepared = await this.prepareWorkdir(run);
+      prepared = await this.prepareWorkdir(run, env);
     } catch (err) {
-      await this.postStatus(run.id, { status: 'failed', error: (err as Error).message });
+      await feed?.close();
+      await this.postStatus(run.id, { status: 'failed', error: `no se pudo preparar el directorio del run: ${(err as Error).message}` });
       return;
     }
-    if (prepared.note) console.log(`[runner] run ${run.id}: ${prepared.note}`);
+    const ctx: FeedContext = {
+      cwd: prepared.workdir,
+      home: os.homedir(),
+      bodyMaxChars: claim.events?.bodyMaxChars ?? EVENTS_DEFAULTS.bodyMaxChars,
+      toolArgMaxChars: claim.events?.toolArgMaxChars ?? EVENTS_DEFAULTS.toolArgMaxChars,
+    };
+    const note = (text: string): void => {
+      console.log(`[runner] ${tag}: ${text}`);
+      feed?.push(systemEvent(text, ctx));
+    };
+    note(prepared.note);
+    prepared.warnings.forEach(note);
 
     // mcp-config temporal con el token per-run (0600; se borra al terminar).
     const mcpFile = path.join(os.tmpdir(), `duckhunt-runner-${run.id}-${crypto.randomBytes(4).toString('hex')}.json`);
-    fs.writeFileSync(
-      mcpFile,
-      JSON.stringify({
-        mcpServers: {
-          [claim.mcp.serverName]: { type: 'http', url: claim.mcp.url, headers: { Authorization: `Bearer ${claim.mcp.token}` } },
-        },
-      }),
-      { mode: 0o600 },
-    );
-
-    const env = this.envFor(run);
     let report: StatusReport;
     try {
-      // reanudar o no lo decide el server: manda sessionId solo cuando hay sesión que retomar
-      // (el run preguntó y ya le respondieron, o es la instrucción sobre un resultado anterior).
-      const resume = run.sessionId;
-      let attempt = await this.spawnClaude(claim, this.claudeArgs(claim, claim.prompt, mcpFile, prepared.repoCfg, resume), prepared.workdir, env);
-      let resumed: boolean | undefined = resume ? true : undefined;
-      // reanudación fallida antes de que el asistente hablara (sesión inexistente en esta
-      // máquina, borrada, de otro daemon): un solo reintento desde cero con el prompt de respaldo.
-      if (resume && attempt.killedBy === null && attempt.exitCode !== 0 && !attempt.stream.sawAssistant && claim.fallbackPrompt) {
-        console.log(`[runner] run ${run.id}: la sesión ${resume} no se pudo reanudar; reintento sin --resume`);
-        attempt = await this.spawnClaude(claim, this.claudeArgs(claim, claim.fallbackPrompt, mcpFile, prepared.repoCfg, null), prepared.workdir, env);
-        resumed = false;
-      }
-      report = this.reportFor(attempt, resumed);
+      fs.writeFileSync(
+        mcpFile,
+        JSON.stringify({
+          mcpServers: {
+            [claim.mcp.serverName]: { type: 'http', url: claim.mcp.url, headers: { Authorization: `Bearer ${claim.mcp.token}` } },
+          },
+        }),
+        { mode: 0o600 },
+      );
+      report = await this.runAttempts(claim, prepared, env, mcpFile, feed, ctx, note);
+    } catch (err) {
+      report = { status: 'failed', error: (err as Error).message };
     } finally {
       fs.rmSync(mcpFile, { force: true });
     }
 
+    await feed?.close();
     await this.postStatus(run.id, report);
-    if (prepared.worktree && prepared.repoCfg) {
-      if (report.status === 'done') await this.removeWorktree(prepared.repoCfg.path, prepared.worktree);
+    if (prepared.worktree && prepared.conversation) {
+      touchWorktree(prepared.worktree);
+    } else if (prepared.worktree && prepared.repoCfg) {
+      if (report.status === 'done') await removeRunWorktree(prepared.repoCfg.path, prepared.worktree, env);
       else console.log(`[runner] worktree conservado para autopsia: ${prepared.worktree}`);
     }
-    console.log(`[runner] run ${run.id} terminado (${report.status}${report.error ? `: ${report.error}` : ''})`);
+    console.log(`[runner] ${tag} terminado (${report.status}${report.error ? `: ${report.error}` : ''})`);
   }
 
-  private reportFor(attempt: Attempt, resumed: boolean | undefined): StatusReport {
-    const s = attempt.stream;
-    const base: StatusReport = {
-      status: 'failed',
-      toolCalls: s.toolCalls,
-      ...(s.result?.costUsd !== null && s.result?.costUsd !== undefined ? { costUsd: s.result.costUsd } : {}),
-      ...(s.result?.numTurns !== null && s.result?.numTurns !== undefined ? { numTurns: s.result.numTurns } : {}),
-      ...(s.result?.sessionId ?? s.sessionId ? { sessionId: (s.result?.sessionId ?? s.sessionId) as string } : {}),
-      ...(s.result?.model ? { model: s.result.model } : {}),
-      ...(resumed !== undefined ? { resumed } : {}),
-      ...(attempt.stderrTail ? { stderrTail: attempt.stderrTail } : {}),
-    };
-    if (attempt.killedBy === 'cancel') return { ...base, status: 'canceled', error: 'cancelado desde el server' };
-    if (attempt.killedBy === 'timeout') return { ...base, status: 'failed', error: 'timeout: el run superó el tiempo máximo' };
-    if (attempt.exitCode === 0 && s.result && !s.result.isError) {
-      return { ...base, status: 'done', ...(s.result.result ? { result: s.result.result } : {}) };
+  // uno o dos intentos: reanudación fallida antes de que el asistente hablara (sesión inexistente
+  // en esta máquina, borrada, de otro daemon) → un solo reintento desde cero con el prompt de respaldo.
+  private async runAttempts(
+    claim: ClaimResponse,
+    prepared: Workdir,
+    env: NodeJS.ProcessEnv,
+    mcpFile: string,
+    feed: EventUploader | null,
+    ctx: FeedContext,
+    note: (text: string) => void,
+  ): Promise<StatusReport> {
+    const { run } = claim;
+    const args = (prompt: string, resumeSessionId: string | null): string[] =>
+      buildClaudeArgs({
+        claim,
+        prompt,
+        mcpConfigFile: mcpFile,
+        supported: this.claude.supported,
+        resumeSessionId,
+        model: this.cfg.defaults.model,
+        configBudgetUsd: this.cfg.defaults.maxBudgetUsd,
+        skipPermissions: prepared.repoCfg?.dangerouslySkipPermissions === true,
+        payingWithApiKey: !!process.env.ANTHROPIC_API_KEY,
+      });
+    // reanudar o no lo decide el server: manda sessionId solo cuando hay sesión que retomar.
+    const resume = run.sessionId;
+    let attempt = await this.spawnClaude(claim, args(claim.prompt, resume), prepared, env, feed, ctx);
+    let resumed: boolean | undefined = resume ? true : undefined;
+    if (resume && attempt.killedBy === null && attempt.exitCode !== 0 && !attempt.stream.sawAssistant && claim.fallbackPrompt) {
+      console.log(`[runner] run ${run.id}: la sesión ${resume} no se pudo reanudar`);
+      note('la sesión anterior no se pudo reanudar en este runner: reintento desde cero');
+      attempt = await this.spawnClaude(claim, args(claim.fallbackPrompt, null), prepared, env, feed, ctx);
+      resumed = false;
     }
-    const budgetHit = s.result?.subtype === 'error_max_budget_usd';
-    const reason = s.result?.isError
-      ? `claude terminó con error (${s.result.subtype ?? 'error'})${budgetHit ? ' — presupuesto nominal agotado: sube defaults.maxBudgetUsd en ~/.duckhunt-runner.json (0 = sin límite)' : ''}${s.result.result ? `: ${s.result.result.slice(0, 500)}` : ''}`
-      : `claude terminó con exit code ${attempt.exitCode}`;
-    return { ...base, status: 'failed', error: reason };
+    return reportFor(attempt, resumed);
   }
 
-  // spawnea claude, consume stdout (stream-json) y stderr (tail), bombea heartbeat (soft-cancel)
-  // y progreso, y aplica el timeout wall-clock. resuelve siempre (nunca rechaza).
-  private spawnClaude(claim: ClaimResponse, args: string[], cwd: string, env: NodeJS.ProcessEnv): Promise<Attempt> {
+  // spawnea claude en su propio grupo de procesos, consume stdout (stream-json → contadores + feed)
+  // y stderr (tail), bombea heartbeat (soft-cancel) y progreso, y aplica el timeout wall-clock.
+  // resuelve siempre (nunca rechaza).
+  private spawnClaude(claim: ClaimResponse, args: string[], prepared: Workdir, env: NodeJS.ProcessEnv, feed: EventUploader | null, ctx: FeedContext): Promise<Attempt> {
     const runId = claim.run.id;
     return new Promise((resolve) => {
       const stream = newStreamState();
       const stderrTail: string[] = [];
-      let killedBy: Attempt['killedBy'] = null;
+      let killedBy: KillReason | null = null;
       let killTimer: NodeJS.Timeout | null = null;
+      let drainTimer: NodeJS.Timeout | null = null;
       let logFile: number | null = null;
       if (this.opts.verboseLog) {
         try {
@@ -333,23 +455,26 @@ export class RunnerDaemon {
 
       let child: ChildProcess;
       try {
-        child = spawn('claude', args, { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] });
+        child = spawn('claude', args, { cwd: prepared.workdir, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
       } catch (err) {
+        if (logFile !== null) fs.closeSync(logFile);
         resolve({ exitCode: null, killedBy: null, stream, stderrTail: `no se pudo lanzar claude: ${(err as Error).message}` });
         return;
       }
 
-      const kill = (reason: NonNullable<Attempt['killedBy']>): void => {
+      const kill = (reason: KillReason): void => {
         if (killedBy) return;
         killedBy = reason;
-        child.kill('SIGTERM');
-        killTimer = setTimeout(() => {
-          if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
-        }, KILL_GRACE_MS);
+        signalGroup(child, 'SIGTERM');
+        killTimer = setTimeout(() => signalGroup(child, 'SIGKILL'), KILL_GRACE_MS);
       };
+      this.active = child;
+      this.killActive = kill;
+      if (this.stopping) kill('shutdown');
 
       readline.createInterface({ input: child.stdout! }).on('line', (line) => {
-        consumeStreamLine(stream, line);
+        const ev = consumeStreamLine(stream, line);
+        if (ev && feed) feedEventsFromStream(ev, ctx).forEach((e) => feed.push(e));
         if (logFile !== null) fs.writeSync(logFile, `${line}\n`);
       });
       readline.createInterface({ input: child.stderr! }).on('line', (line) => {
@@ -358,7 +483,7 @@ export class RunnerDaemon {
         if (logFile !== null) fs.writeSync(logFile, `${JSON.stringify({ type: 'stderr', line })}\n`);
       });
 
-      // heartbeat: transporta el soft-cancel del server.
+      // heartbeat: transporta el soft-cancel del server (y refresca la presencia del runner).
       const heartbeat = setInterval(() => {
         void this.api(`/runs/${runId}/heartbeat`)
           .then(async (res) => {
@@ -370,48 +495,77 @@ export class RunnerDaemon {
             }
           })
           .catch((err) => console.error(`[runner] heartbeat falló: ${(err as Error).message}`));
-      }, Math.max(5_000, claim.heartbeatMs));
+      }, Math.max(MIN_HEARTBEAT_MS, claim.heartbeatMs));
 
-      // progreso: tool calls al server, throttled.
+      // progreso: tool calls del segmento (throttled) + la nota de workdir en el primer envío.
+      const postProgress = (toolCalls: number, workdir?: string): void => {
+        void this.api(`/runs/${runId}/progress`, { toolCalls, ...(workdir ? { workdir } : {}) }).catch((err) =>
+          console.error(`[runner] progress falló: ${(err as Error).message}`),
+        );
+      };
+      postProgress(0, clip(prepared.note, WORKDIR_MAX_CHARS));
       let reportedToolCalls = 0;
-      let lastProgressAt = 0;
+      let lastProgressAt = Date.now();
       const progress = setInterval(() => {
         const now = Date.now();
         if (stream.toolCalls === reportedToolCalls || now - lastProgressAt < PROGRESS_MIN_INTERVAL_MS) return;
         reportedToolCalls = stream.toolCalls;
         lastProgressAt = now;
-        void this.api(`/runs/${runId}/progress`, { toolCalls: reportedToolCalls }).catch((err) =>
-          console.error(`[runner] progress falló: ${(err as Error).message}`),
-        );
-      }, 1_000);
+        postProgress(reportedToolCalls);
+      }, PROGRESS_TICK_MS);
 
       const timeout = setTimeout(() => {
         console.log(`[runner] run ${runId} superó ${Math.round(claim.timeoutMs / 1000)}s; deteniendo claude`);
         kill('timeout');
-      }, Math.max(60_000, claim.timeoutMs));
+      }, Math.max(MIN_RUN_TIMEOUT_MS, claim.timeoutMs));
 
       child.on('error', (err) => {
         stderrTail.push(`[runner] no se pudo lanzar claude: ${err.message}`);
+      });
+      child.on('exit', () => {
+        // claude salió: si algo en background retiene sus pipes, se dejan de esperar.
+        drainTimer = setTimeout(() => {
+          child.stdout?.destroy();
+          child.stderr?.destroy();
+        }, EXIT_DRAIN_MS);
       });
       child.on('close', (code) => {
         clearInterval(heartbeat);
         clearInterval(progress);
         clearTimeout(timeout);
         if (killTimer) clearTimeout(killTimer);
+        if (drainTimer) clearTimeout(drainTimer);
         if (logFile !== null) fs.closeSync(logFile);
+        this.active = null;
+        this.killActive = null;
         resolve({ exitCode: code, killedBy, stream, stderrTail: stderrTail.join('\n').slice(-STDERR_TAIL_MAX_CHARS) });
       });
     });
   }
 
+  private async postEvents(runId: number, events: SeqEvent[]): Promise<number> {
+    const res = await this.api(`/runs/${runId}/events`, { events });
+    return res.status;
+  }
+
+  // cierre con reintento acotado: es lo único del run que el server no puede reconstruir.
   private async postStatus(runId: number, report: StatusReport): Promise<void> {
-    const res = await this.api(`/runs/${runId}/status`, report).catch((err) => {
-      console.error(`[runner] status post falló: ${(err as Error).message}`);
-      return null;
-    });
-    // 409 = el server ya cerró el run (cancel del usuario, sweeper): benigno.
-    if (res && !res.ok && res.status !== 409) {
-      console.error(`[runner] status post rechazado: http ${res.status} ${await res.text().catch(() => '')}`);
+    const body = clampReport(report);
+    // i/o secuencial con backoff exponencial.
+    for (let attempt = 1; attempt <= STATUS_POST_ATTEMPTS; attempt++) {
+      const res = await this.api(`/runs/${runId}/status`, body).catch((err: Error) => {
+        console.error(`[runner] status post falló (intento ${attempt}/${STATUS_POST_ATTEMPTS}): ${err.message}`);
+        return null;
+      });
+      // 409 = el server ya cerró el run (cancel del usuario, sweeper): benigno.
+      if (res && (res.ok || res.status === HTTP_CONFLICT)) return;
+      if (res && !isTransient(res.status)) {
+        console.error(`[runner] status post rechazado: http ${res.status} ${await res.text().catch(() => '')}`);
+        return;
+      }
+      if (res) console.error(`[runner] status post: http ${res.status} (intento ${attempt}/${STATUS_POST_ATTEMPTS})`);
+      if (attempt < STATUS_POST_ATTEMPTS) await sleep(STATUS_POST_BACKOFF_MS * 2 ** (attempt - 1));
     }
+    console.error(`[runner] status del run ${runId} sin entregar: el server lo cerrará por inactividad`);
   }
 }

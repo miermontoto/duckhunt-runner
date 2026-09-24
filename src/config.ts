@@ -1,7 +1,8 @@
 // config del daemon (~/.duckhunt-runner.json): credencial oauth + mapa repo→path local + mapa
 // cuenta aws→perfil local + defaults. el server jamás ve estos paths ni perfiles — la resolución
 // repo→checkout y cuenta→perfil vive SOLO aquí. ~/.duckhunt-runner/ guarda el scratch dir (runs
-// sin repo, donde claude code acumula memoria) y los logs opcionales.
+// sin repo, donde claude code acumula memoria) y los logs opcionales. DUCKHUNT_RUNNER_CONFIG y
+// DUCKHUNT_RUNNER_HOME los desvían (otra cuenta, otro server, pruebas e2e sin tocar la config real).
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -13,9 +14,11 @@ export const DEFAULT_BASE_URL = 'https://duckhunt.info';
 export interface RepoConfig {
   // path absoluto al checkout local del repo.
   path: string;
-  // opt-in explícito per-repo a --dangerously-skip-permissions (decisión del usuario).
+  // opt-in explícito per-repo a --dangerously-skip-permissions (decisión del usuario). solo runs de
+  // reglas: un prompt run cumple siempre el perfil read|edit que fija el server.
   dangerouslySkipPermissions?: boolean;
-  // aislar cada run en un git worktree (default true). false = correr en el checkout.
+  // aislar cada run en un git worktree (default true). false = correr en el checkout. solo runs de
+  // reglas: un prompt run usa siempre el worktree de su conversación.
   worktree?: boolean;
 }
 
@@ -49,6 +52,7 @@ export interface RunnerConfig {
   defaults: RunnerDefaults;
 }
 
+/** fichero de config: DUCKHUNT_RUNNER_CONFIG o ~/.duckhunt-runner.json. */
 export function configPath(): string {
   return process.env.DUCKHUNT_RUNNER_CONFIG ?? path.join(os.homedir(), '.duckhunt-runner.json');
 }

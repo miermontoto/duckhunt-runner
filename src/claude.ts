@@ -1,6 +1,7 @@
 // integración con el cli de claude code: detección de flags soportados (el cli cambia entre
 // versiones; los flags opcionales se pasan solo si `claude --help` los lista) y parseo del
-// stream-json de un run headless (contadores de tool calls, objeto result final).
+// stream-json de un run headless (contadores de tool calls, objeto result final). el evento
+// parseado se devuelve para que el feed de progreso (feed.ts) lo lea sin volver a parsear.
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -59,7 +60,16 @@ export function newStreamState(): StreamState {
   return { toolCalls: 0, sawAssistant: false, sessionId: null, result: null };
 }
 
-interface StreamLine {
+// bloque de contenido de un mensaje del stream: text (prosa), tool_use (name + input),
+// tool_result, thinking… solo se tipan los campos que el daemon lee.
+export interface StreamContent {
+  type?: string;
+  text?: string;
+  name?: string;
+  input?: unknown;
+}
+
+export interface StreamLine {
   type?: string;
   subtype?: string;
   session_id?: string;
@@ -68,28 +78,29 @@ interface StreamLine {
   total_cost_usd?: unknown;
   num_turns?: unknown;
   modelUsage?: Record<string, unknown>;
-  message?: { content?: Array<{ type?: string }> | string };
+  message?: { content?: StreamContent[] | string };
 }
 
 function num(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
 }
 
-/** consume una línea de stdout (stream-json). ignora líneas que no son json. */
-export function consumeStreamLine(state: StreamState, line: string): void {
-  if (!line.startsWith('{')) return;
+/** consume una línea de stdout (stream-json) y devuelve el evento parseado; null si no es json. */
+export function consumeStreamLine(state: StreamState, line: string): StreamLine | null {
+  if (!line.startsWith('{')) return null;
   let ev: StreamLine;
   try {
     ev = JSON.parse(line) as StreamLine;
   } catch {
-    return;
+    // línea que empieza por '{' pero no es json (salida corrupta o cortada): no es un evento.
+    return null;
   }
   if (typeof ev.session_id === 'string' && ev.session_id) state.sessionId = ev.session_id;
   if (ev.type === 'assistant') {
     state.sawAssistant = true;
     const content = ev.message?.content;
     if (Array.isArray(content)) state.toolCalls += content.filter((c) => c?.type === 'tool_use').length;
-    return;
+    return ev;
   }
   if (ev.type === 'result') {
     const models = ev.modelUsage ? Object.keys(ev.modelUsage) : [];
@@ -103,4 +114,5 @@ export function consumeStreamLine(state: StreamState, line: string): void {
       model: models[0] ?? null,
     };
   }
+  return ev;
 }

@@ -5,12 +5,14 @@
 
 import crypto from 'node:crypto';
 import readline from 'node:readline/promises';
-import { DEFAULT_BASE_URL, loadConfig, saveConfig, type RunnerConfig } from './config.js';
+import { configPath, DEFAULT_BASE_URL, loadConfig, saveConfig, type RunnerConfig } from './config.js';
 
 // path del recurso runner en el server (espejo de canonicalRunnerResourceUrl).
 const RUNNER_RESOURCE_PATH = '/api/runner';
 // redirect out-of-band: página del server que muestra el code para pegar.
 const OOB_REDIRECT_PATH = '/oauth/authorized';
+// sin respuesta del token endpoint en este plazo = fallo (un refresh colgado pararía el daemon).
+const TOKEN_TIMEOUT_MS = 30_000;
 
 function b64url(buf: Buffer): string {
   return buf.toString('base64url');
@@ -27,6 +29,7 @@ async function postToken(baseUrl: string, form: Record<string, string>): Promise
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams(form).toString(),
+    signal: AbortSignal.timeout(TOKEN_TIMEOUT_MS),
   });
   const body = (await res.json().catch(() => ({}))) as Partial<TokenResponse> & { error_description?: string; error?: string };
   if (!res.ok || !body.access_token || !body.refresh_token) {
@@ -100,7 +103,7 @@ export async function login(baseUrl: string, label?: string): Promise<void> {
     defaults: existing?.defaults ?? {},
   };
   saveConfig(cfg);
-  console.log('\nconectado. config en ~/.duckhunt-runner.json — mapea tus repos (`repos discover ~/dev`) y cuentas aws (`aws add`).');
+  console.log(`\nconectado. config en ${configPath()} — mapea tus repos (\`repos discover ~/dev\`) y cuentas aws (\`aws add\`).`);
 }
 
 export interface AccessState {

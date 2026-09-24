@@ -8,6 +8,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { configPath, loadConfig, scratchDir } from './config.js';
 import { detectClaude } from './claude.js';
+import { runnerVersion } from './version.js';
 
 const execFileP = promisify(execFile);
 
@@ -38,6 +39,7 @@ async function credentialSummary(): Promise<string> {
 }
 
 export async function statusCommand(): Promise<void> {
+  console.log(`daemon:     duckhunt-runner ${runnerVersion() ?? '?'} (config ${configPath()})`);
   const cfg = loadConfig();
   if (!cfg) {
     console.log(`sin config (${configPath()}): ejecuta \`duckhunt-runner login <base-url>\``);
