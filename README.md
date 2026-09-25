@@ -141,7 +141,8 @@ Settings → Agents can force `read` for everything (read-only mode) or per repo
 or stop it from accepting prompt runs. Read-only mode applies to existing `edit` conversations from
 their next step on. A per-repo `read` lock covers conversations on that repo; it is not a sandbox,
 since an `edit` conversation on another repo (or none) still has a shell. Prompt runs have no turn or budget limit: each step is capped
-at 30 minutes of wall-clock time, and the model is your `defaults.model` (or the CLI default).
+by the wall-clock limit chosen in Settings → Agents (1 to 8 hours, 4 by default; automation runs
+keep 30 minutes), and the model is your `defaults.model` (or the CLI default).
 `worktree: false` and `--dangerously-skip-permissions` in the repo map only apply to automation runs.
 
 ### One worktree per conversation
@@ -163,6 +164,16 @@ closed, and any worktree unused for 7 days, skipping those of runs it is working
 uncommitted changes or with commits that no branch or remote contains: those are kept and logged, and
 you can remove them with `git worktree remove` when you are done. Worktrees kept from failed
 automation runs (`run-<id>`) expire after the same 7 days.
+
+### Working in the checkout instead
+
+When you open a conversation you can choose `checkout` instead of `worktree` (0.6.0 or later). The
+agent then works in your working copy as it is: your current branch and your uncommitted changes,
+with no fetch and no branch switch; the branch picker does not apply. The choice holds for the whole
+conversation. Conversations on the same checkout take turns, like automation runs on a repo with
+`worktree: false`. In `edit`, Claude loads the checkout's own settings, including the hooks in
+`.claude/settings.local.json` that a worktree never has. The daemon adds `/.duckhunt/` to the
+checkout's `.git/info/exclude` so its worktrees never show up as your changes.
 
 ### Progress feed
 

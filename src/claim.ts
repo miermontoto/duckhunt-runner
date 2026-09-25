@@ -12,13 +12,24 @@
 // - `run.segment` es la identidad del proceso: viaja de vuelta en heartbeat/progress/events/status.
 
 // capacidades que el daemon anuncia en el claim. el server entrega kind=prompt solo a quien
-// anuncia `prompt` y pide el feed de progreso solo a quien anuncia `events`.
+// anuncia `prompt`, pide el feed de progreso solo a quien anuncia `events` y deja abrir una
+// conversación en el checkout solo a quien anuncia `checkout` (>= 0.6.0).
 export const RUNNER_CAPABILITY = {
   aws: 'aws',
   prompt: 'prompt',
   events: 'events',
+  checkout: 'checkout',
 } as const;
 export type RunnerCapability = (typeof RUNNER_CAPABILITY)[keyof typeof RUNNER_CAPABILITY];
+
+// dónde trabaja un prompt run con repo (lo elige el usuario al abrir la conversación): el worktree
+// conv-<id> aislado o el checkout tal cual (su rama y sus cambios). ausente o desconocido = worktree,
+// lo más aislado. los runs de reglas no lo usan: su cwd lo decide `worktree` del repo en la config.
+export const RUN_ISOLATION = {
+  worktree: 'worktree',
+  checkout: 'checkout',
+} as const;
+export type RunIsolation = (typeof RUN_ISOLATION)[keyof typeof RUN_ISOLATION];
 
 export const RUN_KIND = {
   investigate: 'investigate',
@@ -83,6 +94,8 @@ export interface ClaimedRun {
   sessionId: string | null;
   parentRunId: number | null;
   profile: PromptProfile | null;
+  // solo prompt runs; en runs de reglas siempre worktree (no se consulta).
+  isolation: RunIsolation;
   // segmento del claim (null = server anterior a los segmentos).
   segment: number | null;
 }
@@ -219,6 +232,7 @@ export function parseClaim(raw: unknown): ClaimResponse {
       sessionId,
       parentRunId: posInt(r.parentRunId),
       profile,
+      isolation: kind === RUN_KIND.prompt && r.isolation === RUN_ISOLATION.checkout ? RUN_ISOLATION.checkout : RUN_ISOLATION.worktree,
       segment: posInt(r.segment),
     },
     prompt,

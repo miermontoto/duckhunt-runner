@@ -5,6 +5,11 @@
 //   `git fetch`; si la rama no existe aún, sobre la rama por defecto del remoto (origin/HEAD) y el
 //   agente la crea si el prompt lo pide. se CONSERVA entre segmentos (waiting/done/failed): lo que
 //   edite el perfil edit sobrevive a una pregunta o a un seguimiento. lo recoge conversation-gc.ts.
+// - un prompt run con isolation=checkout no tiene worktree: corre en el checkout tal cual y aquí solo
+//   se describe (prepareCheckout) su rama, commit y cambios para la nota.
+// el directorio del daemon (.duckhunt/) va a .git/info/exclude del checkout (local, nunca se commitea):
+// en un repo que no lo ignora, sus worktrees salían como cambios sin commitear del usuario y un agente
+// en el checkout los arrastraría con `git add -A`.
 // toda rama que viene del server se valida (cordura del claim + `git check-ref-format --branch`, que
 // es quien decide) y ningún argumento de git va sin `--end-of-options`: un nombre que empiece por
 // '-' no es un flag. una rama que git no acepta NO falla el run: worktree sobre la base por defecto
@@ -21,7 +26,10 @@ import { isValidBranchName } from './claim.js';
 
 const execFileP = promisify(execFile);
 
-const WORKTREES_SUBDIR = path.join('.duckhunt', 'worktrees');
+const DAEMON_DIR = '.duckhunt';
+const WORKTREES_SUBDIR = path.join(DAEMON_DIR, 'worktrees');
+// patrón de info/exclude anclado a la raíz del checkout.
+const DAEMON_DIR_EXCLUDE = `/${DAEMON_DIR}/`;
 export const CONVERSATION_WORKTREE_PREFIX = 'conv-';
 export const RUN_WORKTREE_PREFIX = 'run-';
 // git local (rev-parse, worktree add, status) y de red (fetch, que puede colgarse en un prompt de ssh).
@@ -130,7 +138,19 @@ async function reuseWorktree(repoPath: string, dir: string, env: NodeJS.ProcessE
   return null;
 }
 
+// añade el directorio del daemon a info/exclude del checkout si falta. sin git (checkout raro) no hace nada.
+async function excludeDaemonDir(repoPath: string, env: NodeJS.ProcessEnv): Promise<void> {
+  const common = await gitMaybe(repoPath, ['rev-parse', '--git-common-dir'], env);
+  if (common === null) return;
+  const file = path.join(path.resolve(repoPath, common), 'info', 'exclude');
+  const current = fs.existsSync(file) ? fs.readFileSync(file, 'utf-8') : '';
+  if (current.split('\n').includes(DAEMON_DIR_EXCLUDE)) return;
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.appendFileSync(file, `${current && !current.endsWith('\n') ? '\n' : ''}${DAEMON_DIR_EXCLUDE}\n`);
+}
+
 async function addDetached(repoPath: string, dir: string, sha: string, env: NodeJS.ProcessEnv): Promise<void> {
+  await excludeDaemonDir(repoPath, env);
   fs.mkdirSync(path.dirname(dir), { recursive: true });
   await git(repoPath, ['worktree', 'add', '--quiet', '--detach', '--end-of-options', dir, sha], env);
 }
@@ -184,6 +204,15 @@ export async function prepareConversationWorktree(repoPath: string, runId: numbe
     note: base.newBranch ? `${base.newBranch} (rama nueva) sobre ${at}` : at,
     warnings: [...rejected, ...base.warnings],
   };
+}
+
+/**
+ * cwd de un prompt run en el checkout tal cual: sin worktree ni fetch. esconde el directorio del daemon
+ * y describe la nota `checkout · <rama>@<sha> (n cambios sin commitear)`.
+ */
+export async function prepareCheckout(repoPath: string, env: NodeJS.ProcessEnv): Promise<PreparedWorktree> {
+  await excludeDaemonDir(repoPath, env);
+  return { workdir: repoPath, note: `checkout · ${await describeHead(repoPath, env)}`, warnings: [] };
 }
 
 /** worktree efímero de un run de reglas: detached sobre la rama (local u origin) o HEAD, sin fetch. */

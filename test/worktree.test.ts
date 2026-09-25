@@ -9,7 +9,7 @@ import path from 'node:path';
 import { after, before, test } from 'node:test';
 import { listWorktreeCandidates, removeWorktrees, selectForRemoval } from '../src/conversation-gc.js';
 import { scrubEnv } from '../src/scrub-env.js';
-import { isUsableBranch, prepareConversationWorktree, prepareRunWorktree, removeCleanWorktree, unsavedWork } from '../src/worktree.js';
+import { isUsableBranch, prepareCheckout, prepareConversationWorktree, prepareRunWorktree, removeCleanWorktree, unsavedWork } from '../src/worktree.js';
 
 const DAY_MS = 24 * 60 * 60_000;
 // identidad y firma fuera: el test no depende de la config git de la máquina.
@@ -81,6 +81,24 @@ test('conversación sobre origin/<rama>, rama nueva sobre origin/HEAD y reutiliz
   assert.equal(git(bad.workdir, 'rev-parse', 'HEAD'), mainSha);
   assert.match(bad.warnings[0] ?? '', /"bad\.lock" no válida para git/);
   await removeCleanWorktree(clone, bad.workdir, env);
+});
+
+test('checkout: cwd = el checkout, la nota describe rama y cambios, y los worktrees del daemon no cuentan', async () => {
+  // la conversación del test anterior dejó .duckhunt/worktrees/ dentro del checkout.
+  assert.ok(fs.existsSync(path.join(clone, '.duckhunt')));
+  const co = await prepareCheckout(clone, env);
+  assert.equal(co.workdir, clone);
+  assert.equal(co.note, `checkout · main@${mainSha.slice(0, 7)}`);
+  assert.equal(git(clone, 'status', '--porcelain'), '', '.duckhunt/ queda en info/exclude');
+  await prepareCheckout(clone, env);
+  const exclude = fs.readFileSync(path.join(clone, '.git', 'info', 'exclude'), 'utf-8');
+  assert.equal(exclude.split('\n').filter((l) => l === '/.duckhunt/').length, 1, 'idempotente');
+
+  fs.writeFileSync(path.join(clone, 'wip-checkout.txt'), 'x');
+  const dirty = await prepareCheckout(clone, env);
+  fs.rmSync(path.join(clone, 'wip-checkout.txt'));
+  assert.match(dirty.note, /^checkout · main@\w+ \(1 cambios sin commitear\)$/);
+  assert.ok(!dirty.note.includes(root));
 });
 
 test('run de reglas: rama local u origin, si no HEAD', async () => {

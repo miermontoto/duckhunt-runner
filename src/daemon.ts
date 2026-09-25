@@ -10,6 +10,8 @@
 //   handlers de SIGINT/SIGTERM: ctrl-c ya no le llega al hijo por la terminal.
 // - kind=prompt usa un worktree POR CONVERSACIÓN que sobrevive entre segmentos (worktree.ts); lo
 //   recoge conversation-gc.ts en el loop de claim. los runs de reglas siguen con su worktree efímero.
+//   si el usuario abrió la conversación en el checkout (run.isolation, 0.6.0), corre en el checkout
+//   tal cual, sin worktree, y se turna con los demás runs de ese checkout (cwdLocks).
 // - runs en paralelo (r#105): el server ya reclama atómicamente y una conversación es UNA fila, así
 //   que nunca corre dos veces a la vez. lo compartido en la máquina se serializa aquí: git sobre un
 //   mismo checkout (gitLocks: preparar, borrar, gc) y el cwd de los runs no aislados (cwdLocks:
@@ -36,12 +38,12 @@ import { AccessTokenSource } from './access-token.js';
 import { concurrency, logsDir, scratchDir, type RepoConfig, type RunnerConfig } from './config.js';
 import { consumeStreamLine, detectClaude, newStreamState, type ClaudeInfo } from './claude.js';
 import { buildClaudeArgs, PROMPT_REQUIRED_FLAGS } from './claude-args.js';
-import { claimRunId, EVENTS_DEFAULTS, parseClaim, PROMPT_PROFILE, RUN_KIND, RUNNER_CAPABILITY, type ClaimedRun, type ClaimResponse } from './claim.js';
+import { claimRunId, EVENTS_DEFAULTS, parseClaim, PROMPT_PROFILE, RUN_ISOLATION, RUN_KIND, RUNNER_CAPABILITY, type ClaimedRun, type ClaimResponse } from './claim.js';
 import { EventUploader, type SeqEvent } from './event-uploader.js';
 import { clip, feedEventsFromStream, systemEvent, type FeedContext } from './feed.js';
 import { scrubEnv } from './scrub-env.js';
 import { clampReport, reportFor, type Attempt, type KillReason, type StatusReport } from './status-report.js';
-import { prepareConversationWorktree, prepareRunWorktree, removeRunWorktree, touchWorktree } from './worktree.js';
+import { prepareCheckout, prepareConversationWorktree, prepareRunWorktree, removeRunWorktree, touchWorktree } from './worktree.js';
 import { chunk, CONVERSATION_GC_INTERVAL_MS, listWorktreeCandidates, removeWorktrees, selectForRemoval, type WorktreeCandidate } from './conversation-gc.js';
 import { KeyedMutex } from './keyed-mutex.js';
 import { RunLease, signalGroup } from './run-lease.js';
@@ -156,6 +158,7 @@ export class RunnerDaemon {
       ...(this.hasAws ? [RUNNER_CAPABILITY.aws] : []),
       ...(PROMPT_REQUIRED_FLAGS.every((f) => this.claude.supported.has(f)) ? [RUNNER_CAPABILITY.prompt] : []),
       RUNNER_CAPABILITY.events,
+      RUNNER_CAPABILITY.checkout,
     ];
   }
 
@@ -336,8 +339,13 @@ export class RunnerDaemon {
       console.log(`[runner] run ${run.id}: el checkout ${repoCfg.path} no existe`);
       return scratch('scratch · checkout no encontrado', [`el checkout de ${run.repo} no existe en este runner: corriendo en scratch`]);
     }
+    if (run.kind === RUN_KIND.prompt && run.isolation === RUN_ISOLATION.checkout) {
+      const co = await this.gitLocks.run(path.resolve(repoCfg.path), () => prepareCheckout(repoCfg.path, env));
+      return { ...co, repoCfg, worktree: null, conversation: false };
+    }
     if (run.kind === RUN_KIND.prompt) {
-      // worktree siempre: `worktree: false` y skip-permissions del repo son solo para runs de reglas.
+      // worktree salvo que el usuario eligiera el checkout: `worktree: false` y skip-permissions del
+      // repo son solo para runs de reglas.
       const wt = await this.gitLocks.run(path.resolve(repoCfg.path), () => prepareConversationWorktree(repoCfg.path, run.id, run.branch, env));
       return { ...wt, repoCfg, worktree: wt.workdir, conversation: true };
     }
@@ -346,9 +354,9 @@ export class RunnerDaemon {
     return { ...wt, repoCfg, worktree: wt.workdir, conversation: false };
   }
 
-  // runs que comparten un cwd no aislado se turnan: el checkout de un repo con `worktree: false` y
-  // el scratch en perfil edit (dos runs de reglas en scratch conviven: la auto-memory compartida es
-  // la gracia del cwd fijo). devuelve con qué soltar el turno: no-op si no hacía falta, o si el run
+  // runs que comparten un cwd no aislado se turnan: el checkout (un repo con `worktree: false` o una
+  // conversación abierta en el checkout) y el scratch en perfil edit (dos runs de reglas en scratch
+  // conviven: la auto-memory compartida es la gracia del cwd fijo). devuelve con qué soltar el turno: no-op si no hacía falta, o si el run
   // murió esperándolo (entonces se suelta en cuanto llega).
   private async holdCwd(run: ClaimedRun, prepared: Workdir, lease: RunLease, note: (text: string) => void): Promise<() => void> {
     const shared = prepared.worktree === null && (prepared.repoCfg !== null || run.profile === PROMPT_PROFILE.edit);

@@ -49,6 +49,14 @@ test('parseClaim normaliza un prompt run con su perfil, su segmento y el bloque 
   assert.equal(parseClaim(rawClaim()).run.segment, null, 'server sin segmentos');
 });
 
+test('parseClaim: isolation checkout solo en prompt runs; ausente o desconocida = worktree', () => {
+  assert.equal(parseClaim(rawClaim({ isolation: 'checkout' })).run.isolation, 'checkout');
+  assert.equal(parseClaim(rawClaim()).run.isolation, 'worktree', 'server anterior a 0.6.0');
+  assert.equal(parseClaim(rawClaim({ isolation: '../fuera' })).run.isolation, 'worktree');
+  const rule = parseClaim(rawClaim({ kind: 'investigate', profile: undefined, isolation: 'checkout' }));
+  assert.equal(rule.run.isolation, 'worktree', 'un run de reglas lo decide la config local');
+});
+
 test('parseClaim rechaza lo que acabaría en argv o en paths', () => {
   assert.throws(() => parseClaim(rawClaim({ id: '../../x' })), /run\.id/);
   // una rama que parece un flag no llega a git: se ignora con aviso y el run sigue (base por defecto).
