@@ -1,6 +1,6 @@
 {
   "name": "duckhunt-runner",
-  "version": "0.4.1",
+  "version": "0.4.2",
   "description": "Local daemon for duckhunt agent runs: claims runs and launches Claude Code headless on your own machine, with your login, your repos and your AWS CLI.",
   "type": "module",
   "license": "PolyForm-Noncommercial-1.0.0",

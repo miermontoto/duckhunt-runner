@@ -23,7 +23,8 @@ import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import { promisify } from 'node:util';
-import { refreshAccess, type AccessState } from './oauth.js';
+import { refreshAccess } from './oauth.js';
+import { AccessTokenSource } from './access-token.js';
 import { logsDir, scratchDir, type RepoConfig, type RunnerConfig } from './config.js';
 import { consumeStreamLine, detectClaude, newStreamState, type ClaudeInfo } from './claude.js';
 import { buildClaudeArgs, PROMPT_REQUIRED_FLAGS } from './claude-args.js';
@@ -39,8 +40,6 @@ import { runnerVersion } from './version.js';
 const execFileP = promisify(execFile);
 
 const CLAIM_POLL_MS = 5_000;
-// margen para refrescar el access token del daemon antes de que caduque.
-const TOKEN_REFRESH_MARGIN_MS = 5 * 60_000;
 // SIGTERM → SIGKILL (al grupo) si el proceso no muere en este margen.
 const KILL_GRACE_MS = 10_000;
 // tras la salida de claude, espera máxima a que se cierren sus pipes: un proceso en background que
@@ -105,7 +104,7 @@ function signalGroup(child: ChildProcess, signal: NodeJS.Signals): void {
 }
 
 export class RunnerDaemon {
-  private access: AccessState | null = null;
+  private readonly auth: AccessTokenSource;
   private claude: ClaudeInfo = { version: null, supported: new Set() };
   private hasAws = false;
   // hijo en curso (un run a la vez) y su kill con motivo.
@@ -119,31 +118,27 @@ export class RunnerDaemon {
   constructor(
     private readonly cfg: RunnerConfig,
     private readonly opts: DaemonOptions = {},
-  ) {}
-
-  private async accessToken(): Promise<string> {
-    if (!this.access || this.access.expiresAt - Date.now() < TOKEN_REFRESH_MARGIN_MS) {
-      this.access = await refreshAccess(this.cfg);
-    }
-    return this.access.token;
+  ) {
+    this.auth = new AccessTokenSource(() => refreshAccess(cfg));
   }
 
   // fetch autenticado contra /api/runner con timeout y un reintento tras refresh en 401.
   private async api(pathname: string, body?: unknown): Promise<Response> {
-    const call = async (): Promise<Response> =>
+    const call = async (token: string): Promise<Response> =>
       fetch(`${this.cfg.baseUrl}/api/runner${pathname}`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${await this.accessToken()}`,
+          Authorization: `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
         body: body === undefined ? '{}' : JSON.stringify(body),
         signal: AbortSignal.timeout(API_TIMEOUT_MS),
       });
-    const first = await call();
+    const token = await this.auth.token();
+    const first = await call(token);
     if (first.status !== 401) return first;
-    this.access = null;
-    return call();
+    this.auth.invalidate(token);
+    return call(await this.auth.token());
   }
 
   private label(): string {
