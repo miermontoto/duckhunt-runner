@@ -1,14 +1,22 @@
 // loop del daemon (contrato 42 + prompts libres t#378): reclama runs por poll, lanza `claude -p`
 // headless en un worktree del checkout del repo (o en el scratch dir si no hay repo) con el mcp de
-// duckhunt adjunto y el perfil de tools del claim, sube el feed de progreso y reporta el cierre. un
-// run a la vez: el cómputo es la máquina del usuario. el server nunca ve paths ni perfiles — el mapa
-// repo→checkout y cuenta→perfil vive en la config local.
+// duckhunt adjunto y el perfil de tools del claim, sube el feed de progreso y reporta el cierre.
+// hasta `defaults.maxConcurrent` runs a la vez (slots, default 1): el cómputo es la máquina del
+// usuario. el server nunca ve paths ni perfiles — el mapa repo→checkout y cuenta→perfil vive en la
+// config local.
 // decisiones:
 // - claude corre en su PROPIO grupo de procesos (detached): cancelar, el timeout o parar el daemon
 //   matan también lo que lanzó la tool Bash (tests, servidores). por eso el daemon instala sus
 //   handlers de SIGINT/SIGTERM: ctrl-c ya no le llega al hijo por la terminal.
 // - kind=prompt usa un worktree POR CONVERSACIÓN que sobrevive entre segmentos (worktree.ts); lo
-//   recoge conversation-gc.ts entre runs. los runs de reglas siguen con su worktree efímero.
+//   recoge conversation-gc.ts en el loop de claim. los runs de reglas siguen con su worktree efímero.
+// - runs en paralelo (r#105): el server ya reclama atómicamente y una conversación es UNA fila, así
+//   que nunca corre dos veces a la vez. lo compartido en la máquina se serializa aquí: git sobre un
+//   mismo checkout (gitLocks: preparar, borrar, gc) y el cwd de los runs no aislados (cwdLocks:
+//   checkout con `worktree: false`, scratch en perfil edit). el latido arranca en el claim
+//   (run-lease.ts), así un run que espera turno sigue vivo para el server.
+// - el worktree de un run se toca (touch / borrado) ANTES de reportar el status: el server puede
+//   re-encolar la misma fila al recibirlo y otro slot la reclamaría sobre el worktree que se borra.
 // - el feed (event-uploader.ts) se vacía ANTES de reportar el status: el server rechaza eventos de
 //   un run cerrado.
 // - el segmento del claim viaja en heartbeat/progress/events/status: es lo que distingue a ESTE
@@ -25,16 +33,18 @@ import readline from 'node:readline';
 import { promisify } from 'node:util';
 import { refreshAccess } from './oauth.js';
 import { AccessTokenSource } from './access-token.js';
-import { logsDir, scratchDir, type RepoConfig, type RunnerConfig } from './config.js';
+import { concurrency, logsDir, scratchDir, type RepoConfig, type RunnerConfig } from './config.js';
 import { consumeStreamLine, detectClaude, newStreamState, type ClaudeInfo } from './claude.js';
 import { buildClaudeArgs, PROMPT_REQUIRED_FLAGS } from './claude-args.js';
-import { claimRunId, EVENTS_DEFAULTS, parseClaim, RUN_KIND, RUNNER_CAPABILITY, type ClaimedRun, type ClaimResponse } from './claim.js';
+import { claimRunId, EVENTS_DEFAULTS, parseClaim, PROMPT_PROFILE, RUN_KIND, RUNNER_CAPABILITY, type ClaimedRun, type ClaimResponse } from './claim.js';
 import { EventUploader, type SeqEvent } from './event-uploader.js';
 import { clip, feedEventsFromStream, systemEvent, type FeedContext } from './feed.js';
 import { scrubEnv } from './scrub-env.js';
 import { clampReport, reportFor, type Attempt, type KillReason, type StatusReport } from './status-report.js';
 import { prepareConversationWorktree, prepareRunWorktree, removeRunWorktree, touchWorktree } from './worktree.js';
-import { chunk, CONVERSATION_GC_INTERVAL_MS, listWorktreeCandidates, removeWorktrees, selectForRemoval } from './conversation-gc.js';
+import { chunk, CONVERSATION_GC_INTERVAL_MS, listWorktreeCandidates, removeWorktrees, selectForRemoval, type WorktreeCandidate } from './conversation-gc.js';
+import { KeyedMutex } from './keyed-mutex.js';
+import { RunLease, signalGroup } from './run-lease.js';
 import { runnerVersion } from './version.js';
 
 const execFileP = promisify(execFile);
@@ -92,24 +102,17 @@ export interface DaemonOptions {
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 const isTransient = (status: number): boolean => status === HTTP_TIMEOUT || status === HTTP_TOO_MANY || status >= HTTP_SERVER_ERROR;
 
-// señal a todo el grupo de procesos del hijo (spawn detached → pgid = pid del hijo).
-function signalGroup(child: ChildProcess, signal: NodeJS.Signals): void {
-  if (child.pid === undefined) return;
-  try {
-    process.kill(-child.pid, signal);
-  } catch (err) {
-    // ESRCH: el grupo ya no existe. cualquier otro fallo: al menos al hijo directo.
-    if ((err as NodeJS.ErrnoException).code !== 'ESRCH') child.kill(signal);
-  }
-}
-
 export class RunnerDaemon {
   private readonly auth: AccessTokenSource;
   private claude: ClaudeInfo = { version: null, supported: new Set() };
   private hasAws = false;
-  // hijo en curso (un run a la vez) y su kill con motivo.
-  private active: ChildProcess | null = null;
-  private killActive: ((reason: KillReason) => void) | null = null;
+  // runs en vuelo, uno por slot ocupado. por objeto y no por id: la misma fila re-encolada puede
+  // reclamarse mientras el segmento anterior aún cierra.
+  private readonly leases = new Set<RunLease>();
+  private readonly slots: number;
+  // git sobre un mismo checkout (clave: path resuelto del checkout) y cwd compartidos (clave: cwd).
+  private readonly gitLocks = new KeyedMutex();
+  private readonly cwdLocks = new KeyedMutex();
   private stopping = false;
   private exitCode = 0;
   private wake: (() => void) | null = null;
@@ -120,6 +123,7 @@ export class RunnerDaemon {
     private readonly opts: DaemonOptions = {},
   ) {
     this.auth = new AccessTokenSource(() => refreshAccess(cfg));
+    this.slots = concurrency(cfg.defaults);
   }
 
   // fetch autenticado contra /api/runner con timeout y un reintento tras refresh en 401.
@@ -155,7 +159,8 @@ export class RunnerDaemon {
     ];
   }
 
-  /** loop principal: gc → claim → ejecutar → repetir, hasta SIGINT/SIGTERM. devuelve el exit code. */
+  /** loop principal: gc → claim → ejecutar en un slot libre → repetir, hasta SIGINT/SIGTERM.
+   *  devuelve el exit code tras esperar el cierre de los runs en vuelo. */
   async run(): Promise<number> {
     this.claude = await detectClaude();
     if (!this.claude.version) {
@@ -167,19 +172,21 @@ export class RunnerDaemon {
     );
     this.installSignalHandlers();
     console.log(
-      `[runner] duckhunt-runner ${runnerVersion() ?? '?'} · ${this.label()} → ${this.cfg.baseUrl} (claude ${this.claude.version}, aws cli ${this.hasAws ? 'sí' : 'no'}, ${Object.keys(this.cfg.repos).length} repos, ${Object.keys(this.cfg.aws).length} cuentas aws, capacidades ${this.capabilities().join(',')}, poll ${CLAIM_POLL_MS / 1000}s)`,
+      `[runner] duckhunt-runner ${runnerVersion() ?? '?'} · ${this.label()} → ${this.cfg.baseUrl} (claude ${this.claude.version}, aws cli ${this.hasAws ? 'sí' : 'no'}, ${Object.keys(this.cfg.repos).length} repos, ${Object.keys(this.cfg.aws).length} cuentas aws, capacidades ${this.capabilities().join(',')}, ${this.slots} slot${this.slots === 1 ? '' : 's'}, poll ${CLAIM_POLL_MS / 1000}s)`,
     );
     while (!this.stopping) {
+      // slots llenos: el cierre de un run despierta el loop (o el siguiente poll).
+      if (this.leases.size >= this.slots) {
+        await this.idle(CLAIM_POLL_MS);
+        continue;
+      }
       await this.collectWorktrees();
       const claim = this.stopping ? null : await this.claim();
-      if (claim) {
-        await this.executeRun(claim).catch((err) => {
-          console.error(`[runner] run ${claim.run.id} reventó: ${(err as Error).message}`);
-        });
-      } else if (!this.stopping) {
-        await this.idle(CLAIM_POLL_MS);
-      }
+      if (claim) this.start(claim);
+      else if (!this.stopping) await this.idle(CLAIM_POLL_MS);
     }
+    // parada: cada run en vuelo recibió kill('shutdown'); se espera a que reporte su cierre.
+    while (this.leases.size > 0) await this.idle(CLAIM_POLL_MS);
     console.log('[runner] detenido');
     return this.exitCode;
   }
@@ -199,19 +206,19 @@ export class RunnerDaemon {
     });
   }
 
-  // primera señal: parar tras cerrar el run en curso (se mata su grupo y se reporta); segunda
-  // señal o margen agotado: salida inmediata matando el grupo.
+  // primera señal: parar tras cerrar los runs en curso (se mata cada grupo y se reporta); segunda
+  // señal o margen agotado: salida inmediata matando todos los grupos.
   private installSignalHandlers(): void {
     const onSignal = (signal: NodeJS.Signals, code: number): void => {
       const forceExit = (): never => {
-        if (this.active) signalGroup(this.active, 'SIGKILL');
+        this.leases.forEach((lease) => lease.forceKill());
         process.exit(code);
       };
       if (this.stopping) forceExit();
       this.stopping = true;
       this.exitCode = code;
-      console.log(`[runner] ${signal}: deteniendo${this.killActive ? ' el run en curso' : ''} (otra señal fuerza la salida)`);
-      this.killActive?.('shutdown');
+      console.log(`[runner] ${signal}: deteniendo${this.leases.size > 0 ? ` ${this.leases.size} run(s) en curso` : ''} (otra señal fuerza la salida)`);
+      this.leases.forEach((lease) => lease.kill('shutdown'));
       this.wake?.();
       setTimeout(forceExit, SHUTDOWN_GRACE_MS).unref();
     };
@@ -229,6 +236,7 @@ export class RunnerDaemon {
         repos: Object.keys(this.cfg.repos),
         awsAccounts: Object.keys(this.cfg.aws),
         capabilities: this.capabilities(),
+        slots: this.slots,
         ...(runnerVersion() ? { version: runnerVersion() } : {}),
         ...(this.claude.version ? { claudeVersion: this.claude.version.slice(0, CLAUDE_VERSION_MAX_CHARS) } : {}),
       });
@@ -259,7 +267,21 @@ export class RunnerDaemon {
     }
   }
 
-  // --- gc de worktrees (entre runs, throttled) ---
+  // registra el run en su slot y lo ejecuta en segundo plano; al terminar libera el slot y despierta
+  // el loop para reclamar el siguiente sin esperar al poll.
+  private start(claim: ClaimResponse): void {
+    const lease = new RunLease(claim.run.id);
+    this.leases.add(lease);
+    if (this.stopping) lease.kill('shutdown');
+    void this.executeRun(claim, lease)
+      .catch((err) => console.error(`[runner] run ${lease.runId} reventó: ${(err as Error).message}`))
+      .finally(() => {
+        this.leases.delete(lease);
+        this.wake?.();
+      });
+  }
+
+  // --- gc de worktrees (en el loop de claim, throttled) ---
 
   // conversaciones abiertas según el server. si no contesta (o es anterior a t#378), todas se dan
   // por abiertas: entonces solo actúa el ttl de inactividad, que nunca pierde trabajo.
@@ -289,9 +311,14 @@ export class RunnerDaemon {
       const candidates = listWorktreeCandidates(Object.values(this.cfg.repos).map((r) => r.path));
       if (candidates.length === 0) return;
       const open = await this.openConversations(candidates.filter((c) => c.kind === 'conversation').map((c) => c.runId));
-      const targets = selectForRemoval(candidates, open, Date.now());
+      const inFlight = new Set([...this.leases].map((lease) => lease.runId));
+      const targets = selectForRemoval(candidates, open, Date.now(), inFlight);
       if (targets.length === 0) return;
-      const removed = await removeWorktrees(targets, scrubEnv(process.env));
+      const env = scrubEnv(process.env);
+      const byRepo = targets.reduce((acc, c) => acc.set(c.repoPath, [...(acc.get(c.repoPath) ?? []), c]), new Map<string, WorktreeCandidate[]>());
+      const removed = (
+        await Promise.all([...byRepo].map(([repoPath, group]) => this.gitLocks.run(path.resolve(repoPath), () => removeWorktrees(group, env))))
+      ).reduce((a, b) => a + b, 0);
       if (removed > 0) console.log(`[runner] gc: ${removed} worktree(s) recogido(s)`);
     } catch (err) {
       console.error(`[runner] gc de worktrees falló: ${(err as Error).message}`);
@@ -311,12 +338,52 @@ export class RunnerDaemon {
     }
     if (run.kind === RUN_KIND.prompt) {
       // worktree siempre: `worktree: false` y skip-permissions del repo son solo para runs de reglas.
-      const wt = await prepareConversationWorktree(repoCfg.path, run.id, run.branch, env);
+      const wt = await this.gitLocks.run(path.resolve(repoCfg.path), () => prepareConversationWorktree(repoCfg.path, run.id, run.branch, env));
       return { ...wt, repoCfg, worktree: wt.workdir, conversation: true };
     }
     if (repoCfg.worktree === false) return { workdir: repoCfg.path, repoCfg, worktree: null, conversation: false, note: 'checkout · sin worktree', warnings: [] };
-    const wt = await prepareRunWorktree(repoCfg.path, run.id, run.branch, env);
+    const wt = await this.gitLocks.run(path.resolve(repoCfg.path), () => prepareRunWorktree(repoCfg.path, run.id, run.branch, env));
     return { ...wt, repoCfg, worktree: wt.workdir, conversation: false };
+  }
+
+  // runs que comparten un cwd no aislado se turnan: el checkout de un repo con `worktree: false` y
+  // el scratch en perfil edit (dos runs de reglas en scratch conviven: la auto-memory compartida es
+  // la gracia del cwd fijo). devuelve con qué soltar el turno: no-op si no hacía falta, o si el run
+  // murió esperándolo (entonces se suelta en cuanto llega).
+  private async holdCwd(run: ClaimedRun, prepared: Workdir, lease: RunLease, note: (text: string) => void): Promise<() => void> {
+    const shared = prepared.worktree === null && (prepared.repoCfg !== null || run.profile === PROMPT_PROFILE.edit);
+    if (!shared) return () => {};
+    const key = path.resolve(prepared.workdir);
+    if (this.cwdLocks.busy(key)) note('esperando turno: otro run trabaja en este mismo directorio');
+    const acquiring = this.cwdLocks.acquire(key);
+    const release = await Promise.race([acquiring, lease.killed.then(() => null)]);
+    if (release) return release;
+    void acquiring.then((r) => r());
+    return () => {};
+  }
+
+  // latido del run desde el claim hasta el cierre: transporta el soft-cancel del server (y refresca
+  // la presencia del runner). el run muere si ya no es suyo: cancel, un estado que no es running, o
+  // el run no existe.
+  private startHeartbeat(lease: RunLease, heartbeatMs: number, seg: { segment?: number }): NodeJS.Timeout {
+    const runId = lease.runId;
+    return setInterval(() => {
+      void this.api(`/runs/${runId}/heartbeat`, seg)
+        .then(async (res) => {
+          if (res.status === HTTP_NOT_FOUND) {
+            console.log(`[runner] run ${runId} ya no existe en el server; deteniéndolo`);
+            lease.kill('cancel');
+            return;
+          }
+          if (!res.ok) return;
+          const body = (await res.json().catch(() => null)) as { cancel?: boolean; status?: string } | null;
+          if (body?.cancel || (typeof body?.status === 'string' && body.status !== RUN_STATUS_RUNNING)) {
+            console.log(`[runner] run ${runId} ya no es de este proceso (${body?.status ?? 'cancelado'}); deteniéndolo`);
+            lease.kill('cancel');
+          }
+        })
+        .catch((err) => console.error(`[runner] heartbeat del run ${runId} falló: ${(err as Error).message}`));
+    }, Math.max(MIN_HEARTBEAT_MS, heartbeatMs));
   }
 
   // --- env del run: el del usuario saneado + perfil aws mapeado ---
@@ -337,7 +404,7 @@ export class RunnerDaemon {
 
   // --- ejecución ---
 
-  private async executeRun(claim: ClaimResponse): Promise<void> {
+  private async executeRun(claim: ClaimResponse, lease: RunLease): Promise<void> {
     const { run } = claim;
     const tag = `run ${run.id}`;
     console.log(
@@ -346,12 +413,14 @@ export class RunnerDaemon {
     const env = this.envFor(run);
     // identidad del proceso en cada llamada del run (servers anteriores a los segmentos: nada).
     const seg = run.segment !== null ? { segment: run.segment } : {};
+    const heartbeat = this.startHeartbeat(lease, claim.heartbeatMs, seg);
     const feed = claim.events?.enabled ? new EventUploader((events) => this.postEvents(run.id, events, seg), claim.events, tag) : null;
 
     let prepared: Workdir;
     try {
       prepared = await this.prepareWorkdir(run, env);
     } catch (err) {
+      clearInterval(heartbeat);
       await feed?.close();
       await this.postStatus(run.id, { status: 'failed', error: `no se pudo preparar el directorio del run: ${(err as Error).message}`, ...seg });
       return;
@@ -369,6 +438,7 @@ export class RunnerDaemon {
     note(prepared.note);
     [...claim.warnings, ...prepared.warnings].forEach(note);
 
+    const releaseCwd = await this.holdCwd(run, prepared, lease, note);
     // mcp-config temporal con el token per-run (0600; se borra al terminar).
     const mcpFile = path.join(os.tmpdir(), `duckhunt-runner-${run.id}-${crypto.randomBytes(4).toString('hex')}.json`);
     let report: StatusReport;
@@ -382,21 +452,24 @@ export class RunnerDaemon {
         }),
         { mode: 0o600 },
       );
-      report = await this.runAttempts(claim, prepared, env, mcpFile, feed, ctx, note);
+      report = await this.runAttempts(claim, lease, prepared, env, mcpFile, feed, ctx, note);
     } catch (err) {
       report = { status: 'failed', error: (err as Error).message };
     } finally {
       fs.rmSync(mcpFile, { force: true });
+      releaseCwd();
+      clearInterval(heartbeat);
     }
 
     await feed?.close();
-    await this.postStatus(run.id, { ...report, ...seg });
-    if (prepared.worktree && prepared.conversation) {
-      touchWorktree(prepared.worktree);
-    } else if (prepared.worktree && prepared.repoCfg) {
-      if (report.status === 'done') await removeRunWorktree(prepared.repoCfg.path, prepared.worktree, env);
-      else console.log(`[runner] worktree conservado para autopsia: ${prepared.worktree}`);
+    const { worktree, repoCfg } = prepared;
+    if (worktree && prepared.conversation) {
+      touchWorktree(worktree);
+    } else if (worktree && repoCfg) {
+      if (report.status === 'done') await this.gitLocks.run(path.resolve(repoCfg.path), () => removeRunWorktree(repoCfg.path, worktree, env));
+      else console.log(`[runner] worktree conservado para autopsia: ${worktree}`);
     }
+    await this.postStatus(run.id, { ...report, ...seg });
     console.log(`[runner] ${tag} terminado (${report.status}${report.error ? `: ${report.error}` : ''})`);
   }
 
@@ -404,6 +477,7 @@ export class RunnerDaemon {
   // en esta máquina, borrada, de otro daemon) → un solo reintento desde cero con el prompt de respaldo.
   private async runAttempts(
     claim: ClaimResponse,
+    lease: RunLease,
     prepared: Workdir,
     env: NodeJS.ProcessEnv,
     mcpFile: string,
@@ -426,23 +500,32 @@ export class RunnerDaemon {
       });
     // reanudar o no lo decide el server: manda sessionId solo cuando hay sesión que retomar.
     const resume = run.sessionId;
-    let attempt = await this.spawnClaude(claim, args(claim.prompt, resume), prepared, env, feed, ctx);
+    let attempt = await this.spawnClaude(claim, lease, args(claim.prompt, resume), prepared, env, feed, ctx);
     let resumed: boolean | undefined = resume ? true : undefined;
     if (resume && attempt.killedBy === null && attempt.exitCode !== 0 && !attempt.stream.sawAssistant && claim.fallbackPrompt) {
       console.log(`[runner] run ${run.id}: la sesión ${resume} no se pudo reanudar`);
       note('la sesión anterior no se pudo reanudar en este runner: reintento desde cero');
-      attempt = await this.spawnClaude(claim, args(claim.fallbackPrompt, null), prepared, env, feed, ctx);
+      attempt = await this.spawnClaude(claim, lease, args(claim.fallbackPrompt, null), prepared, env, feed, ctx);
       resumed = false;
     }
     return reportFor(attempt, resumed);
   }
 
   // spawnea claude en su propio grupo de procesos, consume stdout (stream-json → contadores + feed)
-  // y stderr (tail), bombea heartbeat (soft-cancel) y progreso, y aplica el timeout wall-clock.
-  // resuelve siempre (nunca rechaza).
-  private spawnClaude(claim: ClaimResponse, args: string[], prepared: Workdir, env: NodeJS.ProcessEnv, feed: EventUploader | null, ctx: FeedContext): Promise<Attempt> {
+  // y stderr (tail), bombea el progreso y aplica el timeout wall-clock. si el run ya murió (cancel o
+  // parada mientras esperaba turno) no lo lanza. resuelve siempre (nunca rechaza).
+  private spawnClaude(
+    claim: ClaimResponse,
+    lease: RunLease,
+    args: string[],
+    prepared: Workdir,
+    env: NodeJS.ProcessEnv,
+    feed: EventUploader | null,
+    ctx: FeedContext,
+  ): Promise<Attempt> {
     const runId = claim.run.id;
     const seg = claim.run.segment !== null ? { segment: claim.run.segment } : {};
+    if (lease.killedBy) return Promise.resolve({ exitCode: null, killedBy: lease.killedBy, stream: newStreamState(), stderrTail: '' });
     return new Promise((resolve) => {
       const stream = newStreamState();
       const stderrTail: string[] = [];
@@ -473,9 +556,7 @@ export class RunnerDaemon {
         signalGroup(child, 'SIGTERM');
         killTimer = setTimeout(() => signalGroup(child, 'SIGKILL'), KILL_GRACE_MS);
       };
-      this.active = child;
-      this.killActive = kill;
-      if (this.stopping) kill('shutdown');
+      lease.attach(child, kill);
 
       readline.createInterface({ input: child.stdout! }).on('line', (line) => {
         const ev = consumeStreamLine(stream, line);
@@ -487,26 +568,6 @@ export class RunnerDaemon {
         if (stderrTail.length > STDERR_TAIL_LINES) stderrTail.shift();
         if (logFile !== null) fs.writeSync(logFile, `${JSON.stringify({ type: 'stderr', line })}\n`);
       });
-
-      // heartbeat: transporta el soft-cancel del server (y refresca la presencia del runner). el
-      // proceso muere si el run ya no es suyo: cancel, un estado que no es running, o el run no existe.
-      const heartbeat = setInterval(() => {
-        void this.api(`/runs/${runId}/heartbeat`, seg)
-          .then(async (res) => {
-            if (res.status === HTTP_NOT_FOUND) {
-              console.log(`[runner] run ${runId} ya no existe en el server; deteniendo claude`);
-              kill('cancel');
-              return;
-            }
-            if (!res.ok) return;
-            const body = (await res.json().catch(() => null)) as { cancel?: boolean; status?: string } | null;
-            if (body?.cancel || (typeof body?.status === 'string' && body.status !== RUN_STATUS_RUNNING)) {
-              console.log(`[runner] run ${runId} ya no es de este proceso (${body?.status ?? 'cancelado'}); deteniendo claude`);
-              kill('cancel');
-            }
-          })
-          .catch((err) => console.error(`[runner] heartbeat falló: ${(err as Error).message}`));
-      }, Math.max(MIN_HEARTBEAT_MS, claim.heartbeatMs));
 
       // progreso: tool calls del segmento (throttled) + la nota de workdir en el primer envío.
       const postProgress = (toolCalls: number, workdir?: string): void => {
@@ -541,14 +602,12 @@ export class RunnerDaemon {
         }, EXIT_DRAIN_MS);
       });
       child.on('close', (code) => {
-        clearInterval(heartbeat);
         clearInterval(progress);
         clearTimeout(timeout);
         if (killTimer) clearTimeout(killTimer);
         if (drainTimer) clearTimeout(drainTimer);
         if (logFile !== null) fs.closeSync(logFile);
-        this.active = null;
-        this.killActive = null;
+        lease.detach();
         resolve({ exitCode: code, killedBy, stream, stderrTail: stderrTail.join('\n').slice(-STDERR_TAIL_MAX_CHARS) });
       });
     });

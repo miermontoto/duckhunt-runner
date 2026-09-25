@@ -31,7 +31,7 @@ export interface AwsAccountConfig {
 export interface RunnerDefaults {
   // modelo que se pasa a claude (--model). ausente = el default del cli del usuario.
   model?: string;
-  // runs en paralelo (v0: secuencial; el valor se respeta como tope).
+  // runs en paralelo (slots). ausente = 1, el comportamiento de siempre: un run a la vez.
   maxConcurrent?: number;
   // presupuesto por run (--max-budget-usd). ausente = automático: el flag solo se pasa si el
   // daemon corre con ANTHROPIC_API_KEY (coste real); con login de suscripción el coste es
@@ -50,6 +50,15 @@ export interface RunnerConfig {
   // mapa id de cuenta aws (12 dígitos) → perfil local.
   aws: Record<string, AwsAccountConfig>;
   defaults: RunnerDefaults;
+}
+
+// tope de defaults.maxConcurrent: cada claude son ~300-450 MB y todos gastan la misma ventana del plan.
+export const MAX_CONCURRENT_LIMIT = 8;
+
+/** slots del daemon: defaults.maxConcurrent entero en [1, MAX_CONCURRENT_LIMIT]; ausente o inválido = 1. */
+export function concurrency(defaults: RunnerDefaults): number {
+  const n = defaults.maxConcurrent;
+  return typeof n === 'number' && Number.isSafeInteger(n) && n >= 1 ? Math.min(n, MAX_CONCURRENT_LIMIT) : 1;
 }
 
 /** fichero de config: DUCKHUNT_RUNNER_CONFIG o ~/.duckhunt-runner.json. */

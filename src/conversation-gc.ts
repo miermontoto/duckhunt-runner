@@ -1,10 +1,12 @@
 // recogida de worktrees del daemon (t#378). los conv-<id> sobreviven a propósito entre segmentos,
-// así que alguien tiene que borrarlos: el daemon, entre runs y como mucho cada
+// así que alguien tiene que borrarlos: el daemon, en su loop de claim y como mucho cada
 // CONVERSATION_GC_INTERVAL_MS, pregunta al server qué conversaciones siguen abiertas
 // (POST /api/runner/conversations) y borra las cerradas o sin uso desde hace más de
 // CONVERSATION_IDLE_TTL_MS. los run-<id> que quedaron de runs fallidos (autopsia) caen por el mismo
 // ttl. regla dura: un worktree con cambios sin commitear o con commits que ninguna rama ni remoto
-// contiene NO se borra nunca; se conserva y se avisa en el log.
+// contiene NO se borra nunca; se conserva y se avisa en el log. con runs en paralelo el gc corre
+// mientras otros slots trabajan: nunca toca el worktree de un run en vuelo (lo reclamó este daemon
+// y el server aún podría darlo por cerrado) y cada borrado va bajo el lock git de su checkout.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -51,9 +53,16 @@ export function listWorktreeCandidates(repoPaths: string[]): WorktreeCandidate[]
     );
 }
 
-/** candidatos a borrar: conversación cerrada según el server, o cualquiera inactivo más del ttl. */
-export function selectForRemoval(candidates: WorktreeCandidate[], open: ReadonlySet<number>, now: number, ttlMs = CONVERSATION_IDLE_TTL_MS): WorktreeCandidate[] {
-  return candidates.filter((c) => now - c.lastUsedAt > ttlMs || (c.kind === 'conversation' && !open.has(c.runId)));
+/** candidatos a borrar: conversación cerrada según el server, o cualquiera inactivo más del ttl.
+ *  los runs en vuelo en este daemon (`inFlight`) nunca. */
+export function selectForRemoval(
+  candidates: WorktreeCandidate[],
+  open: ReadonlySet<number>,
+  now: number,
+  inFlight: ReadonlySet<number> = new Set(),
+  ttlMs = CONVERSATION_IDLE_TTL_MS,
+): WorktreeCandidate[] {
+  return candidates.filter((c) => !inFlight.has(c.runId) && (now - c.lastUsedAt > ttlMs || (c.kind === 'conversation' && !open.has(c.runId))));
 }
 
 /** trocea ids en consultas de como mucho `size` (el server limita cada llamada). */

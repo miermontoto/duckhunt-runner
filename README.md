@@ -46,7 +46,7 @@ That is the whole thing. Step by step:
 | `start [--verbose]` | Starts the claim loop. |
 
 Configuration lives in `~/.duckhunt-runner.json`. It holds the base URL, the OAuth credential, the
-repo and AWS maps, and optional defaults (`model`, `maxBudgetUsd`). Set `DUCKHUNT_RUNNER_CONFIG` to use
+repo and AWS maps, and optional defaults (`model`, `maxBudgetUsd`, `maxConcurrent`). Set `DUCKHUNT_RUNNER_CONFIG` to use
 another file (a second account, a test instance) and `DUCKHUNT_RUNNER_HOME` to move the state
 directory (`~/.duckhunt-runner`: the scratch directory and `--verbose` logs). `--version` prints the
 daemon version.
@@ -69,8 +69,26 @@ Restart=always
 WantedBy=default.target
 ```
 
-Stopping the daemon (`ctrl-c`, `SIGTERM`) stops the run in progress, including anything its shell
-commands started, and reports it as failed. A second signal exits immediately.
+Stopping the daemon (`ctrl-c`, `SIGTERM`) stops every run in progress, including anything their
+shell commands started, and reports them as failed. A second signal exits immediately.
+
+### Parallel runs
+
+By default the daemon works one run at a time. Set `defaults.maxConcurrent` in the config (1 to 8)
+to run several at once, and restart the daemon:
+
+```json
+{ "defaults": { "maxConcurrent": 3 } }
+```
+
+Each Claude process takes a few hundred MB, and every parallel session draws on the same Claude plan
+limits. A conversation never runs twice at once: duckhunt keeps it as a single run. What the runs
+share on this machine takes turns: git operations on the same checkout (fetch, worktree
+creation and cleanup), automation runs in a checkout mapped with `worktree: false`, and prompt runs
+with the `edit` profile and no repo (they share the scratch directory). A run waiting for its turn
+still heartbeats and says so in its feed. The daemon reports its slot count, and Settings → Agents
+shows how many are in use. Never run two daemons on the same config file: the credential rotates on
+every refresh and duckhunt revokes it when it sees an old one again. Raise one daemon's slots instead.
 
 ## How a run works
 
@@ -140,8 +158,8 @@ feed batch and status report. When you stop a conversation, write to it again, o
 on a step, the next heartbeat tells the daemon the run is no longer its own and it kills Claude and
 its whole process group; a late report from that step never closes the step that replaced it.
 
-Between runs (at most every 30 minutes) the daemon removes the worktrees of conversations that
-duckhunt reports as closed, and any worktree unused for 7 days. It never removes one with
+At most every 30 minutes the daemon removes the worktrees of conversations that duckhunt reports as
+closed, and any worktree unused for 7 days, skipping those of runs it is working on. It never removes one with
 uncommitted changes or with commits that no branch or remote contains: those are kept and logged, and
 you can remove them with `git worktree remove` when you are done. Worktrees kept from failed
 automation runs (`run-<id>`) expire after the same 7 days.

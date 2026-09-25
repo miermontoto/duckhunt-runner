@@ -106,6 +106,11 @@ test('gc: borra cerradas y limpias, conserva cambios sin commitear y commits hu�
   // el server da por abiertas 1, 2 y 6; 6 lleva 8 días sin uso.
   const targets = selectForRemoval(candidates, new Set([1, 2, 6]), Date.now());
   assert.deepEqual(targets.map((c) => c.runId).sort(), [4, 5, 6]);
+  // un run en vuelo en otro slot no se toca aunque el server lo dé por cerrado.
+  assert.deepEqual(
+    selectForRemoval(candidates, new Set([1, 2, 6]), Date.now(), new Set([5, 6])).map((c) => c.runId),
+    [4],
+  );
 
   const removed = await removeWorktrees(targets, env);
   assert.equal(removed, 2);

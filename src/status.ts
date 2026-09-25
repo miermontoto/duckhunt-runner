@@ -6,7 +6,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { configPath, loadConfig, scratchDir } from './config.js';
+import { concurrency, configPath, loadConfig, scratchDir } from './config.js';
 import { detectClaude } from './claude.js';
 import { runnerVersion } from './version.js';
 
@@ -47,6 +47,7 @@ export async function statusCommand(): Promise<void> {
     console.log(`servidor:   ${cfg.baseUrl}`);
     console.log(`runner:     ${cfg.label ?? os.hostname()} (client ${cfg.clientId})`);
     console.log(`modelo:     ${cfg.defaults.model ?? 'default del cli'}`);
+    console.log(`slots:      ${concurrency(cfg.defaults)} run(s) a la vez (defaults.maxConcurrent)`);
   }
   const claude = await detectClaude();
   console.log(`claude:     ${claude.version ?? 'NO encontrado en el PATH'}`);
