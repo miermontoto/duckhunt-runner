@@ -129,12 +129,37 @@ never handed one.
 
 Each conversation has a profile, chosen when it starts. The Claude CLI enforces it (tool allowlist,
 deny list and an explicit `--permission-mode dontAsk`), not the prompt, and the daemon refuses a
-`read` claim that would allow `Bash`, `Edit`, `Write` or `NotebookEdit`:
+`read` claim that would allow `Edit`, `Write`, `NotebookEdit`, the whole of `Bash` or any shell
+pattern other than a read-only AWS CLI one:
 
 | Profile | Built-in tools | Also |
 | --- | --- | --- |
-| `read` | `Read`, `Grep`, `Glob` | duckhunt tools (notes, tasks, questions). No shell, no edits. Runs with `--setting-sources user`: your own settings, hooks and plugins apply, but the checked-out branch's `.claude/` settings and hooks do not (the agent reads the repo's `CLAUDE.md` with `Read` instead). |
-| `edit` | `Read`, `Grep`, `Glob`, `Bash`, `Edit`, `Write` | Git included: the agent commits, pushes or opens a pull request only when your prompt asks for it. Starting an `edit` conversation, and every later message or answer to it, asks you to confirm your identity again; its notifications have no reply buttons. |
+| `read` | `Read`, `Grep`, `Glob`, `WebFetch`, `WebSearch`, read-only shell | duckhunt tools (notes, tasks, questions). No edits and no code execution. Runs with `--setting-sources user`: your own settings, hooks and plugins apply, but the checked-out branch's `.claude/` settings and hooks do not (the agent reads the repo's `CLAUDE.md` with `Read` instead). |
+| `edit` | `Read`, `Grep`, `Glob`, `WebFetch`, `WebSearch`, `Bash`, `Edit`, `Write` | Git included: the agent commits, pushes or opens a pull request only when your prompt asks for it. Starting an `edit` conversation, and every later message or answer to it, asks you to confirm your identity again; its notifications have no reply buttons. |
+
+#### Read-only shell (0.7.0 or later)
+
+`read` means nothing gets changed, not that nothing can be looked at. The daemon announces
+`read_shell` and the server stops denying `Bash` outright for `read` conversations:
+
+- The Claude CLI approves its own read-only commands in the working directory (`cat`, `grep`, `jq`,
+  `git log`/`diff`/`status`) and refuses anything that runs a program or writes a file (`npm run`,
+  scripts, redirects, `git -c core.pager=…`, `rg --pre`, `find -exec`, `sort -o`…).
+- With the AWS CLI installed, the agent can run `aws <service> describe-*|list-*|get-*|batch-get-*`
+  and a few other reads (`logs filter-log-events`/`tail`/`start-query`, `s3 ls`,
+  `cloudtrail lookup-events`, `dynamodb query`/`scan`, `sts get-caller-identity`). Each pattern is
+  pinned to service and operation, because a wildcard before the operation lets writes through
+  (`aws * list-*` matches `aws s3 rm s3://b --recursive --exclude list-x`). The daemon drops any
+  AWS pattern that isn't a read, and always denies the reads that write a local file
+  (`s3api get-object`, `glacier get-job-output` and the rest: every operation whose output the CLI
+  saves to an `outfile`). The server also denies secret stores and credentials
+  (`secretsmanager get-secret-value`, `ssm get-parameter*`, `ecr get-login-password`,
+  `eks get-token`…), by operation name: the AWS CLI accepts abbreviated flags, so a flag can't be denied.
+- `Bash` rules in the `allow` list of your user settings (`~/.claude/settings.json`) would apply to
+  `read` conversations too, so the daemon mirrors them into the deny list for those runs. If that
+  file can't be read, a `read` conversation gets no shell at all.
+
+Older daemons keep the previous `read` profile: no shell.
 
 Every prompt run uses `--strict-mcp-config`, so a `.mcp.json` in the checkout never loads.
 Settings → Agents can force `read` for everything (read-only mode) or per repo, pause the runner,

@@ -11,7 +11,8 @@
 // ejecutaría sin preguntar, y lectura promete que no se ejecuta código del repo. verificado con el
 // cli 2.1.281: sin el flag el hook SessionStart del repo corre; con él no (y tampoco carga el
 // CLAUDE.md del proyecto: el prompt de lectura le pide leerlo con Read). los settings, hooks y
-// plugins del USUARIO se conservan (sin --restricted, decisión de t#378). edición no lo lleva: ya
+// plugins del USUARIO se conservan (sin --restricted, decisión de t#378), salvo las reglas Bash de
+// su allow, que en lectura se espejan al deny (user-permissions.ts, t#385). edición no lo lleva: ya
 // ejecuta código del repo con Bash tras la verificación escalonada, y necesita su CLAUDE.md.
 
 import { PROMPT_PROFILE, RUN_KIND, type ClaimResponse, type PromptProfile } from './claim.js';
@@ -30,6 +31,8 @@ export interface ClaudeArgsInput {
   skipPermissions: boolean;
   // coste real (api key) frente a suscripción: sin api key el presupuesto sería nominal.
   payingWithApiKey: boolean;
+  // reglas Bash del allow del usuario espejadas (userBashDeny); solo se aplican a un prompt run read.
+  userBashDeny?: readonly string[];
 }
 
 /** flags sin los que el cli no puede cumplir un prompt run (el daemon solo anuncia `prompt` si los tiene todos). */
@@ -53,6 +56,7 @@ export function buildClaudeArgs(i: ClaudeArgsInput): string[] {
   // loops es el timeout). config manda: número = forzar, 0 = nunca. prompt runs: nunca.
   const budget = isPrompt ? 0 : (i.configBudgetUsd ?? (i.payingWithApiKey ? (claim.maxBudgetUsd ?? 0) : 0));
   const maxTurns = isPrompt ? 0 : (claim.maxTurns ?? 0);
+  const disallowed = Array.from(new Set([...claim.tools.disallowed, ...(readPrompt ? (i.userBashDeny ?? []) : [])]));
   return [
     '-p',
     '--output-format',
@@ -63,7 +67,7 @@ export function buildClaudeArgs(i: ClaudeArgsInput): string[] {
     ...(has('--strict-mcp-config') ? ['--strict-mcp-config'] : []),
     ...(readPrompt ? ['--setting-sources', 'user'] : []),
     ...(claim.tools.allowed.length > 0 ? ['--allowedTools', claim.tools.allowed.join(',')] : []),
-    ...(has('--disallowedTools') && claim.tools.disallowed.length > 0 ? ['--disallowedTools', claim.tools.disallowed.join(',')] : []),
+    ...(has('--disallowedTools') && disallowed.length > 0 ? ['--disallowedTools', disallowed.join(',')] : []),
     '--permission-mode',
     claim.permissionMode,
     ...(has('--max-turns') && maxTurns > 0 ? ['--max-turns', String(maxTurns)] : []),

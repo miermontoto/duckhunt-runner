@@ -3,7 +3,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { buildClaudeArgs, type ClaudeArgsInput } from '../src/claude-args.js';
-import { claimRunId, parseClaim } from '../src/claim.js';
+import { AWS_OUTFILE_COMMANDS, claimRunId, parseClaim } from '../src/claim.js';
+import { mirrorBashAllow } from '../src/user-permissions.js';
 import { OPTIONAL_FLAGS } from '../src/claude.js';
 import { clampReport } from '../src/status-report.js';
 import { scrubEnv } from '../src/scrub-env.js';
@@ -146,8 +147,10 @@ test('perfil read de un prompt run: el daemon lo hace cumplir aunque el server s
     rawClaim({ profile: 'read' }, { tools, ...extra });
   assert.throws(() => parseClaim(readClaim({ allowed: ['Read', 'Bash'], disallowed: [] })), /lectura no puede permitir Bash/);
   assert.throws(() => parseClaim(readClaim({ allowed: ['Read', 'Bash(git log:*)'], disallowed: [] })), /Bash\(git log:\*\)/);
+  assert.throws(() => parseClaim(readClaim({ allowed: ['Read', 'Write(src/**)'], disallowed: [] })), /Write\(src/);
   const forced = parseClaim(readClaim({ allowed: ['Read', 'Grep'], disallowed: ['WebFetch'] }));
-  assert.deepEqual(forced.tools.disallowed, ['WebFetch', 'Bash', 'Edit', 'Write', 'NotebookEdit']);
+  const outfile = AWS_OUTFILE_COMMANDS.map((c) => `Bash(aws ${c}*)`);
+  assert.deepEqual(forced.tools.disallowed, ['WebFetch', 'Edit', 'Write', 'NotebookEdit', ...outfile]);
   assert.throws(() => parseClaim(rawClaim({}, { permissionMode: 'acceptEdits' })), /exige permission mode dontAsk/);
   // un run de reglas conserva el techo local de siempre.
   assert.equal(parseClaim(rawClaim({ kind: 'investigate', profile: undefined }, { permissionMode: 'default' })).permissionMode, 'default');
@@ -158,7 +161,7 @@ test('prompt run de lectura: settings solo del usuario (sin hooks ni settings de
   const read = argsFor(readRaw);
   assert.deepEqual(read.slice(read.indexOf('--setting-sources'), read.indexOf('--setting-sources') + 2), ['--setting-sources', 'user']);
   assert.ok(read.includes('--strict-mcp-config'));
-  assert.equal(read[read.indexOf('--disallowedTools') + 1], 'WebFetch,Bash,Edit,Write,NotebookEdit');
+  assert.ok(read[read.indexOf('--disallowedTools') + 1].startsWith('WebFetch,Edit,Write,NotebookEdit,Bash(aws apigateway get-export*),'));
   assert.ok(!argsFor(rawClaim()).includes('--setting-sources'), 'edición conserva el CLAUDE.md y los settings del repo');
   const without = (flag: string): Set<(typeof OPTIONAL_FLAGS)[number]> => new Set(OPTIONAL_FLAGS.filter((f) => f !== flag));
   assert.throws(() => argsFor(readRaw, { supported: without('--setting-sources') }), /--setting-sources/);
@@ -166,6 +169,34 @@ test('prompt run de lectura: settings solo del usuario (sin hooks ni settings de
   // un run de reglas no exige los flags de los prompt runs.
   const rule = rawClaim({ kind: 'investigate', profile: undefined }, { maxTurns: 40 });
   assert.ok(argsFor(rule, { supported: without('--setting-sources') }).includes('--permission-mode'));
+});
+
+test('lectura con shell (t#385): aws solo fijada en servicio + operación y escritores de fichero siempre negados', () => {
+  const read = (allowed: string[]) => parseClaim(rawClaim({ profile: 'read' }, { tools: { allowed, disallowed: ['Edit'] } }));
+  const ok = read(['Read', 'Bash(aws cloudwatch describe-*)', 'Bash(aws logs tail*)', 'Bash(aws s3 ls*)']);
+  assert.deepEqual(ok.tools.allowed, ['Read', 'Bash(aws cloudwatch describe-*)', 'Bash(aws logs tail*)', 'Bash(aws s3 ls*)']);
+  assert.deepEqual(ok.warnings, []);
+  assert.ok(ok.tools.disallowed.includes('Bash(aws s3api get-object*)') && !ok.tools.disallowed.includes('Bash'));
+  // comodín antes de la operación (casó `aws s3 rm … --exclude list-x`), escrituras o una lectura
+  // desconocida: fuera con aviso, sin tumbar el run (el cli niega lo no permitido).
+  const dropped = read(['Read', 'Bash(aws * list-*)', 'Bash(aws s3 rm*)', 'Bash(aws ec2 terminate-instances*)', 'Bash(aws ec2 describe-* ; rm -rf x)', 'Bash(aws logs describe-*)']);
+  assert.deepEqual(dropped.tools.allowed, ['Read', 'Bash(aws logs describe-*)']);
+  assert.match(dropped.warnings.join('\n'), /aws descartada en lectura/);
+  // una shell que no es la aws cli tumba el claim, como Bash entero.
+  assert.throws(() => read(['Bash(cat:*)']), /Bash\(cat:\*\)/);
+  // edición no se toca.
+  assert.ok(parseClaim(rawClaim()).tools.allowed.includes('Bash'));
+});
+
+test('lectura: las reglas Bash del allow del usuario se espejan al deny, solo en read', () => {
+  assert.deepEqual(mirrorBashAllow({ permissions: { allow: ['mcp__x__y', 'Bash(npm run test:*)', 'Read'] } }), ['Bash(npm run test:*)']);
+  assert.deepEqual(mirrorBashAllow({ permissions: { allow: 'Bash' } }), []);
+  assert.deepEqual(mirrorBashAllow(null), []);
+  assert.deepEqual(mirrorBashAllow({ permissions: { allow: ['Bash(echo a,b)'] } }), ['Bash'], 'no cabe en argv: Bash entero');
+  const read = argsFor(rawClaim({ profile: 'read' }, { tools: { allowed: ['Read'], disallowed: [] } }), { userBashDeny: ['Bash(npm run test:*)'] });
+  assert.ok(read[read.indexOf('--disallowedTools') + 1].split(',').includes('Bash(npm run test:*)'));
+  const edit = argsFor(rawClaim(), { userBashDeny: ['Bash(npm run test:*)'] });
+  assert.ok(!edit[edit.indexOf('--disallowedTools') + 1].includes('npm'), 'edición conserva el allow del usuario');
 });
 
 test('clampReport enmascara secretos del result, el error y el stderr', () => {

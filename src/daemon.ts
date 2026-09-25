@@ -38,6 +38,7 @@ import { AccessTokenSource } from './access-token.js';
 import { concurrency, logsDir, scratchDir, type RepoConfig, type RunnerConfig } from './config.js';
 import { consumeStreamLine, detectClaude, newStreamState, type ClaudeInfo } from './claude.js';
 import { buildClaudeArgs, PROMPT_REQUIRED_FLAGS } from './claude-args.js';
+import { userBashDeny } from './user-permissions.js';
 import { claimRunId, EVENTS_DEFAULTS, parseClaim, PROMPT_PROFILE, RUN_ISOLATION, RUN_KIND, RUNNER_CAPABILITY, type ClaimedRun, type ClaimResponse } from './claim.js';
 import { EventUploader, type SeqEvent } from './event-uploader.js';
 import { clip, feedEventsFromStream, systemEvent, type FeedContext } from './feed.js';
@@ -156,7 +157,8 @@ export class RunnerDaemon {
   private capabilities(): string[] {
     return [
       ...(this.hasAws ? [RUNNER_CAPABILITY.aws] : []),
-      ...(PROMPT_REQUIRED_FLAGS.every((f) => this.claude.supported.has(f)) ? [RUNNER_CAPABILITY.prompt] : []),
+      // read_shell va con prompt: los dos exigen poder cumplir el perfil read (parseClaim lo valida).
+      ...(PROMPT_REQUIRED_FLAGS.every((f) => this.claude.supported.has(f)) ? [RUNNER_CAPABILITY.prompt, RUNNER_CAPABILITY.readShell] : []),
       RUNNER_CAPABILITY.events,
       RUNNER_CAPABILITY.checkout,
     ];
@@ -494,6 +496,8 @@ export class RunnerDaemon {
     note: (text: string) => void,
   ): Promise<StatusReport> {
     const { run } = claim;
+    // settings de usuario leídos por run (pueden cambiar con el daemon vivo); solo pesan en lectura.
+    const userDeny = run.kind === RUN_KIND.prompt && run.profile === PROMPT_PROFILE.read ? userBashDeny() : [];
     const args = (prompt: string, resumeSessionId: string | null): string[] =>
       buildClaudeArgs({
         claim,
@@ -505,6 +509,7 @@ export class RunnerDaemon {
         configBudgetUsd: this.cfg.defaults.maxBudgetUsd,
         skipPermissions: prepared.repoCfg?.dangerouslySkipPermissions === true,
         payingWithApiKey: !!process.env.ANTHROPIC_API_KEY,
+        userBashDeny: userDeny,
       });
     // reanudar o no lo decide el server: manda sessionId solo cuando hay sesión que retomar.
     const resume = run.sessionId;

@@ -7,18 +7,24 @@
 //   defecto (las ramas de prs de bitbucket/github llevan ñ, '+', '#'…; quien decide es
 //   `git check-ref-format`, y todo argumento de git va tras `--end-of-options`).
 // - el perfil read de un prompt run se hace cumplir AQUÍ también: permission mode dontAsk, nada de
-//   Bash/Edit/Write/NotebookEdit en las permitidas y las cuatro forzadas en las denegadas. un bug o
-//   una deriva del server nunca le da Bash a una lectura.
+//   Edit/Write/NotebookEdit en las permitidas (forzadas en las denegadas) y Bash solo como shell de
+//   solo lectura (t#385): nunca Bash entero ni un patrón que no sea `Bash(aws <servicio> <lectura>*)`.
+//   el cli auto-aprueba su propia shell de lectura (cat, grep, git log…) y bloquea la que ejecuta o
+//   escribe; la aws cli va fijada en servicio + operación (un `*` antes de la operación dejó pasar
+//   `aws s3 rm … --exclude list-x`) y sus lecturas que escriben un fichero local, negadas siempre.
+//   un bug o una deriva del server nunca le da a una lectura una shell que ejecute o escriba.
 // - `run.segment` es la identidad del proceso: viaja de vuelta en heartbeat/progress/events/status.
 
 // capacidades que el daemon anuncia en el claim. el server entrega kind=prompt solo a quien
 // anuncia `prompt`, pide el feed de progreso solo a quien anuncia `events` y deja abrir una
-// conversación en el checkout solo a quien anuncia `checkout` (>= 0.6.0).
+// conversación en el checkout solo a quien anuncia `checkout` (>= 0.6.0) y la shell de solo lectura
+// en read solo a quien anuncia `read_shell` (>= 0.7.0).
 export const RUNNER_CAPABILITY = {
   aws: 'aws',
   prompt: 'prompt',
   events: 'events',
   checkout: 'checkout',
+  readShell: 'read_shell',
 } as const;
 export type RunnerCapability = (typeof RUNNER_CAPABILITY)[keyof typeof RUNNER_CAPABILITY];
 
@@ -66,8 +72,78 @@ export const EVENTS_DEFAULTS = {
 export const BRANCH_RE = /^(?!-)[^\s\x00-\x1f\x7f]{1,250}$/;
 // permission mode que exige un prompt run (el server lo manda siempre; sin él heredaría el del usuario).
 export const PROMPT_PERMISSION_MODE = 'dontAsk';
-// built-in que un prompt run de lectura nunca puede tener (ni con patrón: `Bash(git log:*)`).
-export const READ_FORBIDDEN_TOOLS: readonly string[] = ['Bash', 'Edit', 'Write', 'NotebookEdit'];
+// built-in que un prompt run de lectura nunca puede tener (ni con patrón) y van siempre a su deny.
+export const READ_FORBIDDEN_TOOLS: readonly string[] = ['Edit', 'Write', 'NotebookEdit'];
+export const BASH_TOOL = 'Bash';
+// aws cli en lectura (espejo de AGENT_AWS_READ_VERBS / AGENT_AWS_READ_COMMANDS del server): verbos
+// por convención de la api de aws y lecturas sueltas (servicio + operación exacta).
+export const READ_AWS_VERBS: readonly string[] = ['describe-', 'list-', 'get-', 'batch-get-'];
+export const READ_AWS_COMMANDS: readonly string[] = [
+  'logs filter-log-events',
+  'logs tail',
+  'logs start-query',
+  's3 ls',
+  's3api head-object',
+  's3api head-bucket',
+  'cloudtrail lookup-events',
+  'dynamodb query',
+  'dynamodb scan',
+  'rds download-db-log-file-portion',
+  'sts get-caller-identity',
+  'sts get-access-key-info',
+];
+// lecturas de la aws cli que escriben un fichero local (payload blob → la cli exige un outfile):
+// al deny de TODO claim read, del servicio que sea. derivadas de los modelos de botocore de la aws
+// cli 2.30.4 (operaciones describe|list|get|batch-get|head con payload blob), por prefijo de
+// operación (s3api get-object cubre get-object-torrent).
+export const AWS_OUTFILE_COMMANDS: readonly string[] = [
+  'apigateway get-export',
+  'apigateway get-sdk',
+  'appconfig get-configuration',
+  'appconfig get-hosted-configuration-version',
+  'appconfigdata get-latest-configuration',
+  'appsync get-introspection-schema',
+  'cloudfront get-function',
+  'codeartifact get-package-version-asset',
+  'codeguruprofiler get-profile',
+  'datazone get-lineage-event',
+  'ebs get-snapshot-block',
+  'geo-maps get-glyphs',
+  'geo-maps get-sprites',
+  'geo-maps get-static-map',
+  'geo-maps get-style-descriptor',
+  'geo-maps get-tile',
+  'glacier get-job-output',
+  'iot-data get-thing-shadow',
+  'iotwireless get-position-estimate',
+  'iotwireless get-resource-position',
+  'kinesis-video-archived-media get-clip',
+  'kinesis-video-archived-media get-media-for-fragment-list',
+  'kinesis-video-media get-media',
+  'lakeformation get-work-unit-results',
+  'location get-map-glyphs',
+  'location get-map-sprites',
+  'location get-map-style-descriptor',
+  'location get-map-tile',
+  'medialive describe-input-device-thumbnail',
+  'mediastore-data get-object',
+  'medical-imaging get-image-frame',
+  'medical-imaging get-image-set-metadata',
+  'omics get-read-set',
+  'omics get-reference',
+  's3api get-object',
+  'sagemaker-geospatial get-tile',
+  'schemas get-code-binding-source',
+  'tnb get-sol-function-package-content',
+  'tnb get-sol-function-package-descriptor',
+  'tnb get-sol-network-package-content',
+  'tnb get-sol-network-package-descriptor',
+  'workmailmessageflow get-raw-message-content',
+];
+// patrón de la aws cli fijado en servicio + operación, tal como lo compone el server.
+const AWS_READ_PATTERN_RE = /^Bash\(aws ([a-z0-9-]+) ([a-z0-9-]+)\*\)$/;
+// deny forzado de un claim read: built-in prohibidas + escritores de fichero de la aws cli.
+const READ_FORCED_DENY: readonly string[] = [...READ_FORBIDDEN_TOOLS, ...AWS_OUTFILE_COMMANDS.map((c) => `${BASH_TOOL}(aws ${c}*)`)];
 // longitud con la que una rama descartada aparece en el aviso.
 const WARNING_BRANCH_CHARS = 80;
 // workspace/slug u owner/repo (REPO_KEY_RE del server).
@@ -148,8 +224,21 @@ export function isValidBranchName(branch: string): boolean {
   return BRANCH_RE.test(branch);
 }
 
-// ¿una tool permitida es (o acota) una de las prohibidas en lectura? `Bash` y `Bash(git:*)` lo son.
-const isForbiddenInRead = (tool: string): boolean => READ_FORBIDDEN_TOOLS.some((f) => tool === f || tool.startsWith(`${f}(`));
+// ¿una tool permitida es (o acota) una de las prohibidas en lectura? `Edit` y `Write(x)` lo son, y
+// también Bash entero o un patrón que no sea de la aws cli (`Bash(git log:*)`).
+const isForbiddenInRead = (tool: string): boolean =>
+  READ_FORBIDDEN_TOOLS.some((f) => tool === f || tool.startsWith(`${f}(`)) ||
+  tool === BASH_TOOL ||
+  (tool.startsWith(`${BASH_TOOL}(`) && !tool.startsWith(`${BASH_TOOL}(aws `));
+
+/** true si el patrón es una lectura de la aws cli fijada en servicio + operación (verbo o lectura suelta). */
+export function isAwsReadPattern(tool: string): boolean {
+  const m = AWS_READ_PATTERN_RE.exec(tool);
+  return m !== null && (READ_AWS_VERBS.some((verb) => m[2].startsWith(verb)) || READ_AWS_COMMANDS.includes(`${m[1]} ${m[2]}`));
+}
+
+/** id de tool pasable por argv (--allowedTools/--disallowedTools lo unen con ','). */
+export const isToolId = (tool: string): boolean => TOOL_ID_RE.test(tool);
 
 function toolList(v: unknown, field: string): string[] {
   if (v === undefined || v === null) return [];
@@ -203,11 +292,16 @@ export function parseClaim(raw: unknown): ClaimResponse {
     throw new Error(`claim inválido: un prompt run exige permission mode ${PROMPT_PERMISSION_MODE} (llegó "${permissionMode}")`);
   }
   const tools = isObj(raw.tools) ? raw.tools : {};
-  const allowed = toolList(tools.allowed, 'tools.allowed');
+  const serverAllowed = toolList(tools.allowed, 'tools.allowed');
   const readPrompt = kind === RUN_KIND.prompt && profile === PROMPT_PROFILE.read;
-  const leaked = readPrompt ? allowed.filter(isForbiddenInRead) : [];
+  const leaked = readPrompt ? serverAllowed.filter(isForbiddenInRead) : [];
   if (leaked.length > 0) throw new Error(`claim inválido: un prompt run de lectura no puede permitir ${leaked.join(', ')}`);
-  const disallowed = Array.from(new Set([...toolList(tools.disallowed, 'tools.disallowed'), ...(readPrompt ? READ_FORBIDDEN_TOOLS : [])]));
+  // una `Bash(aws …)` que no reconozco (lectura nueva de un server más moderno, o una escritura) se
+  // descarta sin tumbar el run: sin ella el cli la niega (dontAsk).
+  const unknownAws = readPrompt ? serverAllowed.filter((t) => t.startsWith(`${BASH_TOOL}(`) && !isAwsReadPattern(t)) : [];
+  if (unknownAws.length > 0) warnings.push(`aws descartada en lectura (no es una lectura que este runner reconozca): ${unknownAws.join(', ')}`);
+  const allowed = serverAllowed.filter((t) => !unknownAws.includes(t));
+  const disallowed = Array.from(new Set([...toolList(tools.disallowed, 'tools.disallowed'), ...(readPrompt ? READ_FORCED_DENY : [])]));
   const mcp = isObj(raw.mcp) ? raw.mcp : {};
   const serverName = str(mcp.serverName) ?? '';
   const url = str(mcp.url) ?? '';
