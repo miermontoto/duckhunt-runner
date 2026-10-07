@@ -164,7 +164,7 @@ Older daemons keep the previous `read` profile: no shell.
 #### Native memory (0.8.0 or later)
 
 The daemon announces `native_memory` and the server stops denying `Edit` and `Write` outright for
-`read` conversations and automation runs. No rule allows them either, so under `dontAsk` the Claude
+`read` conversations. No rule allows them either, so under `dontAsk` the Claude
 CLI only lets them write inside its own auto-memory directory (the one it loads at the start of every
 session in that repo) and refuses every other path. The daemon still refuses a `read` claim that
 allows them.
@@ -173,12 +173,13 @@ allows them.
   the daemon mirrors them into the deny list: your user settings for `read` conversations; user,
   project and local settings for automation runs. If a settings file can't be read, those tools are
   denied outright (and the run gets no memory).
-- An automation run on a repo mapped with `--dangerously-skip-permissions` skips `dontAsk`, so it
-  keeps `Edit` and `Write` denied and gets no memory.
+- Automation runs get no memory: they process alerts nobody reviewed, and whatever they wrote would load
+  into your later sessions. The server keeps denying `Edit` and `Write` for them; the daemon would still
+  mirror rules and re-deny both under `--dangerously-skip-permissions` if that ever changed.
 - `edit` conversations always could write their memory: the agent is now told it may, outside its
   worktree too.
 
-Older daemons keep `Edit` and `Write` denied in `read` conversations and automation runs.
+Older daemons keep `Edit` and `Write` denied in `read` conversations.
 
 A `read` conversation or an automation run can also propose a write-enabled agent instead of only
 describing a change. The proposal shows up in its thread; launching it opens the usual composer,
