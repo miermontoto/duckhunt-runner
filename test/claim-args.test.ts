@@ -2,9 +2,12 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { buildClaudeArgs, type ClaudeArgsInput } from '../src/claude-args.js';
 import { AWS_OUTFILE_COMMANDS, claimRunId, parseClaim } from '../src/claim.js';
-import { mirrorBashAllow } from '../src/user-permissions.js';
+import { mirrorAllow, mirroredDeny, READ_MIRRORED_TOOLS, settingsFilesFor, WRITE_TOOLS } from '../src/user-permissions.js';
 import { OPTIONAL_FLAGS } from '../src/claude.js';
 import { clampReport } from '../src/status-report.js';
 import { scrubEnv } from '../src/scrub-env.js';
@@ -150,7 +153,10 @@ test('perfil read de un prompt run: el daemon lo hace cumplir aunque el server s
   assert.throws(() => parseClaim(readClaim({ allowed: ['Read', 'Write(src/**)'], disallowed: [] })), /Write\(src/);
   const forced = parseClaim(readClaim({ allowed: ['Read', 'Grep'], disallowed: ['WebFetch'] }));
   const outfile = AWS_OUTFILE_COMMANDS.map((c) => `Bash(aws ${c}*)`);
-  assert.deepEqual(forced.tools.disallowed, ['WebFetch', 'Edit', 'Write', 'NotebookEdit', ...outfile]);
+  // Edit/Write no se fuerzan (t#434): sin regla solo alcanzan la memoria nativa del cli.
+  assert.deepEqual(forced.tools.disallowed, ['WebFetch', 'NotebookEdit', ...outfile]);
+  // un server sin native_memory las sigue negando: se respetan.
+  assert.ok(parseClaim(readClaim({ allowed: ['Read'], disallowed: ['Edit', 'Write'] })).tools.disallowed.includes('Edit'));
   assert.throws(() => parseClaim(rawClaim({}, { permissionMode: 'acceptEdits' })), /exige permission mode dontAsk/);
   // un run de reglas conserva el techo local de siempre.
   assert.equal(parseClaim(rawClaim({ kind: 'investigate', profile: undefined }, { permissionMode: 'default' })).permissionMode, 'default');
@@ -161,7 +167,7 @@ test('prompt run de lectura: settings solo del usuario (sin hooks ni settings de
   const read = argsFor(readRaw);
   assert.deepEqual(read.slice(read.indexOf('--setting-sources'), read.indexOf('--setting-sources') + 2), ['--setting-sources', 'user']);
   assert.ok(read.includes('--strict-mcp-config'));
-  assert.ok(read[read.indexOf('--disallowedTools') + 1].startsWith('WebFetch,Edit,Write,NotebookEdit,Bash(aws apigateway get-export*),'));
+  assert.ok(read[read.indexOf('--disallowedTools') + 1].startsWith('WebFetch,NotebookEdit,Bash(aws apigateway get-export*),'));
   assert.ok(!argsFor(rawClaim()).includes('--setting-sources'), 'edición conserva el CLAUDE.md y los settings del repo');
   const without = (flag: string): Set<(typeof OPTIONAL_FLAGS)[number]> => new Set(OPTIONAL_FLAGS.filter((f) => f !== flag));
   assert.throws(() => argsFor(readRaw, { supported: without('--setting-sources') }), /--setting-sources/);
@@ -188,15 +194,45 @@ test('lectura con shell (t#385): aws solo fijada en servicio + operación y escr
   assert.ok(parseClaim(rawClaim()).tools.allowed.includes('Bash'));
 });
 
-test('lectura: las reglas Bash del allow del usuario se espejan al deny, solo en read', () => {
-  assert.deepEqual(mirrorBashAllow({ permissions: { allow: ['mcp__x__y', 'Bash(npm run test:*)', 'Read'] } }), ['Bash(npm run test:*)']);
-  assert.deepEqual(mirrorBashAllow({ permissions: { allow: 'Bash' } }), []);
-  assert.deepEqual(mirrorBashAllow(null), []);
-  assert.deepEqual(mirrorBashAllow({ permissions: { allow: ['Bash(echo a,b)'] } }), ['Bash'], 'no cabe en argv: Bash entero');
-  const read = argsFor(rawClaim({ profile: 'read' }, { tools: { allowed: ['Read'], disallowed: [] } }), { userBashDeny: ['Bash(npm run test:*)'] });
-  assert.ok(read[read.indexOf('--disallowedTools') + 1].split(',').includes('Bash(npm run test:*)'));
-  const edit = argsFor(rawClaim(), { userBashDeny: ['Bash(npm run test:*)'] });
-  assert.ok(!edit[edit.indexOf('--disallowedTools') + 1].includes('npm'), 'edición conserva el allow del usuario');
+test('lectura: las reglas Bash y de escritura del allow del usuario se espejan al deny; edición las conserva', () => {
+  const bash = [READ_MIRRORED_TOOLS[0]!];
+  assert.deepEqual(mirrorAllow({ permissions: { allow: ['mcp__x__y', 'Bash(npm run test:*)', 'Read'] } }, bash), ['Bash(npm run test:*)']);
+  assert.deepEqual(mirrorAllow({ permissions: { allow: 'Bash' } }, bash), []);
+  assert.deepEqual(mirrorAllow(null, bash), []);
+  assert.deepEqual(mirrorAllow({ permissions: { allow: ['Bash(echo a,b)'] } }, bash), ['Bash'], 'no cabe en argv: Bash entero');
+  const settings = { permissions: { allow: ['Read', 'Edit', 'Write(src/**)', 'Bash(git log:*)', 'Edit(a,b)', 'NotebookEditor'] } };
+  assert.deepEqual(mirrorAllow(settings, READ_MIRRORED_TOOLS), ['Edit', 'Write(src/**)', 'Bash(git log:*)']);
+  assert.deepEqual(mirrorAllow(settings, WRITE_TOOLS), ['Edit', 'Write(src/**)'], 'reglas: su Bash va entero, no se espeja');
+  const read = argsFor(rawClaim({ profile: 'read' }, { tools: { allowed: ['Read'], disallowed: [] } }), { mirroredDeny: ['Bash(npm run test:*)', 'Edit'] });
+  assert.ok(['Bash(npm run test:*)', 'Edit'].every((t) => read[read.indexOf('--disallowedTools') + 1].split(',').includes(t)));
+  const edit = argsFor(rawClaim(), { mirroredDeny: ['Bash(npm run test:*)', 'Edit'] });
+  assert.deepEqual(edit[edit.indexOf('--disallowedTools') + 1], 'NotebookEdit,WebFetch,WebSearch', 'edición conserva el allow del usuario');
+});
+
+test('memoria nativa en reglas (t#434): deny espejado y, con skip-permissions, Edit/Write de vuelta al deny', () => {
+  const rule = rawClaim({ kind: 'investigate', profile: undefined }, { tools: { allowed: ['Bash', 'Read'], disallowed: ['NotebookEdit'] } });
+  const plain = argsFor(rule, { mirroredDeny: ['Edit(src/**)'] });
+  assert.equal(plain[plain.indexOf('--disallowedTools') + 1], 'NotebookEdit,Edit(src/**)');
+  assert.ok(!plain.includes('--dangerously-skip-permissions'));
+  const skip = argsFor(rule, { skipPermissions: true });
+  assert.equal(skip[skip.indexOf('--disallowedTools') + 1], 'NotebookEdit,Edit,Write', 'sin dontAsk, Edit/Write sin negar abrirían el repo');
+  assert.ok(skip.includes('--dangerously-skip-permissions'));
+});
+
+test('settings que carga un run: usuario siempre, proyecto y local solo sin --setting-sources user; ilegibles = tools enteras', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'runner-settings-'));
+  try {
+    const [user, project, local] = settingsFilesFor(dir, false);
+    assert.deepEqual(settingsFilesFor(dir, true), [user]);
+    assert.deepEqual([project, local], [path.join(dir, '.claude', 'settings.json'), path.join(dir, '.claude', 'settings.local.json')]);
+    fs.mkdirSync(path.join(dir, '.claude'));
+    fs.writeFileSync(project!, JSON.stringify({ permissions: { allow: ['Edit(src/**)', 'Read'] } }));
+    fs.writeFileSync(local!, '{ no es json');
+    assert.deepEqual(mirroredDeny([project!], WRITE_TOOLS), ['Edit(src/**)']);
+    assert.deepEqual(mirroredDeny([project!, local!, path.join(dir, 'no-existe.json')], WRITE_TOOLS), ['Edit(src/**)', ...WRITE_TOOLS]);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('clampReport enmascara secretos del result, el error y el stderr', () => {

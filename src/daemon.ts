@@ -38,7 +38,7 @@ import { AccessTokenSource } from './access-token.js';
 import { concurrency, logsDir, scratchDir, type RepoConfig, type RunnerConfig } from './config.js';
 import { consumeStreamLine, detectClaude, newStreamState, type ClaudeInfo } from './claude.js';
 import { buildClaudeArgs, PROMPT_REQUIRED_FLAGS } from './claude-args.js';
-import { userBashDeny } from './user-permissions.js';
+import { mirroredDeny, READ_MIRRORED_TOOLS, settingsFilesFor, WRITE_TOOLS } from './user-permissions.js';
 import { claimRunId, EVENTS_DEFAULTS, parseClaim, PROMPT_PROFILE, RUN_ISOLATION, RUN_KIND, RUNNER_CAPABILITY, type ClaimedRun, type ClaimResponse } from './claim.js';
 import { EventUploader, type SeqEvent } from './event-uploader.js';
 import { clip, feedEventsFromStream, systemEvent, type FeedContext } from './feed.js';
@@ -157,8 +157,11 @@ export class RunnerDaemon {
   private capabilities(): string[] {
     return [
       ...(this.hasAws ? [RUNNER_CAPABILITY.aws] : []),
-      // read_shell va con prompt: los dos exigen poder cumplir el perfil read (parseClaim lo valida).
-      ...(PROMPT_REQUIRED_FLAGS.every((f) => this.claude.supported.has(f)) ? [RUNNER_CAPABILITY.prompt, RUNNER_CAPABILITY.readShell] : []),
+      // read_shell y native_memory van con prompt: exigen poder cumplir el perfil read (parseClaim lo
+      // valida) y pasar el deny espejado (--disallowedTools).
+      ...(PROMPT_REQUIRED_FLAGS.every((f) => this.claude.supported.has(f))
+        ? [RUNNER_CAPABILITY.prompt, RUNNER_CAPABILITY.readShell, RUNNER_CAPABILITY.nativeMemory]
+        : []),
       RUNNER_CAPABILITY.events,
       RUNNER_CAPABILITY.checkout,
     ];
@@ -496,8 +499,14 @@ export class RunnerDaemon {
     note: (text: string) => void,
   ): Promise<StatusReport> {
     const { run } = claim;
-    // settings de usuario leídos por run (pueden cambiar con el daemon vivo); solo pesan en lectura.
-    const userDeny = run.kind === RUN_KIND.prompt && run.profile === PROMPT_PROFILE.read ? userBashDeny() : [];
+    // settings leídos por run (pueden cambiar con el daemon vivo): lectura solo carga los de usuario y
+    // espeja su shell y su escritura; un run de reglas carga todos y espeja su escritura; edición, nada.
+    const readPrompt = run.kind === RUN_KIND.prompt && run.profile === PROMPT_PROFILE.read;
+    const deny = readPrompt
+      ? mirroredDeny(settingsFilesFor(prepared.workdir, true), READ_MIRRORED_TOOLS)
+      : run.kind !== RUN_KIND.prompt
+        ? mirroredDeny(settingsFilesFor(prepared.workdir, false), WRITE_TOOLS)
+        : [];
     const args = (prompt: string, resumeSessionId: string | null): string[] =>
       buildClaudeArgs({
         claim,
@@ -509,7 +518,7 @@ export class RunnerDaemon {
         configBudgetUsd: this.cfg.defaults.maxBudgetUsd,
         skipPermissions: prepared.repoCfg?.dangerouslySkipPermissions === true,
         payingWithApiKey: !!process.env.ANTHROPIC_API_KEY,
-        userBashDeny: userDeny,
+        mirroredDeny: deny,
       });
     // reanudar o no lo decide el server: manda sessionId solo cuando hay sesión que retomar.
     const resume = run.sessionId;

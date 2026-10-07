@@ -7,8 +7,12 @@
 //   defecto (las ramas de prs de bitbucket/github llevan ñ, '+', '#'…; quien decide es
 //   `git check-ref-format`, y todo argumento de git va tras `--end-of-options`).
 // - el perfil read de un prompt run se hace cumplir AQUÍ también: permission mode dontAsk, nada de
-//   Edit/Write/NotebookEdit en las permitidas (forzadas en las denegadas) y Bash solo como shell de
-//   solo lectura (t#385): nunca Bash entero ni un patrón que no sea `Bash(aws <servicio> <lectura>*)`.
+//   Edit/Write/NotebookEdit en las permitidas (NotebookEdit forzada en las denegadas) y Bash solo como
+//   shell de solo lectura (t#385): nunca Bash entero ni un patrón que no sea `Bash(aws <servicio> <lectura>*)`.
+//   Edit/Write ya no se fuerzan al deny entero (t#434, `native_memory`): sin regla de allow, dontAsk
+//   solo las deja escribir la memoria nativa del cli (su excepción para el dir de auto-memory; el
+//   resto de rutas, denegadas), y las reglas Edit/Write de los settings que carga el run se espejan
+//   al deny (user-permissions.ts). el deny entero ganaría también a esa excepción.
 //   el cli auto-aprueba su propia shell de lectura (cat, grep, git log…) y bloquea la que ejecuta o
 //   escribe; la aws cli va fijada en servicio + operación (un `*` antes de la operación dejó pasar
 //   `aws s3 rm … --exclude list-x`) y sus lecturas que escriben un fichero local, negadas siempre.
@@ -17,14 +21,16 @@
 
 // capacidades que el daemon anuncia en el claim. el server entrega kind=prompt solo a quien
 // anuncia `prompt`, pide el feed de progreso solo a quien anuncia `events` y deja abrir una
-// conversación en el checkout solo a quien anuncia `checkout` (>= 0.6.0) y la shell de solo lectura
-// en read solo a quien anuncia `read_shell` (>= 0.7.0).
+// conversación en el checkout solo a quien anuncia `checkout` (>= 0.6.0), la shell de solo lectura
+// en read solo a quien anuncia `read_shell` (>= 0.7.0) y deja de negar Edit/Write enteras en read y
+// en los runs de reglas (su memoria nativa) solo a quien anuncia `native_memory` (>= 0.8.0).
 export const RUNNER_CAPABILITY = {
   aws: 'aws',
   prompt: 'prompt',
   events: 'events',
   checkout: 'checkout',
   readShell: 'read_shell',
+  nativeMemory: 'native_memory',
 } as const;
 export type RunnerCapability = (typeof RUNNER_CAPABILITY)[keyof typeof RUNNER_CAPABILITY];
 
@@ -72,8 +78,11 @@ export const EVENTS_DEFAULTS = {
 export const BRANCH_RE = /^(?!-)[^\s\x00-\x1f\x7f]{1,250}$/;
 // permission mode que exige un prompt run (el server lo manda siempre; sin él heredaría el del usuario).
 export const PROMPT_PERMISSION_MODE = 'dontAsk';
-// built-in que un prompt run de lectura nunca puede tener (ni con patrón) y van siempre a su deny.
+// built-in que un prompt run de lectura nunca puede tener en el allow (ni con patrón). de ellas solo
+// NotebookEdit va siempre a su deny: Edit/Write sin regla alcanzan solo la memoria nativa del cli.
 export const READ_FORBIDDEN_TOOLS: readonly string[] = ['Edit', 'Write', 'NotebookEdit'];
+// built-in con las que el cli escribe su memoria nativa: fuera del deny forzado de lectura.
+export const MEMORY_WRITE_TOOLS: readonly string[] = ['Edit', 'Write'];
 export const BASH_TOOL = 'Bash';
 // aws cli en lectura (espejo de AGENT_AWS_READ_VERBS / AGENT_AWS_READ_COMMANDS del server): verbos
 // por convención de la api de aws y lecturas sueltas (servicio + operación exacta).
@@ -142,8 +151,12 @@ export const AWS_OUTFILE_COMMANDS: readonly string[] = [
 ];
 // patrón de la aws cli fijado en servicio + operación, tal como lo compone el server.
 const AWS_READ_PATTERN_RE = /^Bash\(aws ([a-z0-9-]+) ([a-z0-9-]+)\*\)$/;
-// deny forzado de un claim read: built-in prohibidas + escritores de fichero de la aws cli.
-const READ_FORCED_DENY: readonly string[] = [...READ_FORBIDDEN_TOOLS, ...AWS_OUTFILE_COMMANDS.map((c) => `${BASH_TOOL}(aws ${c}*)`)];
+// deny forzado de un claim read: built-in prohibidas salvo las de la memoria + escritores de fichero
+// de la aws cli.
+const READ_FORCED_DENY: readonly string[] = [
+  ...READ_FORBIDDEN_TOOLS.filter((t) => !MEMORY_WRITE_TOOLS.includes(t)),
+  ...AWS_OUTFILE_COMMANDS.map((c) => `${BASH_TOOL}(aws ${c}*)`),
+];
 // longitud con la que una rama descartada aparece en el aviso.
 const WARNING_BRANCH_CHARS = 80;
 // workspace/slug u owner/repo (REPO_KEY_RE del server).

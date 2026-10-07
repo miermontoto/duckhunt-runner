@@ -134,7 +134,7 @@ pattern other than a read-only AWS CLI one:
 
 | Profile | Built-in tools | Also |
 | --- | --- | --- |
-| `read` | `Read`, `Grep`, `Glob`, `WebFetch`, `WebSearch`, read-only shell | duckhunt tools (notes, tasks, questions). No edits and no code execution. Runs with `--setting-sources user`: your own settings, hooks and plugins apply, but the checked-out branch's `.claude/` settings and hooks do not (the agent reads the repo's `CLAUDE.md` with `Read` instead). |
+| `read` | `Read`, `Grep`, `Glob`, `WebFetch`, `WebSearch`, read-only shell | duckhunt tools (notes, tasks, questions). No code execution and no edits, except Claude's own auto-memory (0.8.0 or later). Runs with `--setting-sources user`: your own settings, hooks and plugins apply, but the checked-out branch's `.claude/` settings and hooks do not (the agent reads the repo's `CLAUDE.md` with `Read` instead). |
 | `edit` | `Read`, `Grep`, `Glob`, `WebFetch`, `WebSearch`, `Bash`, `Edit`, `Write` | Git included: the agent commits, pushes or opens a pull request only when your prompt asks for it. Starting an `edit` conversation, and every later message or answer to it, asks you to confirm your identity again; its notifications have no reply buttons. |
 
 #### Read-only shell (0.7.0 or later)
@@ -160,6 +160,31 @@ pattern other than a read-only AWS CLI one:
   file can't be read, a `read` conversation gets no shell at all.
 
 Older daemons keep the previous `read` profile: no shell.
+
+#### Native memory (0.8.0 or later)
+
+The daemon announces `native_memory` and the server stops denying `Edit` and `Write` outright for
+`read` conversations and automation runs. No rule allows them either, so under `dontAsk` the Claude
+CLI only lets them write inside its own auto-memory directory (the one it loads at the start of every
+session in that repo) and refuses every other path. The daemon still refuses a `read` claim that
+allows them.
+
+- `Edit`/`Write` rules in the `allow` list of the settings a run loads would open more than that, so
+  the daemon mirrors them into the deny list: your user settings for `read` conversations; user,
+  project and local settings for automation runs. If a settings file can't be read, those tools are
+  denied outright (and the run gets no memory).
+- An automation run on a repo mapped with `--dangerously-skip-permissions` skips `dontAsk`, so it
+  keeps `Edit` and `Write` denied and gets no memory.
+- `edit` conversations always could write their memory: the agent is now told it may, outside its
+  worktree too.
+
+Older daemons keep `Edit` and `Write` denied in `read` conversations and automation runs.
+
+A `read` conversation or an automation run can also propose a write-enabled agent instead of only
+describing a change. The proposal shows up in its thread; launching it opens the usual composer,
+prefilled with the proposed prompt and the same repo, branch and anchor, and starts a new `edit`
+conversation (with the identity check) linked to the one that proposed it. This needs no daemon
+change.
 
 Every prompt run uses `--strict-mcp-config`, so a `.mcp.json` in the checkout never loads.
 Settings → Agents can force `read` for everything (read-only mode) or per repo, pause the runner,
