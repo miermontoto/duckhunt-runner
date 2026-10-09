@@ -69,6 +69,19 @@ export function resolveCommit(repoPath: string, ref: string, env: NodeJS.Process
   return gitMaybe(repoPath, ['rev-parse', '--verify', '--quiet', '--end-of-options', `${ref}^{commit}`], env);
 }
 
+// sha del HEAD del checkout. el null de resolveCommit no distingue "sin commits" de "no es un repo git"
+// (un .git a medias tras mover el checkout se leía como HEAD vacío): se le pregunta a git por el repo
+// y el error lleva su motivo, con el path del checkout fuera (viaja al server).
+async function checkoutHead(repoPath: string, env: NodeJS.ProcessEnv): Promise<string> {
+  const sha = await resolveCommit(repoPath, 'HEAD', env);
+  if (sha) return sha;
+  await git(repoPath, ['rev-parse', '--git-dir'], env).catch((err: Error & { stderr?: string }) => {
+    const reason = (err.stderr?.trim().split('\n')[0] ?? err.message).replace(/^fatal: /, '').replaceAll(repoPath, '<checkout>');
+    throw new Error(`el checkout no es un repositorio git usable (${reason}): revisa su path en la config del runner`);
+  });
+  throw new Error('el checkout no tiene ningún commit (HEAD vacío)');
+}
+
 /** cordura del claim + `git check-ref-format --branch` (que ya rechaza un nombre que empiece por '-'). */
 export async function isUsableBranch(repoPath: string, branch: string, env: NodeJS.ProcessEnv): Promise<boolean> {
   if (!isValidBranchName(branch)) return false;
@@ -169,8 +182,7 @@ async function defaultBase(repoPath: string, env: NodeJS.ProcessEnv): Promise<Ba
     const sha = await resolveCommit(repoPath, `refs/remotes/${remoteHead}`, env);
     if (sha) return { sha, label: remoteHead, warnings: fetched ? [] : [`git fetch de ${remoteHead} falló: base con la copia local`] };
   }
-  const sha = await resolveCommit(repoPath, 'HEAD', env);
-  if (!sha) throw new Error('el checkout no tiene ningún commit (HEAD vacío)');
+  const sha = await checkoutHead(repoPath, env);
   return { sha, label: 'HEAD', warnings: [`sin ${REMOTE}/HEAD: worktree sobre el HEAD del checkout`] };
 }
 
@@ -226,8 +238,7 @@ export async function prepareRunWorktree(repoPath: string, runId: number, branch
   const candidates = usable ? [`refs/heads/${branch}`, `refs/remotes/${REMOTE}/${branch}`] : [];
   // i/o secuencial con early-exit: la primera ref que exista gana.
   const found = await candidates.reduce<Promise<string | null>>(async (acc, ref) => (await acc) ?? resolveCommit(repoPath, ref, env), Promise.resolve(null));
-  const sha = found ?? (await resolveCommit(repoPath, 'HEAD', env));
-  if (!sha) throw new Error('el checkout no tiene ningún commit (HEAD vacío)');
+  const sha = found ?? (await checkoutHead(repoPath, env));
   await addDetached(repoPath, dir, sha, env);
   const warnings = branch !== null && !found ? [`branch ${branch} no existe localmente: worktree sobre HEAD`] : [];
   return { workdir: dir, note: `${found ? branch : 'HEAD'}@${sha.slice(0, SHORT_SHA_CHARS)}`, warnings };

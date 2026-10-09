@@ -108,6 +108,21 @@ test('run de reglas: rama local u origin, si no HEAD', async () => {
   assert.deepEqual(missing.warnings, ['branch no-existe no existe localmente: worktree sobre HEAD']);
 });
 
+test('run de reglas: un .git a medias no es "HEAD vacío" y el error no lleva el path', async () => {
+  // lo que dejó mover un checkout: .git sin HEAD ni config, git ya no lo reconoce.
+  const gutted = path.join(root, 'gutted');
+  fs.mkdirSync(path.join(gutted, '.git', 'refs'), { recursive: true });
+  await assert.rejects(prepareRunWorktree(gutted, 30, null, env), (err: Error) => {
+    assert.match(err.message, /^el checkout no es un repositorio git usable \(not a git repository/);
+    assert.ok(!err.message.includes(root));
+    return true;
+  });
+  const empty = path.join(root, 'empty');
+  fs.mkdirSync(empty);
+  git(empty, 'init', '-q');
+  await assert.rejects(prepareRunWorktree(empty, 31, null, env), /HEAD vacío/);
+});
+
 test('gc: borra cerradas y limpias, conserva cambios sin commitear y commits huérfanos', async () => {
   const committed = await prepareConversationWorktree(clone, 4, null, env);
   git(committed.workdir, 'commit', '-q', '--allow-empty', '-m', 'solo aquí');
