@@ -38,8 +38,8 @@ That is the whole thing. Step by step:
 | Command | What it does |
 | --- | --- |
 | `login [base-url] [label]` | Connects the daemon to your account. Opens the browser, you paste the code back. Defaults to `https://duckhunt.info`; pass a URL for another instance (`https://` is assumed if you omit the scheme). Both arguments are optional — an argument that does not look like a URL is taken as the label, which distinguishes machines if you run more than one. |
-| `repos discover [dir]` | Scans a directory for git checkouts and maps each one by its `origin` remote, so an agent can read the code behind an alarm. Add `--dry-run` to see what it would map. Only the `workspace/slug` key reaches the server. |
-| `repos list\|add\|remove` | Manage that map by hand: `repos add <workspace/slug> <path>`. |
+| `repos discover [dir]` | Scans a directory for git checkouts and maps each one by its `origin` remote, so an agent can read the code behind an alarm. Add `--dry-run` to see what it would map. Only the `workspace/slug` key reaches the server. A repo checked out in more than one directory is listed but not mapped: pick one with `repos add`. |
+| `repos list\|add\|remove` | Manage that map by hand: `repos add <workspace/slug> <path>`. `list` and `add` show each repo's health warnings (see below). |
 | `aws add <accountId> <profile>` | Optional. Binds an AWS account id to a profile of your local AWS CLI, so the agent can read metrics, logs and resource state for that account. |
 | `aws list\|remove` | Manage the AWS map. |
 | `status` | Reports this machine's kit: Claude version, which credential it will use, AWS profiles and mapped repos. Run this first when something does not work. |
@@ -50,6 +50,25 @@ repo and AWS maps, and optional defaults (`model`, `maxBudgetUsd`, `maxConcurren
 another file (a second account, a test instance) and `DUCKHUNT_RUNNER_HOME` to move the state
 directory (`~/.duckhunt-runner`: the scratch directory and `--verbose` logs). `--version` prints the
 daemon version.
+
+### Repo health
+
+The daemon checks every mapped checkout when it starts and every 10 minutes, prints what changed,
+and reports it to duckhunt, which shows it on the runner card and in the repo picker and notifies
+you when a repo stops being usable. Only the repo key and a code travel, never a path.
+
+| Code | Meaning | Blocks runs |
+| --- | --- | --- |
+| `missing` | The mapped directory no longer exists. | yes |
+| `not_git` | The directory exists but git does not recognise it as a checkout (a half-moved `.git`), or it sits inside another repo. | yes |
+| `remote_mismatch` | Its `origin` points to a different repo than the key it is mapped under. | yes |
+| `no_origin` | It has no `origin` remote, so the key cannot be verified. | no |
+| `duplicate` | Another directory next to it is a separate clone of the same repo. Linked worktrees do not count. | no |
+| `shared_path` | The same directory is mapped under several keys. | no |
+| `orphan_worktrees` | Daemon worktrees nobody will clean up: ones git no longer tracks, or ones left in a checkout that is no longer mapped. They may hold uncommitted work, so they are never deleted for you. | no |
+
+Duplicates are looked for among the siblings of each mapped checkout, one level deep, like
+`repos discover`. `status` and `repos list` print the same warnings with the local paths.
 
 ### Keeping it running
 

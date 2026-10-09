@@ -1,5 +1,5 @@
 // `duckhunt-runner status`: qué kit tiene esta máquina (claude, credencial detectada, aws cli) y
-// qué hay mapeado (repos, cuentas aws). diagnóstico local, sin tocar el server.
+// qué hay mapeado (repos con sus avisos de salud, cuentas aws). diagnóstico local, sin tocar el server.
 
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
@@ -8,6 +8,8 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { concurrency, configPath, loadConfig, scratchDir } from './config.js';
 import { detectClaude } from './claude.js';
+import { checkRepoHealth, describeFinding } from './repo-health.js';
+import { scrubEnv } from './scrub-env.js';
 import { runnerVersion } from './version.js';
 
 const execFileP = promisify(execFile);
@@ -64,6 +66,9 @@ export async function statusCommand(): Promise<void> {
   const repos = Object.entries(cfg.repos);
   console.log(`repos:      ${repos.length === 0 ? 'ninguno mapeado (`repos discover <dir>`)' : ''}`);
   repos.forEach(([k, r]) => console.log(`  ${k} → ${r.path}`));
+  const findings = await checkRepoHealth(cfg.repos, scrubEnv(process.env));
+  console.log(`avisos:     ${findings.length === 0 ? 'ninguno' : `${findings.length} (los mismos que ve duckhunt, sin los paths)`}`);
+  findings.forEach((f) => console.log(`  ⚠ ${describeFinding(f)}`));
   const accounts = Object.entries(cfg.aws);
   console.log(`cuentas aws: ${accounts.length === 0 ? 'ninguna mapeada (`aws add <account-id> <profile>`)' : ''}`);
   accounts.forEach(([k, a]) => console.log(`  ${k} → perfil ${a.profile}${a.region ? ` (${a.region})` : ''}`));

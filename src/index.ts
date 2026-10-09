@@ -42,7 +42,7 @@ async function main(): Promise<void> {
     return;
   }
   if (cmd === 'repos') {
-    reposCommand(rest);
+    await reposCommand(rest);
     return;
   }
   if (cmd === 'aws') {

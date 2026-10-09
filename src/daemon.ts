@@ -25,6 +25,9 @@
 //   proceso del siguiente turno de la misma fila. el latido mata claude en cuanto el run deja de ser
 //   suyo (cancelado, re-encolado tras detenerlo, dado por fallido, borrado → 404, reclamado por otro
 //   segmento), no solo con `cancel`: un proceso detenido no puede seguir 30 min con Bash.
+// - salud de los repos mapeados (repo-health.ts, t#463): el primer chequeo se ESPERA al arrancar (el
+//   primer claim ya la lleva) y luego se refresca en segundo plano sin frenar el claim. se imprime
+//   al cambiar y viaja en cada claim como `repoIssues` (sin paths).
 
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import crypto from 'node:crypto';
@@ -47,6 +50,7 @@ import { clampReport, reportFor, type Attempt, type KillReason, type StatusRepor
 import { prepareCheckout, prepareConversationWorktree, prepareRunWorktree, removeRunWorktree, touchWorktree } from './worktree.js';
 import { chunk, CONVERSATION_GC_INTERVAL_MS, listWorktreeCandidates, removeWorktrees, selectForRemoval, type WorktreeCandidate } from './conversation-gc.js';
 import { KeyedMutex } from './keyed-mutex.js';
+import { checkRepoHealth, describeFinding, REPO_HEALTH_INTERVAL_MS, repoIssues, type RepoIssue } from './repo-health.js';
 import { RunLease, signalGroup } from './run-lease.js';
 import { runnerVersion } from './version.js';
 
@@ -120,6 +124,12 @@ export class RunnerDaemon {
   private exitCode = 0;
   private wake: (() => void) | null = null;
   private lastGcAt = 0;
+  // última foto de la salud de los repos (lo que anuncia el claim; null = aún sin chequeo que haya
+  // terminado: el claim no la manda, nunca un [] que el server leería como "todo sano") y su huella.
+  private repoHealth: RepoIssue[] | null = null;
+  private repoHealthPrint: string | null = null;
+  private lastRepoHealthAt = 0;
+  private repoHealthInFlight = false;
 
   constructor(
     private readonly cfg: RunnerConfig,
@@ -182,7 +192,9 @@ export class RunnerDaemon {
     console.log(
       `[runner] duckhunt-runner ${runnerVersion() ?? '?'} · ${this.label()} → ${this.cfg.baseUrl} (claude ${this.claude.version}, aws cli ${this.hasAws ? 'sí' : 'no'}, ${Object.keys(this.cfg.repos).length} repos, ${Object.keys(this.cfg.aws).length} cuentas aws, capacidades ${this.capabilities().join(',')}, ${this.slots} slot${this.slots === 1 ? '' : 's'}, poll ${CLAIM_POLL_MS / 1000}s)`,
     );
+    await this.refreshRepoHealth();
     while (!this.stopping) {
+      void this.refreshRepoHealth();
       // slots llenos: el cierre de un run despierta el loop (o el siguiente poll).
       if (this.leases.size >= this.slots) {
         await this.idle(CLAIM_POLL_MS);
@@ -242,6 +254,7 @@ export class RunnerDaemon {
       res = await this.api('/claim', {
         runnerLabel: this.label(),
         repos: Object.keys(this.cfg.repos),
+        ...(this.repoHealth ? { repoIssues: this.repoHealth } : {}),
         awsAccounts: Object.keys(this.cfg.aws),
         capabilities: this.capabilities(),
         slots: this.slots,
@@ -287,6 +300,29 @@ export class RunnerDaemon {
         this.leases.delete(lease);
         this.wake?.();
       });
+  }
+
+  // --- salud de los repos (en el loop de claim, throttled y sin esperarla) ---
+
+  private async refreshRepoHealth(): Promise<void> {
+    if (this.repoHealthInFlight || Date.now() - this.lastRepoHealthAt < REPO_HEALTH_INTERVAL_MS) return;
+    this.repoHealthInFlight = true;
+    this.lastRepoHealthAt = Date.now();
+    try {
+      const findings = await checkRepoHealth(this.cfg.repos, scrubEnv(process.env));
+      this.repoHealth = repoIssues(findings);
+      const lines = findings.map((f) => describeFinding(f));
+      const print = lines.join('\n');
+      if (print !== this.repoHealthPrint) {
+        if (lines.length === 0) console.log('[runner] repos: sin avisos');
+        else lines.forEach((line) => console.warn(`[runner] repos: ${line}`));
+        this.repoHealthPrint = print;
+      }
+    } catch (err) {
+      console.error(`[runner] chequeo de repos falló: ${(err as Error).message}`);
+    } finally {
+      this.repoHealthInFlight = false;
+    }
   }
 
   // --- gc de worktrees (en el loop de claim, throttled) ---

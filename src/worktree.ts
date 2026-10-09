@@ -52,8 +52,8 @@ async function git(cwd: string, args: string[], env: NodeJS.ProcessEnv, timeout 
   return stdout.trim();
 }
 
-// variante que devuelve null en vez de lanzar: para sondas cuyo fallo es una respuesta (la ref no existe).
-const gitMaybe = (cwd: string, args: string[], env: NodeJS.ProcessEnv): Promise<string | null> =>
+/** variante que devuelve null en vez de lanzar: para sondas cuyo fallo es una respuesta (la ref no existe). */
+export const gitMaybe = (cwd: string, args: string[], env: NodeJS.ProcessEnv): Promise<string | null> =>
   git(cwd, args, env).then(
     (out) => out || null,
     () => null,

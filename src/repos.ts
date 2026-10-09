@@ -1,14 +1,15 @@
 // subcomandos `duckhunt-runner repos ...`: gestionan el mapa repo→checkout local de la config sin
 // editar json a mano. el mapa es local A PROPÓSITO (el server nunca ve paths, contrato 42); al
-// server solo viajan las KEYS via el claim (presencia, sin paths).
+// server solo viajan las KEYS via el claim (presencia, sin paths). `list` y `add` enseñan la salud
+// de cada repo (repo-health.ts) y `discover` no mapea una key con varios checkouts distintos: antes
+// el último pisaba al primero en silencio (okt-api-parked le ganó a okt-api por orden alfabético).
 
-import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { configPath, loadConfig, saveConfig } from './config.js';
-
-// mismo formato que valida el server para target_repo.repo: workspace/slug u owner/repo.
-const REPO_KEY_RE = /^[^/\s]+\/[^/\s]+$/;
+import { REPO_KEY_RE, sameRepoKey } from './repo-key.js';
+import { checkRepoHealth, describeFinding, inspectCheckouts, type CheckoutState } from './repo-health.js';
+import { scrubEnv } from './scrub-env.js';
 
 const USAGE = `uso:
   duckhunt-runner repos list
@@ -16,42 +17,6 @@ const USAGE = `uso:
   duckhunt-runner repos remove <workspace/slug>
   duckhunt-runner repos discover [dir] [--dry-run]   escanea checkouts git y los mapea por su remote
 `;
-
-// deriva la key workspace/slug del url del remote origin. cubre las formas habituales:
-// git@host:ws/slug.git · https://host/ws/slug.git · ssh://git@host/ws/slug.git
-// (los dos últimos segmentos del path, sin .git — coincide con target_repo.repo tanto
-// para bitbucket como para github).
-export function repoKeyFromRemote(url: string): string | null {
-  const cleaned = url.trim().replace(/\.git$/, '');
-  const scpLike = cleaned.match(/^[^@\s]+@[^:/\s]+:(.+)$/);
-  const pathPart = scpLike
-    ? scpLike[1]!
-    : (() => {
-        try {
-          return new URL(cleaned).pathname.replace(/^\/+/, '');
-        } catch {
-          return null;
-        }
-      })();
-  if (!pathPart) return null;
-  const segments = pathPart.split('/').filter(Boolean);
-  if (segments.length < 2) return null;
-  const key = segments.slice(-2).join('/');
-  return REPO_KEY_RE.test(key) ? key : null;
-}
-
-// url del remote origin de un checkout, o null si no es repo git / no tiene origin.
-function originUrl(dir: string): string | null {
-  try {
-    return execFileSync('git', ['-C', dir, 'remote', 'get-url', 'origin'], {
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim() || null;
-  } catch {
-    // sin repo git o sin remote origin: candidato descartado, no es un error.
-    return null;
-  }
-}
 
 // ficheros de settings de claude code que un run headless en ese repo cargará (hooks incluidos).
 const CLAUDE_SETTINGS_FILES = ['.claude/settings.json', '.claude/settings.local.json'];
@@ -73,7 +38,11 @@ function warnStopHooks(repoPath: string): void {
   });
 }
 
-export function reposCommand(args: string[]): void {
+// checkout principal de un grupo del mismo repo: el que guarda el .git común (no un worktree enlazado).
+const mainCheckout = (group: CheckoutState[]): CheckoutState =>
+  group.find((s) => s.commonDir !== null && path.dirname(s.commonDir) === s.real) ?? group[0]!;
+
+export async function reposCommand(args: string[]): Promise<void> {
   const cfg = loadConfig();
   if (!cfg) {
     console.error('sin config: ejecuta `duckhunt-runner login <base-url>` primero');
@@ -88,13 +57,16 @@ export function reposCommand(args: string[]): void {
       console.log('sin repos mapeados. añade con `duckhunt-runner repos add <workspace/slug> <path>` o `repos discover <dir>`');
       return;
     }
+    const findings = await checkRepoHealth(cfg.repos, scrubEnv(process.env));
     entries.forEach(([repo, rc]) => {
       const flags = [
         ...(rc.dangerouslySkipPermissions ? ['skip-permissions'] : []),
         ...(rc.worktree === false ? ['sin worktree'] : []),
       ];
       console.log(`  ${repo} → ${rc.path}${flags.length ? `  (${flags.join(', ')})` : ''}`);
+      findings.filter((f) => f.issue.repo === repo).forEach((f) => console.log(`      ⚠ ${describeFinding(f, false)}`));
     });
+    findings.filter((f) => f.issue.repo === null).forEach((f) => console.log(`  ⚠ ${describeFinding(f)}`));
     return;
   }
 
@@ -117,10 +89,6 @@ export function reposCommand(args: string[]): void {
       process.exitCode = 1;
       return;
     }
-    // aviso no bloqueante: el aislamiento por run necesita un checkout git.
-    if (!fs.existsSync(path.join(abs, '.git'))) {
-      console.warn(`aviso: ${abs} no parece un checkout git (.git ausente)`);
-    }
     warnStopHooks(abs);
     cfg.repos[repo] = {
       path: abs,
@@ -129,6 +97,10 @@ export function reposCommand(args: string[]): void {
     };
     saveConfig(cfg);
     console.log(`mapeado ${repo} → ${abs} en ${configPath()}`);
+    // avisos no bloqueantes (no es git, el origin es otro repo, hay otro checkout…). con la config
+    // ENTERA: sola, los demás repos mapeados del mismo directorio saldrían como checkouts sin mapear.
+    const findings = await checkRepoHealth(cfg.repos, scrubEnv(process.env));
+    findings.filter((f) => f.issue.repo === repo).forEach((f) => console.warn(`aviso: ${describeFinding(f, false)}`));
     return;
   }
 
@@ -150,20 +122,36 @@ export function reposCommand(args: string[]): void {
         .map((e) => path.join(base, e.name)),
     ].filter((dir) => fs.existsSync(path.join(dir, '.git')));
 
-    const found = candidates.flatMap((dir) => {
-      const url = originUrl(dir);
-      const key = url ? repoKeyFromRemote(url) : null;
-      return key ? [{ key, dir }] : [];
-    });
-    if (found.length === 0) {
+    // agrupados por key: los worktrees enlazados de un repo comparten git-common-dir y son UN checkout.
+    const groups = (await inspectCheckouts(candidates, scrubEnv(process.env)))
+      .filter((s) => s.root && s.key !== null)
+      .reduce((acc, s) => acc.set(s.key!.toLowerCase(), [...(acc.get(s.key!.toLowerCase()) ?? []), s]), new Map<string, CheckoutState[]>());
+    if (groups.size === 0) {
       console.log(`sin checkouts git con remote origin bajo ${base}`);
       return;
     }
 
-    const skipped = found.filter(({ key }) => key in cfg.repos);
-    const fresh = found.filter(({ key }) => !(key in cfg.repos));
-    skipped.forEach(({ key }) => console.log(`  = ${key} ya mapeado (${cfg.repos[key]!.path})`));
-    fresh.forEach(({ key, dir }) => console.log(`  + ${key} → ${dir}`));
+    const fresh = [...groups.values()].flatMap((group) => {
+      const key = group[0]!.key!;
+      const repos = [...new Map(group.map((s) => [s.commonDir ?? s.real, s])).values()];
+      const mapped = Object.keys(cfg.repos).find((k) => sameRepoKey(k, key));
+      if (mapped) {
+        const mappedPath = cfg.repos[mapped]!.path;
+        const mappedReal = fs.existsSync(mappedPath) ? fs.realpathSync(mappedPath) : path.resolve(mappedPath);
+        const mappedCommon = group.find((s) => s.real === mappedReal)?.commonDir ?? null;
+        const others = repos.filter((s) => s.real !== mappedReal && (mappedCommon === null || s.commonDir !== mappedCommon)).map((s) => s.dir);
+        console.log(`  = ${mapped} ya mapeado (${cfg.repos[mapped]!.path})${others.length ? `; también en ${others.join(', ')}` : ''}`);
+        return [];
+      }
+      // varios checkouts distintos del mismo repo: elegir es del usuario, nunca del orden alfabético.
+      if (repos.length > 1) {
+        console.log(`  ? ${key}: ${repos.map((s) => s.dir).join(', ')} — varios checkouts: elige uno con \`repos add ${key} <path>\``);
+        return [];
+      }
+      const pick = mainCheckout(group);
+      console.log(`  + ${key} → ${pick.dir}`);
+      return [{ key, dir: pick.dir }];
+    });
     if (fresh.length === 0) {
       console.log('nada nuevo que mapear');
       return;
