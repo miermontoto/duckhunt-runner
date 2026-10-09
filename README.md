@@ -70,6 +70,23 @@ you when a repo stops being usable. Only the repo key and a code travel, never a
 Duplicates are looked for among the siblings of each mapped checkout, one level deep, like
 `repos discover`. `status` and `repos list` print the same warnings with the local paths.
 
+#### Fixing the map from duckhunt
+
+The mapped-repos list on the runner card can remove a repo from this machine's map, or point it at
+another folder when the daemon found more than one checkout of it (or found it somewhere else after
+its folder disappeared). To make that choice possible, the daemon sends the **folder name** of each
+candidate (with its parent only when two share a name), its branch, the age of its last commit and
+how many files have uncommitted changes. Full paths never leave the machine.
+
+The server never supplies a path. A folder choice is an opaque id the daemon generated itself, and
+the daemon rejects any id that is not in its own current list, belongs to another repo, or whose
+folder is no longer a checkout of that repo. Removing a mapping never deletes anything on disk. The
+daemon applies the change to its own config (it owns the file while running), checks again and
+reports back within a few seconds.
+
+To keep the map CLI-only on a machine, set `"remoteRepoEdits": false` under `defaults` in
+`~/.duckhunt-runner.json`: the card then hides the controls.
+
 ### Keeping it running
 
 `start` runs in the foreground and has to stay alive to claim runs. Use whatever your machine

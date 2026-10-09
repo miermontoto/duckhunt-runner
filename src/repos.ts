@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { configPath, loadConfig, saveConfig } from './config.js';
 import { REPO_KEY_RE, sameRepoKey } from './repo-key.js';
-import { checkRepoHealth, describeFinding, inspectCheckouts, type CheckoutState } from './repo-health.js';
+import { describeFinding, inspectCheckouts, repoFindings, scanRepos, type CheckoutState } from './repo-health.js';
 import { scrubEnv } from './scrub-env.js';
 
 const USAGE = `uso:
@@ -57,7 +57,7 @@ export async function reposCommand(args: string[]): Promise<void> {
       console.log('sin repos mapeados. añade con `duckhunt-runner repos add <workspace/slug> <path>` o `repos discover <dir>`');
       return;
     }
-    const findings = await checkRepoHealth(cfg.repos, scrubEnv(process.env));
+    const findings = repoFindings(await scanRepos(cfg.repos, scrubEnv(process.env)));
     entries.forEach(([repo, rc]) => {
       const flags = [
         ...(rc.dangerouslySkipPermissions ? ['skip-permissions'] : []),
@@ -99,7 +99,7 @@ export async function reposCommand(args: string[]): Promise<void> {
     console.log(`mapeado ${repo} → ${abs} en ${configPath()}`);
     // avisos no bloqueantes (no es git, el origin es otro repo, hay otro checkout…). con la config
     // ENTERA: sola, los demás repos mapeados del mismo directorio saldrían como checkouts sin mapear.
-    const findings = await checkRepoHealth(cfg.repos, scrubEnv(process.env));
+    const findings = repoFindings(await scanRepos(cfg.repos, scrubEnv(process.env)));
     findings.filter((f) => f.issue.repo === repo).forEach((f) => console.warn(`aviso: ${describeFinding(f, false)}`));
     return;
   }

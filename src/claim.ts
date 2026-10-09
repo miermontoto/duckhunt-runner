@@ -31,6 +31,8 @@ export const RUNNER_CAPABILITY = {
   checkout: 'checkout',
   readShell: 'read_shell',
   nativeMemory: 'native_memory',
+  // acepta cambios del mapa de repos pedidos desde duckhunt (repo-commands.ts); apagable en local.
+  repoEdit: 'repo_edit',
 } as const;
 export type RunnerCapability = (typeof RUNNER_CAPABILITY)[keyof typeof RUNNER_CAPABILITY];
 

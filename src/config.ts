@@ -37,6 +37,9 @@ export interface RunnerDefaults {
   // daemon corre con ANTHROPIC_API_KEY (coste real); con login de suscripción el coste es
   // nominal y el guard contra loops es el timeout. un número lo fuerza; 0 lo desactiva siempre.
   maxBudgetUsd?: number;
+  // cambios del mapa de repos pedidos desde duckhunt (quitar un repo, elegir su carpeta entre las
+  // que este daemon encontró; repo-commands.ts). ausente = permitidos; false = solo por la cli.
+  remoteRepoEdits?: boolean;
 }
 
 export interface RunnerConfig {

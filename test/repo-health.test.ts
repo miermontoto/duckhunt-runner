@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
 import type { RepoConfig } from '../src/config.js';
-import { checkRepoHealth, repoIssues, type RepoFinding } from '../src/repo-health.js';
+import { repoChoices, repoFindings, repoIssues, scanRepos, type RepoFinding } from '../src/repo-health.js';
 import { repoKeyFromRemote } from '../src/repo-key.js';
 import { reposCommand } from '../src/repos.js';
 import { scrubEnv } from '../src/scrub-env.js';
@@ -88,7 +88,7 @@ test('cada aviso con su código, sin contar worktrees enlazados ni los registrad
     'acme/gone': { path: dir('gone') },
     'acme/gutted': { path: dir('gutted') },
   };
-  const findings = await checkRepoHealth(repos, env);
+  const findings = repoFindings(await scanRepos(repos, env));
   assert.deepEqual(issuesOf(findings, 'acme/app'), ['duplicate:1', 'orphan_worktrees:1', 'shared_path:2']);
   assert.ok(findings.find((f) => f.issue.repo === 'acme/app' && f.issue.kind === 'duplicate')!.detail.includes('app-copy'));
   assert.deepEqual(issuesOf(findings, 'acme/alias'), ['remote_mismatch', 'shared_path:2']);
@@ -98,7 +98,7 @@ test('cada aviso con su código, sin contar worktrees enlazados ni los registrad
   assert.deepEqual(issuesOf(findings, 'acme/gutted'), ['not_git', 'orphan_worktrees:1']);
   assert.deepEqual(issuesOf(findings, null), ['orphan_worktrees:1']);
   // el repo roto con el repo bueno en otro directorio: aviso + sugerencia, nunca "duplicado".
-  const misplaced = await checkRepoHealth({ 'acme/other': { path: dir('gone') } }, env);
+  const misplaced = repoFindings(await scanRepos({ 'acme/other': { path: dir('gone') } }, env));
   assert.deepEqual(issuesOf(misplaced, 'acme/other'), ['missing']);
   assert.match(misplaced[0]!.detail, /repos add acme\/other .*other`\)$/);
 });

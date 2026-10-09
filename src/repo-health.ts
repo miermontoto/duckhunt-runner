@@ -12,7 +12,13 @@
 //   orphan_worktrees (worktrees del daemon que nadie recogerá: los que git ya no registra y los de un
 //   checkout que ya no está mapeado, que el gc no recorre; sin repo legible van con repo null).
 // un checkout roto con el repo en otro sitio no se cuenta como duplicado: el detalle lo sugiere.
+// elecciones (t#463 fase 2): un repo con más de un checkout posible (duplicados, o roto con el repo
+// en otra carpeta) lleva sus candidatos para elegir desde duckhunt. de cada uno viaja SOLO el nombre
+// de la carpeta (con el padre delante si dos se llaman igual), rama, edad del último commit y
+// cambios sin commitear; el id es un hash del realpath, opaco y estable entre reinicios, y el path
+// se queda aquí (repo-commands.ts solo acepta ids de esta lista).
 
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { RepoConfig } from './config.js';
@@ -77,6 +83,10 @@ export interface CheckoutState {
   worktrees: string[];
   registered: ReadonlySet<string>;
 }
+
+// hex del id de una carpeta candidata.
+const CANDIDATE_ID_CHARS = 16;
+const SECONDS_TO_MS = 1000;
 
 const realOrSelf = (p: string): string => (fs.existsSync(p) ? fs.realpathSync(p) : path.resolve(p));
 
@@ -147,12 +157,16 @@ function siblingDirs(parents: string[], mappedReals: ReadonlySet<string>): strin
 // worktrees del daemon que git no registra en ese checkout (en uno roto, todos).
 const unregistered = (s: CheckoutState): string[] => s.worktrees.filter((w) => !s.registered.has(realOrSelf(w)));
 
+// el checkout sirve para ese repo: raíz de un repo git cuyo origin es esa key.
+const servesRepo = (repo: string, s: CheckoutState): boolean => s.root && s.key !== null && sameRepoKey(s.key, repo);
+
+// el mismo repo en otro directorio (un worktree enlazado del checkout mapeado no cuenta).
+const elsewhereFor = (repo: string, s: CheckoutState, known: CheckoutState[]): CheckoutState[] =>
+  known.filter((o) => servesRepo(repo, o) && o.real !== s.real && (!servesRepo(repo, s) || o.commonDir !== s.commonDir));
+
 function findingsFor(repo: string, s: CheckoutState, known: CheckoutState[]): RepoFinding[] {
-  const healthy = s.root && s.key !== null && sameRepoKey(s.key, repo);
-  // el mismo repo en otro directorio (un worktree enlazado del checkout mapeado no cuenta).
-  const elsewhere = known.filter(
-    (o) => o.key !== null && sameRepoKey(o.key, repo) && o.real !== s.real && (!healthy || o.commonDir !== s.commonDir),
-  );
+  const healthy = servesRepo(repo, s);
+  const elsewhere = elsewhereFor(repo, s, known);
   const hint = elsewhere[0] ? `; está en ${elsewhere[0].dir} (\`duckhunt-runner repos add ${repo} ${elsewhere[0].dir}\`)` : '';
   if (!s.exists) return [finding(repo, REPO_ISSUE.missing, `${s.dir} no existe${hint}`)];
   if (!s.root) {
@@ -164,14 +178,26 @@ function findingsFor(repo: string, s: CheckoutState, known: CheckoutState[]): Re
   return elsewhere.length > 0 ? [finding(repo, REPO_ISSUE.duplicate, `también en ${elsewhere.map((o) => o.dir).join(', ')}`, elsewhere.length)] : [];
 }
 
-/** chequeo completo de los repos mapeados: un hallazgo por problema, en el orden de la config. */
-export async function checkRepoHealth(repos: Record<string, RepoConfig>, env: NodeJS.ProcessEnv): Promise<RepoFinding[]> {
-  const mapped = Object.entries(repos);
-  const states = new Map((await inspectCheckouts(mapped.map(([, rc]) => rc.path), env)).map((s) => [s.dir, s]));
-  const stateOf = (rc: RepoConfig): CheckoutState => states.get(rc.path)!;
+/** foto de los checkouts mapeados (por path de la config) y de sus hermanos: de ella salen hallazgos y elecciones. */
+export interface RepoScan {
+  repos: Record<string, RepoConfig>;
+  states: ReadonlyMap<string, CheckoutState>;
+  siblings: CheckoutState[];
+}
+
+/** inspecciona los checkouts mapeados y sus hermanos (profundidad 1). */
+export async function scanRepos(repos: Record<string, RepoConfig>, env: NodeJS.ProcessEnv): Promise<RepoScan> {
+  const mapped = Object.values(repos);
+  const states = new Map((await inspectCheckouts(mapped.map((rc) => rc.path), env)).map((s) => [s.dir, s]));
   const mappedReals = new Set([...states.values()].map((s) => s.real));
-  const parents = [...new Set(mapped.map(([, rc]) => path.dirname(path.resolve(rc.path))))].filter((p) => fs.existsSync(p));
-  const siblings = await inspectCheckouts(siblingDirs(parents, mappedReals), env);
+  const parents = [...new Set(mapped.map((rc) => path.dirname(path.resolve(rc.path))))].filter((p) => fs.existsSync(p));
+  return { repos, states, siblings: await inspectCheckouts(siblingDirs(parents, mappedReals), env) };
+}
+
+/** hallazgos de una foto: uno por problema, en el orden de la config. */
+export function repoFindings({ repos, states, siblings }: RepoScan): RepoFinding[] {
+  const mapped = Object.entries(repos);
+  const stateOf = (rc: RepoConfig): CheckoutState => states.get(rc.path)!;
   const known = [...states.values(), ...siblings];
 
   const perRepo = mapped.flatMap(([repo, rc]) => findingsFor(repo, stateOf(rc), known));
@@ -198,6 +224,78 @@ export async function checkRepoHealth(repos: Record<string, RepoConfig>, env: No
       return finding(owner, REPO_ISSUE.orphanWorktrees, `${s.worktrees.length} en ${worktreesDir(s.dir)}: ese checkout ya no está mapeado y el gc no los recoge`, s.worktrees.length);
     });
   return [...perRepo, ...orphaned, ...shared, ...stranded];
+}
+
+/** carpeta candidata de un repo, tal como viaja al server (sin paths). */
+export interface RepoCandidate {
+  id: string;
+  name: string;
+  // null = HEAD detached.
+  branch: string | null;
+  // epoch ms del último commit; null = sin commits.
+  lastCommitAt: number | null;
+  // ficheros con cambios sin commitear.
+  dirty: number;
+  // es la carpeta mapeada ahora.
+  current: boolean;
+}
+
+/** repo mapeado con más de un checkout posible y sus candidatos. */
+export interface RepoChoice {
+  repo: string;
+  candidates: RepoCandidate[];
+}
+
+/** elecciones de una foto y el path local de cada id (lo que repo-commands acepta, solo en la máquina). */
+export interface RepoChoices {
+  choices: RepoChoice[];
+  paths: ReadonlyMap<string, { repo: string; path: string }>;
+}
+
+const candidateId = (real: string): string => crypto.createHash('sha256').update(real).digest('hex').slice(0, CANDIDATE_ID_CHARS);
+
+async function describeCandidate(s: CheckoutState, current: boolean, env: NodeJS.ProcessEnv): Promise<Omit<RepoCandidate, 'name'>> {
+  const [branch, at, status] = await Promise.all([
+    gitMaybe(s.dir, ['symbolic-ref', '--quiet', '--short', 'HEAD'], env),
+    gitMaybe(s.dir, ['log', '-1', '--format=%ct'], env),
+    gitMaybe(s.dir, ['status', '--porcelain'], env),
+  ]);
+  const seconds = at === null ? NaN : Number(at);
+  return {
+    id: candidateId(s.real),
+    branch,
+    lastCommitAt: Number.isFinite(seconds) ? seconds * SECONDS_TO_MS : null,
+    dirty: status ? status.split('\n').length : 0,
+    current,
+  };
+}
+
+// nombre a enseñar: la carpeta; con su padre delante si otro candidato del repo se llama igual.
+const displayName = (s: CheckoutState, all: CheckoutState[]): string => {
+  const base = path.basename(s.dir);
+  const clash = all.some((o) => o !== s && path.basename(o.dir) === base);
+  return clash ? path.join(path.basename(path.dirname(s.dir)), base) : base;
+};
+
+/** repos con algo que elegir (duplicados, o rotos con el repo en otra carpeta) y sus candidatos. */
+export async function repoChoices({ repos, states, siblings }: RepoScan, env: NodeJS.ProcessEnv): Promise<RepoChoices> {
+  const known = [...states.values(), ...siblings];
+  const groups = Object.entries(repos).flatMap(([repo, rc]) => {
+    const s = states.get(rc.path)!;
+    const elsewhere = elsewhereFor(repo, s, known);
+    if (elsewhere.length === 0) return [];
+    return [{ repo, options: [...(servesRepo(repo, s) ? [s] : []), ...elsewhere], current: s }];
+  });
+  const choices = await Promise.all(
+    groups.map(async ({ repo, options, current }) => ({
+      repo,
+      candidates: await Promise.all(
+        options.map(async (o) => ({ ...(await describeCandidate(o, o === current, env)), name: displayName(o, options) })),
+      ),
+    })),
+  );
+  const paths = new Map(groups.flatMap(({ repo, options }) => options.map((o) => [candidateId(o.real), { repo, path: o.dir }] as const)));
+  return { choices, paths };
 }
 
 /** issues para el claim: sin paths, agrupados por (repo, código) sumando recuentos y capados. */

@@ -8,7 +8,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { concurrency, configPath, loadConfig, scratchDir } from './config.js';
 import { detectClaude } from './claude.js';
-import { checkRepoHealth, describeFinding } from './repo-health.js';
+import { describeFinding, repoFindings, scanRepos } from './repo-health.js';
 import { scrubEnv } from './scrub-env.js';
 import { runnerVersion } from './version.js';
 
@@ -50,6 +50,7 @@ export async function statusCommand(): Promise<void> {
     console.log(`runner:     ${cfg.label ?? os.hostname()} (client ${cfg.clientId})`);
     console.log(`modelo:     ${cfg.defaults.model ?? 'default del cli'}`);
     console.log(`slots:      ${concurrency(cfg.defaults)} run(s) a la vez (defaults.maxConcurrent)`);
+    console.log(`mapa:       ${cfg.defaults.remoteRepoEdits === false ? 'solo por la cli (defaults.remoteRepoEdits: false)' : 'también desde duckhunt (quitar repos, elegir carpeta)'}`);
   }
   const claude = await detectClaude();
   console.log(`claude:     ${claude.version ?? 'NO encontrado en el PATH'}`);
@@ -66,7 +67,7 @@ export async function statusCommand(): Promise<void> {
   const repos = Object.entries(cfg.repos);
   console.log(`repos:      ${repos.length === 0 ? 'ninguno mapeado (`repos discover <dir>`)' : ''}`);
   repos.forEach(([k, r]) => console.log(`  ${k} → ${r.path}`));
-  const findings = await checkRepoHealth(cfg.repos, scrubEnv(process.env));
+  const findings = repoFindings(await scanRepos(cfg.repos, scrubEnv(process.env)));
   console.log(`avisos:     ${findings.length === 0 ? 'ninguno' : `${findings.length} (los mismos que ve duckhunt, sin los paths)`}`);
   findings.forEach((f) => console.log(`  ⚠ ${describeFinding(f)}`));
   const accounts = Object.entries(cfg.aws);

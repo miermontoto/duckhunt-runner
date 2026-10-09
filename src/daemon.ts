@@ -27,7 +27,10 @@
 //   segmento), no solo con `cancel`: un proceso detenido no puede seguir 30 min con Bash.
 // - salud de los repos mapeados (repo-health.ts, t#463): el primer chequeo se ESPERA al arrancar (el
 //   primer claim ya la lleva) y luego se refresca en segundo plano sin frenar el claim. se imprime
-//   al cambiar y viaja en cada claim como `repoIssues` (sin paths).
+//   al cambiar y viaja en cada claim como `repoIssues` + `repoCandidates` (sin paths). si la
+//   respuesta del claim trae la cabecera de comandos pendientes, el daemon los pide, los aplica a SU
+//   config (repo-commands.ts), la guarda, re-chequea y reporta; luego reclama ya para que la
+//   presencia nueva llegue sin esperar al poll.
 
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import crypto from 'node:crypto';
@@ -38,7 +41,7 @@ import readline from 'node:readline';
 import { promisify } from 'node:util';
 import { refreshAccess } from './oauth.js';
 import { AccessTokenSource } from './access-token.js';
-import { concurrency, logsDir, scratchDir, type RepoConfig, type RunnerConfig } from './config.js';
+import { concurrency, logsDir, saveConfig, scratchDir, type RepoConfig, type RunnerConfig } from './config.js';
 import { consumeStreamLine, detectClaude, newStreamState, type ClaudeInfo } from './claude.js';
 import { buildClaudeArgs, PROMPT_REQUIRED_FLAGS } from './claude-args.js';
 import { mirroredDeny, READ_MIRRORED_TOOLS, settingsFilesFor, WRITE_TOOLS } from './user-permissions.js';
@@ -50,13 +53,16 @@ import { clampReport, reportFor, type Attempt, type KillReason, type StatusRepor
 import { prepareCheckout, prepareConversationWorktree, prepareRunWorktree, removeRunWorktree, touchWorktree } from './worktree.js';
 import { chunk, CONVERSATION_GC_INTERVAL_MS, listWorktreeCandidates, removeWorktrees, selectForRemoval, type WorktreeCandidate } from './conversation-gc.js';
 import { KeyedMutex } from './keyed-mutex.js';
-import { checkRepoHealth, describeFinding, REPO_HEALTH_INTERVAL_MS, repoIssues, type RepoIssue } from './repo-health.js';
+import { describeFinding, REPO_HEALTH_INTERVAL_MS, repoChoices, repoFindings, repoIssues, scanRepos, type RepoChoice, type RepoIssue } from './repo-health.js';
+import { applyRepoCommand, parseRepoCommands, type RepoCommandResult } from './repo-commands.js';
 import { RunLease, signalGroup } from './run-lease.js';
 import { runnerVersion } from './version.js';
 
 const execFileP = promisify(execFile);
 
 const CLAIM_POLL_MS = 5_000;
+// cabecera de la respuesta del claim con los comandos de repos pendientes para esta máquina.
+const REPO_COMMANDS_HEADER = 'x-duckhunt-repo-commands';
 // SIGTERM → SIGKILL (al grupo) si el proceso no muere en este margen.
 const KILL_GRACE_MS = 10_000;
 // tras la salida de claude, espera máxima a que se cierren sus pipes: un proceso en background que
@@ -127,9 +133,14 @@ export class RunnerDaemon {
   // última foto de la salud de los repos (lo que anuncia el claim; null = aún sin chequeo que haya
   // terminado: el claim no la manda, nunca un [] que el server leería como "todo sano") y su huella.
   private repoHealth: RepoIssue[] | null = null;
+  // repos con carpeta que elegir (lo que se anuncia) y el path local de cada id (lo que se acepta).
+  private repoChoices: RepoChoice[] | null = null;
+  private candidatePaths: ReadonlyMap<string, { repo: string; path: string }> = new Map();
+  private repoCommandsInFlight = false;
   private repoHealthPrint: string | null = null;
   private lastRepoHealthAt = 0;
-  private repoHealthInFlight = false;
+  // chequeo en curso: los forzados lo esperan en vez de solaparse con él.
+  private repoHealthRun: Promise<void> | null = null;
 
   constructor(
     private readonly cfg: RunnerConfig,
@@ -174,6 +185,7 @@ export class RunnerDaemon {
         : []),
       RUNNER_CAPABILITY.events,
       RUNNER_CAPABILITY.checkout,
+      ...(this.cfg.defaults.remoteRepoEdits === false ? [] : [RUNNER_CAPABILITY.repoEdit]),
     ];
   }
 
@@ -255,6 +267,7 @@ export class RunnerDaemon {
         runnerLabel: this.label(),
         repos: Object.keys(this.cfg.repos),
         ...(this.repoHealth ? { repoIssues: this.repoHealth } : {}),
+        ...(this.repoChoices ? { repoCandidates: this.repoChoices } : {}),
         awsAccounts: Object.keys(this.cfg.aws),
         capabilities: this.capabilities(),
         slots: this.slots,
@@ -265,6 +278,7 @@ export class RunnerDaemon {
       console.error(`[runner] claim inaccesible: ${(err as Error).message}`);
       return null;
     }
+    if (Number(res.headers.get(REPO_COMMANDS_HEADER)) > 0) void this.syncRepoCommands();
     // 204 = nada que hacer (o runner pausado desde /settings/agents).
     if (res.status === 204) return null;
     if (res.status !== 200) {
@@ -304,13 +318,28 @@ export class RunnerDaemon {
 
   // --- salud de los repos (en el loop de claim, throttled y sin esperarla) ---
 
-  private async refreshRepoHealth(): Promise<void> {
-    if (this.repoHealthInFlight || Date.now() - this.lastRepoHealthAt < REPO_HEALTH_INTERVAL_MS) return;
-    this.repoHealthInFlight = true;
+  // force: tras cambiar el mapa, sin esperar a la cadencia (espera antes al chequeo en curso, que
+  // mide el mapa viejo).
+  private async refreshRepoHealth(force = false): Promise<void> {
+    if (this.repoHealthRun) {
+      if (!force) return;
+      await this.repoHealthRun;
+    }
+    if (!force && Date.now() - this.lastRepoHealthAt < REPO_HEALTH_INTERVAL_MS) return;
     this.lastRepoHealthAt = Date.now();
+    this.repoHealthRun = this.checkRepos().finally(() => (this.repoHealthRun = null));
+    await this.repoHealthRun;
+  }
+
+  private async checkRepos(): Promise<void> {
     try {
-      const findings = await checkRepoHealth(this.cfg.repos, scrubEnv(process.env));
+      const env = scrubEnv(process.env);
+      const scan = await scanRepos(this.cfg.repos, env);
+      const findings = repoFindings(scan);
+      const { choices, paths } = await repoChoices(scan, env);
       this.repoHealth = repoIssues(findings);
+      this.repoChoices = choices;
+      this.candidatePaths = paths;
       const lines = findings.map((f) => describeFinding(f));
       const print = lines.join('\n');
       if (print !== this.repoHealthPrint) {
@@ -320,8 +349,49 @@ export class RunnerDaemon {
       }
     } catch (err) {
       console.error(`[runner] chequeo de repos falló: ${(err as Error).message}`);
+    }
+  }
+
+  // comandos de repos pendientes (los avisa la cabecera del claim): pedir, aplicar en orden sobre el
+  // mapa, guardar UNA vez, re-chequear y reportar. con las ediciones remotas apagadas se rechazan.
+  private async syncRepoCommands(): Promise<void> {
+    if (this.repoCommandsInFlight) return;
+    this.repoCommandsInFlight = true;
+    try {
+      const res = await this.api('/repo-commands', { runnerLabel: this.label() });
+      if (!res.ok) {
+        console.error(`[runner] repos: /repo-commands respondió http ${res.status}`);
+        return;
+      }
+      const commands = parseRepoCommands(await res.json().catch(() => null));
+      if (commands.length === 0) return;
+      const env = scrubEnv(process.env);
+      const disabled = this.cfg.defaults.remoteRepoEdits === false;
+      // i/o secuencial: cada comando se aplica sobre el mapa que dejó el anterior.
+      let repos = this.cfg.repos;
+      const results: RepoCommandResult[] = [];
+      for (const cmd of commands) {
+        if (disabled) {
+          results.push({ id: cmd.id, ok: false, error: 'este runner no acepta cambios de repos desde duckhunt (defaults.remoteRepoEdits)' });
+          continue;
+        }
+        const applied = await applyRepoCommand(repos, cmd, this.candidatePaths, env);
+        repos = applied.repos;
+        results.push(applied.result);
+        if (applied.log) console.log(`[runner] repos: ${applied.log}`);
+      }
+      if (repos !== this.cfg.repos) {
+        this.cfg.repos = repos;
+        saveConfig(this.cfg);
+        await this.refreshRepoHealth(true);
+      }
+      const ack = await this.api('/repo-commands/results', { results });
+      if (!ack.ok) console.error(`[runner] repos: /repo-commands/results respondió http ${ack.status}`);
+      this.wake?.();
+    } catch (err) {
+      console.error(`[runner] repos: comandos de duckhunt fallaron: ${(err as Error).message}`);
     } finally {
-      this.repoHealthInFlight = false;
+      this.repoCommandsInFlight = false;
     }
   }
 
