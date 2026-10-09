@@ -3,8 +3,9 @@
 // path. elige un id opaco de la última lista de candidatos (repo-health.ts::repoChoices) y aquí se
 // rechaza cualquier id que no esté en ella, que sea de otro repo o cuya carpeta ya no sea un
 // checkout de ese repo. quitar un mapeo no borra nada del disco. los errores viajan al server: sin
-// paths. el daemon aplica y guarda la config (es su dueño mientras corre: reescribe el fichero en
-// cada refresh del token). se apagan en la máquina con `defaults.remoteRepoEdits: false`.
+// paths. el daemon aplica el cambio y guarda solo esas entradas del mapa sobre el fichero
+// (config.ts::mergeEntries: un `repos add` de la cli hecho mientras tanto se conserva). se apagan en la
+// máquina con `defaults.remoteRepoEdits: false`.
 
 import type { RepoConfig } from './config.js';
 import { inspectCheckouts } from './repo-health.js';

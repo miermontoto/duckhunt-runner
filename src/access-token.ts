@@ -12,6 +12,8 @@ export const TOKEN_REFRESH_MARGIN_MS = 5 * 60_000;
 export class AccessTokenSource {
   private access: AccessState | null = null;
   private refreshing: Promise<AccessState> | null = null;
+  // sube con cada reset: el resultado de un refresh que salió antes no se guarda como vigente.
+  private generation = 0;
 
   constructor(
     // refresca con el refresh token vigente y persiste el rotado (oauth.ts::refreshAccess).
@@ -22,14 +24,17 @@ export class AccessTokenSource {
   /** token vigente; si caduca pronto, refresca una sola vez aunque lo pidan N llamadas a la vez. */
   async token(): Promise<string> {
     if (this.access && this.access.expiresAt - this.now() >= TOKEN_REFRESH_MARGIN_MS) return this.access.token;
-    this.refreshing ??= this.refresh()
-      .then((access) => {
-        this.access = access;
-        return access;
-      })
-      .finally(() => {
-        this.refreshing = null;
-      });
+    if (!this.refreshing) {
+      const generation = this.generation;
+      this.refreshing = this.refresh()
+        .then((access) => {
+          if (generation === this.generation) this.access = access;
+          return access;
+        })
+        .finally(() => {
+          this.refreshing = null;
+        });
+    }
     return (await this.refreshing).token;
   }
 
@@ -37,5 +42,13 @@ export class AccessTokenSource {
    *  llamada que salió con el token anterior no fuerza un segundo refresh. */
   invalidate(token: string): void {
     if (this.access?.token === token) this.access = null;
+  }
+
+  /** descarta el token vigente: la siguiente llamada refresca (un `login` nuevo en el fichero). un
+   *  refresh ya en vuelo sirve a quien lo espera, pero no queda como vigente: salió con la credencial
+   *  de antes del reset. */
+  reset(): void {
+    this.access = null;
+    this.generation++;
   }
 }

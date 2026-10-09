@@ -6,7 +6,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { configPath, loadConfig, saveConfig } from './config.js';
+import { configPath, loadConfig, saveConfig, type RepoConfig } from './config.js';
 import { REPO_KEY_RE, sameRepoKey } from './repo-key.js';
 import { describeFinding, inspectCheckouts, repoFindings, scanRepos, type CheckoutState } from './repo-health.js';
 import { scrubEnv } from './scrub-env.js';
@@ -90,16 +90,16 @@ export async function reposCommand(args: string[]): Promise<void> {
       return;
     }
     warnStopHooks(abs);
-    cfg.repos[repo] = {
+    const entry: RepoConfig = {
       path: abs,
       ...(rest.includes('--dangerously-skip-permissions') ? { dangerouslySkipPermissions: true } : {}),
       ...(rest.includes('--no-worktree') ? { worktree: false } : {}),
     };
-    saveConfig(cfg);
+    const saved = saveConfig((current) => ({ repos: { ...current.repos, [repo]: entry } }));
     console.log(`mapeado ${repo} → ${abs} en ${configPath()}`);
     // avisos no bloqueantes (no es git, el origin es otro repo, hay otro checkout…). con la config
     // ENTERA: sola, los demás repos mapeados del mismo directorio saldrían como checkouts sin mapear.
-    const findings = repoFindings(await scanRepos(cfg.repos, scrubEnv(process.env)));
+    const findings = repoFindings(await scanRepos(saved.repos, scrubEnv(process.env)));
     findings.filter((f) => f.issue.repo === repo).forEach((f) => console.warn(`aviso: ${describeFinding(f, false)}`));
     return;
   }
@@ -162,8 +162,7 @@ export async function reposCommand(args: string[]): Promise<void> {
     }
     // los flags sensibles (skip-permissions, no-worktree) NUNCA se autodescubren:
     // son opt-in explícito por repo via `repos add` o editando la config.
-    fresh.forEach(({ key, dir }) => (cfg.repos[key] = { path: dir }));
-    saveConfig(cfg);
+    saveConfig((current) => ({ repos: { ...current.repos, ...Object.fromEntries(fresh.map(({ key, dir }) => [key, { path: dir }])) } }));
     console.log(`mapeados ${fresh.length} repo(s) en ${configPath()}`);
     return;
   }
@@ -175,8 +174,7 @@ export async function reposCommand(args: string[]): Promise<void> {
       process.exitCode = 1;
       return;
     }
-    delete cfg.repos[repo];
-    saveConfig(cfg);
+    saveConfig((current) => ({ repos: Object.fromEntries(Object.entries(current.repos).filter(([key]) => key !== repo)) }));
     console.log(`eliminado ${repo}`);
     return;
   }

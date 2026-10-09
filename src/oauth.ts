@@ -2,10 +2,16 @@
 // out-of-band (el usuario aprueba en su browser y pega el code — funciona en máquinas headless
 // donde un loopback redirect no llega). audiencia dedicada /api/runner (rfc 8707): estos tokens
 // no valen en /mcp ni viceversa.
+// credencial con el daemon en marcha (0.10.1): para su clientId manda la de memoria (es el único que
+// rota su refresh token: daemon-lock.ts); el fichero solo la cambia con un `login` nuevo (dcr = otro
+// clientId), que el daemon adopta en su siguiente refresh si es de la misma instancia. a otra
+// instancia no se cambia en caliente: los runs en vuelo latirían contra un server que no los conoce.
 
 import crypto from 'node:crypto';
+import path from 'node:path';
 import readline from 'node:readline/promises';
-import { configPath, DEFAULT_BASE_URL, loadConfig, saveConfig, type RunnerConfig } from './config.js';
+import { configPath, DEFAULT_BASE_URL, loadConfig, saveConfig, type RunnerCredential } from './config.js';
+import { daemonLockHolder } from './daemon-lock.js';
 
 // path del recurso runner en el server (espejo de canonicalRunnerResourceUrl).
 const RUNNER_RESOURCE_PATH = '/api/runner';
@@ -92,18 +98,22 @@ export async function login(baseUrl: string, label?: string): Promise<void> {
     resource,
   });
 
-  const existing = loadConfig();
-  const cfg: RunnerConfig = {
-    baseUrl: base,
-    clientId: client.client_id,
-    refreshToken: tokens.refresh_token,
-    label: label ?? existing?.label,
-    repos: existing?.repos ?? {},
-    aws: existing?.aws ?? {},
-    defaults: existing?.defaults ?? {},
-  };
-  saveConfig(cfg);
+  // solo la credencial (y la etiqueta si se pasó): mapas, defaults y lo demás del fichero se quedan.
+  const previous: { baseUrl?: string } = {};
+  const clientId = client.client_id;
+  saveConfig((current) => {
+    previous.baseUrl = current.baseUrl;
+    return { baseUrl: base, clientId, refreshToken: tokens.refresh_token, ...(label ? { label } : {}), repos: current.repos, aws: current.aws, defaults: current.defaults };
+  });
   console.log(`\nconectado. config en ${configPath()} — mapea tus repos (\`repos discover ~/dev\`) y cuentas aws (\`aws add\`).`);
+  const daemon = daemonLockHolder();
+  if (daemon?.config === path.resolve(configPath())) {
+    console.warn(
+      previous.baseUrl === undefined || previous.baseUrl === base
+        ? `aviso: el daemon en marcha (pid ${daemon.pid}) pasa a esta credencial antes de su próximo claim`
+        : `aviso: el daemon en marcha (pid ${daemon.pid}) sigue conectado a ${previous.baseUrl}: reinícialo para usar ${base}`,
+    );
+  }
 }
 
 export interface AccessState {
@@ -111,15 +121,62 @@ export interface AccessState {
   expiresAt: number;
 }
 
-/** refresca el access token del daemon. la rotación persiste el refresh nuevo AL INSTANTE
- *  (perder el refresh rotado invalida la cadena entera). */
-export async function refreshAccess(cfg: RunnerConfig): Promise<AccessState> {
-  const tokens = await postToken(cfg.baseUrl, {
+export interface RefreshResult {
+  access: AccessState;
+  // credencial vigente tras la rotación (la de `login` si se adoptó).
+  credential: RunnerCredential;
+  // false = el refresh rotado no se pudo escribir y vive solo en memoria: el daemon fuerza otro
+  // refresh (que vuelve a intentarlo) cuando el fichero cambia.
+  saved: boolean;
+}
+
+// credencial con la que refrescar: la del fichero si `login` cambió el cliente con el daemon en marcha
+// y es de la misma instancia; si no, la de memoria.
+function credentialToRefresh(current: RunnerCredential): RunnerCredential {
+  let disk: RunnerCredential | null;
+  try {
+    disk = loadConfig();
+  } catch (err) {
+    console.error(`[runner] ${(err as Error).message}: refresco con la credencial en memoria`);
+    return current;
+  }
+  if (!disk || disk.clientId === current.clientId) return current;
+  if (disk.baseUrl !== current.baseUrl) {
+    console.warn(`[runner] \`login\` apunta a otra instancia (${disk.baseUrl}): este daemon sigue con ${current.baseUrl} hasta que lo reinicies`);
+    return current;
+  }
+  console.log('[runner] credencial nueva de `login`: el daemon la adopta');
+  return { baseUrl: disk.baseUrl, clientId: disk.clientId, refreshToken: disk.refreshToken };
+}
+
+// guarda el refresh token recién rotado si el fichero sigue siendo de su cliente (un `login` hecho
+// durante el refresh gana). false = no se pudo escribir; true = guardado o ya no es de este cliente.
+function persistRefreshToken(cred: RunnerCredential): boolean {
+  try {
+    saveConfig((current) => (current.clientId === cred.clientId ? { refreshToken: cred.refreshToken } : null));
+    return true;
+  } catch (err) {
+    console.error(
+      `[runner] no se pudo guardar el refresh token rotado en ${configPath()}: ${(err as Error).message} — sigue en memoria y se reintenta cuando el fichero cambie; no reinicies el daemon hasta entonces`,
+    );
+    return false;
+  }
+}
+
+/** refresca el access token del daemon. la rotación persiste el refresh nuevo AL INSTANTE (perder el
+ *  refresh rotado invalida la cadena entera), y un fallo al guardarlo no tumba el refresh: el server
+ *  ya rotó, así que la credencial nueva vuelve igual y el daemon la sigue usando. */
+export async function refreshAccess(current: RunnerCredential): Promise<RefreshResult> {
+  const cred = credentialToRefresh(current);
+  const tokens = await postToken(cred.baseUrl, {
     grant_type: 'refresh_token',
-    refresh_token: cfg.refreshToken,
-    client_id: cfg.clientId,
+    refresh_token: cred.refreshToken,
+    client_id: cred.clientId,
   });
-  cfg.refreshToken = tokens.refresh_token;
-  saveConfig(cfg);
-  return { token: tokens.access_token, expiresAt: Date.now() + tokens.expires_in * 1000 };
+  const credential = { ...cred, refreshToken: tokens.refresh_token };
+  return {
+    access: { token: tokens.access_token, expiresAt: Date.now() + tokens.expires_in * 1000 },
+    credential,
+    saved: persistRefreshToken(credential),
+  };
 }

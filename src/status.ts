@@ -1,5 +1,6 @@
-// `duckhunt-runner status`: qué kit tiene esta máquina (claude, credencial detectada, aws cli) y
-// qué hay mapeado (repos con sus avisos de salud, cuentas aws). diagnóstico local, sin tocar el server.
+// `duckhunt-runner status`: si hay un daemon en marcha (daemon-lock.ts), qué kit tiene esta máquina
+// (claude, credencial detectada, aws cli) y qué hay mapeado (repos con sus avisos de salud, cuentas
+// aws). diagnóstico local, sin tocar el server.
 
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
@@ -7,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { concurrency, configPath, loadConfig, scratchDir } from './config.js';
+import { daemonLockHolder } from './daemon-lock.js';
 import { detectClaude } from './claude.js';
 import { describeFinding, repoFindings, scanRepos } from './repo-health.js';
 import { scrubEnv } from './scrub-env.js';
@@ -42,6 +44,8 @@ async function credentialSummary(): Promise<string> {
 
 export async function statusCommand(): Promise<void> {
   console.log(`daemon:     duckhunt-runner ${runnerVersion() ?? '?'} (config ${configPath()})`);
+  const running = daemonLockHolder();
+  console.log(`en marcha:  ${running ? `pid ${running.pid} desde ${running.startedAt} (config ${running.config})` : 'no'}`);
   const cfg = loadConfig();
   if (!cfg) {
     console.log(`sin config (${configPath()}): ejecuta \`duckhunt-runner login <base-url>\``);

@@ -3,10 +3,23 @@
 // repo→checkout y cuenta→perfil vive SOLO aquí. ~/.duckhunt-runner/ guarda el scratch dir (runs
 // sin repo, donde claude code acumula memoria) y los logs opcionales. DUCKHUNT_RUNNER_CONFIG y
 // DUCKHUNT_RUNNER_HOME los desvían (otra cuenta, otro server, pruebas e2e sin tocar la config real).
+// escritura (0.10.1): nadie reescribe el fichero con su copia en memoria. saveConfig relee el fichero,
+// cambia SOLO las claves del que escribe y lo guarda atómico (tmp + fsync + rename, 600; en sitio si
+// el directorio no lo permite): `login` la credencial, la cli y los comandos de repos de duckhunt sus
+// entradas de los mapas, el refresh del daemon su refreshToken. antes el refresh (cada hora) volcaba
+// la config entera de memoria y deshacía en silencio un `login`, `repos add` o `aws add` hechos con el
+// daemon en marcha; ahora el daemon los recarga en cada vuelta de su loop. footgun aceptado: dos
+// escritores en el mismo instante (relectura y escritura son síncronas, sub-milisegundo) se pisan y
+// gana el último.
 
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+
+// permisos del fichero de config: lleva el refresh token.
+const CONFIG_FILE_MODE = 0o600;
+// errores del tmp + rename con los que la escritura cae a en sitio (writeAtomic).
+const IN_PLACE_FALLBACK_CODES: ReadonlySet<string> = new Set(['EACCES', 'EPERM', 'EBUSY', 'EXDEV']);
 
 // instancia por defecto de `login`: la pública. otra instancia se pasa como primer argumento.
 export const DEFAULT_BASE_URL = 'https://duckhunt.info';
@@ -42,10 +55,14 @@ export interface RunnerDefaults {
   remoteRepoEdits?: boolean;
 }
 
-export interface RunnerConfig {
+/** credencial oauth del runner: la escribe `login` y su refreshToken lo rota el daemon (oauth.ts). */
+export interface RunnerCredential {
   baseUrl: string;
   clientId: string;
   refreshToken: string;
+}
+
+export interface RunnerConfig extends RunnerCredential {
   // etiqueta del runner en agent_run.runner_label (default: hostname).
   label?: string;
   // mapa clave ws/slug → checkout local.
@@ -54,6 +71,12 @@ export interface RunnerConfig {
   aws: Record<string, AwsAccountConfig>;
   defaults: RunnerDefaults;
 }
+
+/** lo que el daemon recarga en caliente en cada vuelta de su loop: todo menos la credencial. */
+export type LocalConfig = Omit<RunnerConfig, keyof RunnerCredential>;
+
+/** el fichero tal cual, con los mapas ausentes vacíos: la credencial puede faltar (sin `login` aún). */
+export type StoredConfig = Partial<RunnerCredential> & LocalConfig;
 
 // tope de defaults.maxConcurrent: cada claude son ~300-450 MB y todos gastan la misma ventana del plan.
 export const MAX_CONCURRENT_LIMIT = 8;
@@ -88,34 +111,121 @@ export function logsDir(): string {
   return dir;
 }
 
-/** carga la config; null si no existe (login pendiente). lanza si el json es inválido. */
-export function loadConfig(): RunnerConfig | null {
-  const file = configPath();
-  if (!fs.existsSync(file)) return null;
-  const raw = fs.readFileSync(file, 'utf-8');
+/** texto del fichero de config, o null si no existe. el daemon lo compara para recargar solo si cambió. */
+export function readConfigText(): string | null {
+  try {
+    return fs.readFileSync(configPath(), 'utf-8');
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    throw err;
+  }
+}
+
+// objeto json del fichero (claves desconocidas incluidas: se conservan al escribir).
+function parseObject(text: string): Record<string, unknown> {
   let parsed: unknown;
   try {
-    parsed = JSON.parse(raw);
+    parsed = JSON.parse(text);
   } catch (err) {
-    throw new Error(`config inválida en ${file}: ${(err as Error).message}`);
+    throw new Error(`config inválida en ${configPath()}: ${(err as Error).message}`);
   }
-  const cfg = parsed as Partial<RunnerConfig>;
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    throw new Error(`config inválida en ${configPath()}: no es un objeto json`);
+  }
+  return parsed as Record<string, unknown>;
+}
+
+const stored = (raw: Record<string, unknown>): StoredConfig => {
+  const cfg = raw as Partial<RunnerConfig>;
+  return { ...cfg, repos: cfg.repos ?? {}, aws: cfg.aws ?? {}, defaults: cfg.defaults ?? {} };
+};
+
+/** config a partir del texto del fichero; lanza si el json es inválido o le falta la credencial. */
+export function parseConfig(text: string): RunnerConfig {
+  const cfg = stored(parseObject(text));
   if (!cfg.baseUrl || !cfg.clientId || !cfg.refreshToken) {
-    throw new Error(`config incompleta en ${file}: ejecuta \`duckhunt-runner login <base-url>\``);
+    throw new Error(`config incompleta en ${configPath()}: ejecuta \`duckhunt-runner login <base-url>\``);
   }
   return {
     baseUrl: cfg.baseUrl,
     clientId: cfg.clientId,
     refreshToken: cfg.refreshToken,
     label: cfg.label,
-    repos: cfg.repos ?? {},
-    aws: cfg.aws ?? {},
-    defaults: cfg.defaults ?? {},
+    repos: cfg.repos,
+    aws: cfg.aws,
+    defaults: cfg.defaults,
   };
 }
 
-/** persiste la config con permisos 600 (contiene el refresh token). */
-export function saveConfig(cfg: RunnerConfig): void {
-  const file = configPath();
-  fs.writeFileSync(file, `${JSON.stringify(cfg, null, 2)}\n`, { mode: 0o600 });
+/** carga la config; null si no existe (login pendiente). lanza si el json es inválido. */
+export function loadConfig(): RunnerConfig | null {
+  const text = readConfigText();
+  return text === null ? null : parseConfig(text);
+}
+
+// path real del fichero: el tmp va a su lado y un symlink (dotfiles) sigue siendo symlink, también
+// uno colgante (su destino aún no existe: se crea, como hacía writeFileSync).
+function realConfigPath(file: string): string {
+  try {
+    return fs.realpathSync(file);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+  }
+  try {
+    return path.resolve(path.dirname(file), fs.readlinkSync(file));
+  } catch (err) {
+    // ENOENT = no existe; EINVAL = existe pero no es un symlink.
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === 'ENOENT' || code === 'EINVAL') return file;
+    throw err;
+  }
+}
+
+// tmp + fsync + rename: un lector (el daemon recargando, otro comando) nunca ve un json a medias y un
+// corte no deja el fichero vacío (perder el refresh token rotado obliga a un `login` nuevo). si el tmp
+// no se puede crear a su lado o renombrar encima (directorio sin escritura, fichero montado suelto en
+// un contenedor), se escribe en sitio como antes de 0.10.1: sin atomicidad, pero sin perder el refresh.
+function writeAtomic(file: string, content: string): void {
+  const target = realConfigPath(file);
+  const tmp = `${target}.${process.pid}.tmp`;
+  try {
+    const fd = fs.openSync(tmp, 'w', CONFIG_FILE_MODE);
+    try {
+      fs.writeFileSync(fd, content);
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.renameSync(tmp, target);
+  } catch (err) {
+    fs.rmSync(tmp, { force: true });
+    if (!IN_PLACE_FALLBACK_CODES.has((err as NodeJS.ErrnoException).code ?? '') || !fs.existsSync(target)) throw err;
+    fs.writeFileSync(target, content, { mode: CONFIG_FILE_MODE });
+  }
+}
+
+/**
+ * cambia en la config SOLO las claves que devuelve `change`, calculadas sobre lo que hay AHORA en el
+ * fichero (nunca sobre una copia en memoria); el resto, claves desconocidas incluidas, queda como
+ * estaba. null = nada que escribir. devuelve la config que queda en el fichero.
+ */
+export function saveConfig(change: (current: StoredConfig) => Partial<RunnerConfig> | null): StoredConfig {
+  const text = readConfigText();
+  const raw = text === null ? {} : parseObject(text);
+  const patch = change(stored(raw));
+  if (patch === null) return stored(raw);
+  const next = { ...raw, ...patch };
+  writeAtomic(configPath(), `${JSON.stringify(next, null, 2)}\n`);
+  return stored(next);
+}
+
+/**
+ * lleva al mapa del fichero (`current`) lo que cambió en memoria de `before` a `after`: quita las
+ * claves quitadas y pone las añadidas o cambiadas. lo demás del fichero (lo que la cli añadió o quitó
+ * mientras tanto) se conserva.
+ */
+export function mergeEntries<T>(current: Record<string, T>, before: Record<string, T>, after: Record<string, T>): Record<string, T> {
+  const removed = new Set(Object.keys(before).filter((key) => !Object.hasOwn(after, key)));
+  const changed = Object.entries(after).filter(([key, value]) => !Object.hasOwn(before, key) || JSON.stringify(before[key]) !== JSON.stringify(value));
+  return { ...Object.fromEntries(Object.entries(current).filter(([key]) => !removed.has(key))), ...Object.fromEntries(changed) };
 }

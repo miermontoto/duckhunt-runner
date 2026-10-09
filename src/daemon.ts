@@ -31,6 +31,13 @@
 //   respuesta del claim trae la cabecera de comandos pendientes, el daemon los pide, los aplica a SU
 //   config (repo-commands.ts), la guarda, re-chequea y reporta; luego reclama ya para que la
 //   presencia nueva llegue sin esperar al poll.
+// - config en caliente (0.10.1): en cada vuelta del loop (antes del claim, y también con los slots
+//   llenos) relee el fichero (solo si su texto cambió) y toma mapas, etiqueta y defaults (slots
+//   incluidos), así `repos add`, `aws add` o una edición a mano valen sin reiniciar; si cambian los
+//   repos, re-chequea su salud antes del claim. la credencial NO se recarga: vive en memoria y solo
+//   la cambia el refresh (oauth.ts). un `login` nuevo de la misma instancia (otro clientId) o un
+//   refresh rotado que no se pudo guardar fuerzan un refresh, que adopta o reescribe lo que toca. al
+//   guardar, el daemon solo escribe sus claves (config.ts).
 
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import crypto from 'node:crypto';
@@ -41,7 +48,19 @@ import readline from 'node:readline';
 import { promisify } from 'node:util';
 import { refreshAccess } from './oauth.js';
 import { AccessTokenSource } from './access-token.js';
-import { concurrency, logsDir, saveConfig, scratchDir, type RepoConfig, type RunnerConfig } from './config.js';
+import {
+  concurrency,
+  logsDir,
+  mergeEntries,
+  parseConfig,
+  readConfigText,
+  saveConfig,
+  scratchDir,
+  type LocalConfig,
+  type RepoConfig,
+  type RunnerConfig,
+  type RunnerCredential,
+} from './config.js';
 import { consumeStreamLine, detectClaude, newStreamState, type ClaudeInfo } from './claude.js';
 import { buildClaudeArgs, PROMPT_REQUIRED_FLAGS } from './claude-args.js';
 import { mirroredDeny, READ_MIRRORED_TOOLS, settingsFilesFor, WRITE_TOOLS } from './user-permissions.js';
@@ -122,7 +141,14 @@ export class RunnerDaemon {
   // runs en vuelo, uno por slot ocupado. por objeto y no por id: la misma fila re-encolada puede
   // reclamarse mientras el segmento anterior aún cierra.
   private readonly leases = new Set<RunLease>();
-  private readonly slots: number;
+  // mapas, etiqueta y defaults: los recarga reloadConfig en cada vuelta del loop.
+  private cfg: LocalConfig;
+  // credencial viva: la rota el refresh y solo la cambia un `login` (oauth.ts::refreshAccess).
+  private credential: RunnerCredential;
+  // el último refresh rotado no se pudo escribir: al cambiar el fichero se fuerza otro refresh.
+  private credentialUnsaved = false;
+  // texto del fichero en la última recarga (undefined = aún sin leer).
+  private configText: string | null | undefined;
   // git sobre un mismo checkout (clave: path resuelto del checkout) y cwd compartidos (clave: cwd).
   private readonly gitLocks = new KeyedMutex();
   private readonly cwdLocks = new KeyedMutex();
@@ -143,17 +169,29 @@ export class RunnerDaemon {
   private repoHealthRun: Promise<void> | null = null;
 
   constructor(
-    private readonly cfg: RunnerConfig,
+    cfg: RunnerConfig,
     private readonly opts: DaemonOptions = {},
   ) {
-    this.auth = new AccessTokenSource(() => refreshAccess(cfg));
-    this.slots = concurrency(cfg.defaults);
+    const { baseUrl, clientId, refreshToken, ...local } = cfg;
+    this.credential = { baseUrl, clientId, refreshToken };
+    this.cfg = local;
+    this.auth = new AccessTokenSource(async () => {
+      const { access, credential, saved } = await refreshAccess(this.credential);
+      this.credential = credential;
+      this.credentialUnsaved = !saved;
+      return access;
+    });
+  }
+
+  // slots del daemon: defaults.maxConcurrent de la config recargada.
+  private get slots(): number {
+    return concurrency(this.cfg.defaults);
   }
 
   // fetch autenticado contra /api/runner con timeout y un reintento tras refresh en 401.
   private async api(pathname: string, body?: unknown): Promise<Response> {
     const call = async (token: string): Promise<Response> =>
-      fetch(`${this.cfg.baseUrl}/api/runner${pathname}`, {
+      fetch(`${this.credential.baseUrl}/api/runner${pathname}`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -202,10 +240,12 @@ export class RunnerDaemon {
     );
     this.installSignalHandlers();
     console.log(
-      `[runner] duckhunt-runner ${runnerVersion() ?? '?'} · ${this.label()} → ${this.cfg.baseUrl} (claude ${this.claude.version}, aws cli ${this.hasAws ? 'sí' : 'no'}, ${Object.keys(this.cfg.repos).length} repos, ${Object.keys(this.cfg.aws).length} cuentas aws, capacidades ${this.capabilities().join(',')}, ${this.slots} slot${this.slots === 1 ? '' : 's'}, poll ${CLAIM_POLL_MS / 1000}s)`,
+      `[runner] duckhunt-runner ${runnerVersion() ?? '?'} · ${this.label()} → ${this.credential.baseUrl} (claude ${this.claude.version}, aws cli ${this.hasAws ? 'sí' : 'no'}, ${Object.keys(this.cfg.repos).length} repos, ${Object.keys(this.cfg.aws).length} cuentas aws, capacidades ${this.capabilities().join(',')}, ${this.slots} slot${this.slots === 1 ? '' : 's'}, poll ${CLAIM_POLL_MS / 1000}s)`,
     );
     await this.refreshRepoHealth();
     while (!this.stopping) {
+      // también con los slots llenos: un maxConcurrent más alto vale sin esperar a que acabe un run.
+      await this.reloadConfig();
       void this.refreshRepoHealth();
       // slots llenos: el cierre de un run despierta el loop (o el siguiente poll).
       if (this.leases.size >= this.slots) {
@@ -368,7 +408,8 @@ export class RunnerDaemon {
       const env = scrubEnv(process.env);
       const disabled = this.cfg.defaults.remoteRepoEdits === false;
       // i/o secuencial: cada comando se aplica sobre el mapa que dejó el anterior.
-      let repos = this.cfg.repos;
+      const before = this.cfg.repos;
+      let repos = before;
       const results: RepoCommandResult[] = [];
       for (const cmd of commands) {
         if (disabled) {
@@ -380,9 +421,11 @@ export class RunnerDaemon {
         results.push(applied.result);
         if (applied.log) console.log(`[runner] repos: ${applied.log}`);
       }
-      if (repos !== this.cfg.repos) {
-        this.cfg.repos = repos;
-        saveConfig(this.cfg);
+      if (repos !== before) {
+        // solo lo que cambiaron los comandos, sobre el mapa del fichero: un `repos add` de la cli
+        // hecho mientras tanto se conserva.
+        const after = repos;
+        this.cfg = { ...this.cfg, repos: saveConfig((current) => ({ repos: mergeEntries(current.repos, before, after) })).repos };
         await this.refreshRepoHealth(true);
       }
       const ack = await this.api('/repo-commands/results', { results });
@@ -393,6 +436,41 @@ export class RunnerDaemon {
     } finally {
       this.repoCommandsInFlight = false;
     }
+  }
+
+  // --- config en caliente (cada vuelta del loop) ---
+
+  // relee el fichero si su texto cambió: mapas, etiqueta y defaults se toman tal cual; un fichero
+  // ausente o ilegible deja la config cargada (se avisa una vez por cambio). la credencial no se
+  // toca: un `login` de la misma instancia o un refresh sin guardar fuerzan el refresh que lo resuelve.
+  private async reloadConfig(): Promise<void> {
+    let text: string | null;
+    try {
+      text = readConfigText();
+    } catch (err) {
+      console.error(`[runner] config ilegible: ${(err as Error).message} — sigo con la cargada`);
+      return;
+    }
+    if (text === this.configText) return;
+    this.configText = text;
+    if (text === null) {
+      console.warn('[runner] el fichero de config ya no existe: sigo con la cargada');
+      return;
+    }
+    let next: RunnerConfig;
+    try {
+      next = parseConfig(text);
+    } catch (err) {
+      console.error(`[runner] ${(err as Error).message} — sigo con la config cargada`);
+      return;
+    }
+    const { baseUrl, clientId, refreshToken, ...local } = next;
+    if (this.credentialUnsaved || (clientId !== this.credential.clientId && baseUrl === this.credential.baseUrl)) this.auth.reset();
+    if (JSON.stringify(local) === JSON.stringify(this.cfg)) return;
+    const reposChanged = JSON.stringify(local.repos) !== JSON.stringify(this.cfg.repos);
+    this.cfg = local;
+    console.log(`[runner] config recargada: ${Object.keys(local.repos).length} repos, ${Object.keys(local.aws).length} cuentas aws, ${this.slots} slot${this.slots === 1 ? '' : 's'}`);
+    if (reposChanged) await this.refreshRepoHealth(true);
   }
 
   // --- gc de worktrees (en el loop de claim, throttled) ---

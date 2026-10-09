@@ -37,19 +37,25 @@ That is the whole thing. Step by step:
 
 | Command | What it does |
 | --- | --- |
-| `login [base-url] [label]` | Connects the daemon to your account. Opens the browser, you paste the code back. Defaults to `https://duckhunt.info`; pass a URL for another instance (`https://` is assumed if you omit the scheme). Both arguments are optional — an argument that does not look like a URL is taken as the label, which distinguishes machines if you run more than one. |
+| `login [base-url] [label]` | Connects the daemon to your account. Opens the browser, you paste the code back. Defaults to `https://duckhunt.info`; pass a URL for another instance (`https://` is assumed if you omit the scheme). Both arguments are optional — an argument that does not look like a URL is taken as the label, which distinguishes machines if you run more than one. A running daemon switches to the new credential before its next claim; one connected to another instance keeps it until you restart it. |
 | `repos discover [dir]` | Scans a directory for git checkouts and maps each one by its `origin` remote, so an agent can read the code behind an alarm. Add `--dry-run` to see what it would map. Only the `workspace/slug` key reaches the server. A repo checked out in more than one directory is listed but not mapped: pick one with `repos add`. |
 | `repos list\|add\|remove` | Manage that map by hand: `repos add <workspace/slug> <path>`. `list` and `add` show each repo's health warnings (see below). |
 | `aws add <accountId> <profile>` | Optional. Binds an AWS account id to a profile of your local AWS CLI, so the agent can read metrics, logs and resource state for that account. |
 | `aws list\|remove` | Manage the AWS map. |
-| `status` | Reports this machine's kit: Claude version, which credential it will use, AWS profiles and mapped repos. Run this first when something does not work. |
+| `status` | Reports whether a daemon is running and this machine's kit: Claude version, which credential it will use, AWS profiles and mapped repos. Run this first when something does not work. |
 | `start [--verbose]` | Starts the claim loop. |
 
 Configuration lives in `~/.duckhunt-runner.json`. It holds the base URL, the OAuth credential, the
 repo and AWS maps, and optional defaults (`model`, `maxBudgetUsd`, `maxConcurrent`). Set `DUCKHUNT_RUNNER_CONFIG` to use
 another file (a second account, a test instance) and `DUCKHUNT_RUNNER_HOME` to move the state
-directory (`~/.duckhunt-runner`: the scratch directory and `--verbose` logs). `--version` prints the
+directory (`~/.duckhunt-runner`: the scratch directory, `--verbose` logs and the daemon lock). `--version` prints the
 daemon version.
+
+The daemon does not need a restart after `login`, `repos`, `aws` or a hand edit of the file: it
+rereads the config every few seconds, even while all its slots are busy. Each command, and the
+daemon itself when it rotates its token, rewrites only its own keys and replaces the file in one
+step, so nothing undoes another's change. If the file does not parse (a hand edit in progress), the
+daemon keeps the config it has and says so.
 
 ### Repo health
 
@@ -81,8 +87,8 @@ how many files have uncommitted changes. Full paths never leave the machine.
 The server never supplies a path. A folder choice is an opaque id the daemon generated itself, and
 the daemon rejects any id that is not in its own current list, belongs to another repo, or whose
 folder is no longer a checkout of that repo. Removing a mapping never deletes anything on disk. The
-daemon applies the change to its own config (it owns the file while running), checks again and
-reports back within a few seconds.
+daemon writes only that entry of its map to the config file, checks again and reports back within
+a few seconds.
 
 To keep the map CLI-only on a machine, set `"remoteRepoEdits": false` under `defaults` in
 `~/.duckhunt-runner.json`: the card then hides the controls.
@@ -108,10 +114,15 @@ WantedBy=default.target
 Stopping the daemon (`ctrl-c`, `SIGTERM`) stops every run in progress, including anything their
 shell commands started, and reports them as failed. A second signal exits immediately.
 
+Only one daemon runs per state directory. `start` takes `~/.duckhunt-runner/daemon.lock` and refuses to
+run while the daemon that holds it is alive; a lock left by a daemon that died, or from before a
+reboot, is replaced. To run a
+second account on the same machine, give it its own `DUCKHUNT_RUNNER_CONFIG` and `DUCKHUNT_RUNNER_HOME`.
+
 ### Parallel runs
 
 By default the daemon works one run at a time. Set `defaults.maxConcurrent` in the config (1 to 8)
-to run several at once, and restart the daemon:
+to run several at once; a running daemon picks it up within a few seconds:
 
 ```json
 { "defaults": { "maxConcurrent": 3 } }
@@ -124,7 +135,8 @@ creation and cleanup), automation runs in a checkout mapped with `worktree: fals
 with the `edit` profile and no repo (they share the scratch directory). A run waiting for its turn
 still heartbeats and says so in its feed. The daemon reports its slot count, and Settings → Agents
 shows how many are in use. Never run two daemons on the same config file: the credential rotates on
-every refresh and duckhunt revokes it when it sees an old one again. Raise one daemon's slots instead.
+every refresh and duckhunt revokes it when it sees an old one again. `start` refuses a second daemon
+on the same state directory; raise one daemon's slots instead.
 
 ## How a run works
 

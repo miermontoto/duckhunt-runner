@@ -1,9 +1,12 @@
 #!/usr/bin/env node
 // cli del daemon de duckhunt (contrato 42): `login` conecta la credencial oauth (audiencia
 // /api/runner), `repos`/`aws` mantienen los mapas locales, `status` diagnostica el kit de la
-// máquina y el modo por defecto (`start`) arranca el loop de claim.
+// máquina y el modo por defecto (`start`) arranca el loop de claim. `start` toma antes de nada el lock
+// de un solo daemon (daemon-lock.ts) y lo suelta al salir; `login`, `repos` y `aws` con el daemon en
+// marcha valen sin reiniciarlo (lo recarga en cada vuelta de su loop).
 
 import { configPath, DEFAULT_BASE_URL, loadConfig } from './config.js';
+import { acquireDaemonLock } from './daemon-lock.js';
 import { login, parseLoginArgs } from './oauth.js';
 import { RunnerDaemon } from './daemon.js';
 import { reposCommand } from './repos.js';
@@ -60,6 +63,7 @@ async function main(): Promise<void> {
     process.exitCode = 1;
     return;
   }
+  process.once('exit', acquireDaemonLock());
   // salida explícita: los sockets keep-alive de fetch no deben alargar la parada.
   process.exit(await new RunnerDaemon(cfg, { verboseLog: rest.includes('--verbose') }).run());
 }

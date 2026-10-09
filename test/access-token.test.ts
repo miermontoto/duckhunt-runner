@@ -72,3 +72,19 @@ test('un refresh fallido se propaga a todos y el siguiente vuelve a intentarlo',
   assert.equal(calls, 1);
   assert.equal(await src.token(), 'ok');
 });
+
+test('reset con un refresh en vuelo: ese token sirve a quien lo espera y el siguiente refresca otra vez', async () => {
+  const now = () => 0;
+  const f = fakeRefresh(now);
+  const src = new AccessTokenSource(f.refresh, now);
+  const inFlight = src.token();
+  // un `login` llega mientras el refresh sale con la credencial vieja.
+  src.reset();
+  f.release();
+  assert.equal(await inFlight, 't1');
+  const next = src.token();
+  f.release();
+  assert.equal(await next, 't2');
+  assert.equal(f.calls(), 2);
+  assert.equal(await src.token(), 't2');
+});

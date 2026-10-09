@@ -43,8 +43,7 @@ export function awsCommand(args: string[]): void {
       process.exitCode = 1;
       return;
     }
-    cfg.aws[account] = { profile, ...(region ? { region } : {}) };
-    saveConfig(cfg);
+    saveConfig((current) => ({ aws: { ...current.aws, [account]: { profile, ...(region ? { region } : {}) } } }));
     console.log(`mapeada la cuenta ${account} → perfil ${profile}${region ? ` (${region})` : ''} en ${configPath()}`);
     return;
   }
@@ -56,8 +55,7 @@ export function awsCommand(args: string[]): void {
       process.exitCode = 1;
       return;
     }
-    delete cfg.aws[account];
-    saveConfig(cfg);
+    saveConfig((current) => ({ aws: Object.fromEntries(Object.entries(current.aws).filter(([key]) => key !== account)) }));
     console.log(`eliminada la cuenta ${account}`);
     return;
   }
