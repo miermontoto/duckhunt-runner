@@ -1,4 +1,9 @@
-// claim → argv de claude: validación local (nada del server acaba como flag) y flags por kind.
+// claim → argv de claude: validación local (nada del server acaba como flag) y flags por kind. y el
+// contrato del cable con el server (t#465): los claims reales que compone duckhunt (copias de sus
+// fixtures en test/fixtures/claims, que genera su template-seed-kit.test.ts, y la matriz dorada del
+// resolver de política en test/fixtures/claim-kits, de su claim-kit.test.ts: semilla × perfil × tier ×
+// capabilities × candados × commentJira × aws anunciada) los acepta parseClaim y buildClaudeArgs los
+// cumple — una investigación es un prompt run de lectura y nunca sale de ahí.
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -6,7 +11,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { buildClaudeArgs, type ClaudeArgsInput } from '../src/claude-args.js';
-import { AWS_OUTFILE_COMMANDS, claimRunId, parseClaim } from '../src/claim.js';
+import { AWS_OUTFILE_COMMANDS, claimRunId, isAwsReadPattern, parseClaim } from '../src/claim.js';
 import { mirrorAllow, mirroredDeny, READ_MIRRORED_TOOLS, settingsFilesFor, WRITE_TOOLS } from '../src/user-permissions.js';
 import { OPTIONAL_FLAGS } from '../src/claude.js';
 import { clampReport } from '../src/status-report.js';
@@ -244,4 +249,82 @@ test('clampReport enmascara secretos del result, el error y el stderr', () => {
   });
   assert.ok(!r.result?.includes('ghp_') && !r.error?.includes('ATBB') && !r.stderrTail?.includes('hunter2'));
   assert.match(r.error ?? '', /https:\/\/\*\*\*@bitbucket\.org/);
+});
+
+// espejo de AGENT_SECRET_READ_DENY del server: todo kit de lectura lo lleva al deny.
+const SERVER_SECRET_READ_DENY = [
+  'Read(~/.aws/**)',
+  'Read(~/.ssh/**)',
+  'Read(~/.duckhunt-runner.json)',
+  'Read(~/.claude/.credentials.json)',
+  'Read(~/.config/gh/**)',
+  'Read(~/.netrc)',
+  'Read(~/.git-credentials)',
+  'Read(~/.docker/config.json)',
+  'Read(//tmp/duckhunt-runner-*)',
+];
+const fixturesIn = (dir: string) => {
+  const url = new URL(`../../test/fixtures/${dir}/`, import.meta.url);
+  return fs
+    .readdirSync(url)
+    .filter((f) => f.endsWith('.json'))
+    .sort()
+    .map((name) => ({ name: `${dir}/${name}`, raw: JSON.parse(fs.readFileSync(new URL(name, url), 'utf8')) as Record<string, unknown> }));
+};
+const goldenClaims = fixturesIn('claim-kits');
+const claimFixtures = [...fixturesIn('claims'), ...goldenClaims];
+const flagValue = (args: string[], flag: string): string[] => {
+  const i = args.indexOf(flag);
+  return i === -1 ? [] : args[i + 1]!.split(',');
+};
+
+test('claims del server (t#465): las investigaciones viajan como prompt run de lectura y el daemon las cumple', () => {
+  const seeds = claimFixtures.map(({ raw }) => (raw.run as { seed?: string }).seed);
+  assert.ok(seeds.includes('template') && seeds.includes('prompt'), 'hay fixtures de las dos semillas');
+  claimFixtures.forEach(({ name, raw }) => {
+    const claim = parseClaim(raw);
+    assert.deepEqual(claim.warnings, [], `${name}: el server no manda nada que este daemon descarte`);
+    assert.equal(claim.run.kind, 'prompt', name);
+    // skip-permissions local a propósito: un prompt run (una investigación incluida) nunca lo hereda.
+    const args = buildClaudeArgs({
+      claim,
+      prompt: claim.prompt,
+      mcpConfigFile: '/tmp/mcp.json',
+      supported: allFlags,
+      resumeSessionId: claim.run.sessionId,
+      skipPermissions: true,
+      payingWithApiKey: true,
+    });
+    const allowed = flagValue(args, '--allowedTools');
+    const disallowed = flagValue(args, '--disallowedTools');
+    assert.ok(args.includes('--strict-mcp-config'), `${name}: sin el .mcp.json del checkout`);
+    assert.ok(!args.includes('--dangerously-skip-permissions'), `${name}: nunca salta permisos`);
+    assert.ok(!args.includes('--max-turns') && !args.includes('--max-budget-usd'), `${name}: el tope es el wall clock`);
+    assert.equal(args[args.indexOf('--permission-mode') + 1], 'dontAsk', name);
+    if (claim.run.profile === 'edit') {
+      assert.ok(allowed.includes('Bash') && !args.includes('--setting-sources'), `${name}: edición, como siempre`);
+      return;
+    }
+    assert.deepEqual(args.slice(args.indexOf('--setting-sources'), args.indexOf('--setting-sources') + 2), ['--setting-sources', 'user'], `${name}: ni hooks ni settings del checkout`);
+    assert.ok(!allowed.includes('Bash'), `${name}: nunca Bash entero en lectura`);
+    assert.deepEqual(allowed.filter((t) => ['Edit', 'Write', 'NotebookEdit'].includes(t)), [], `${name}: lectura no escribe`);
+    assert.deepEqual(allowed.filter((t) => t.startsWith('Bash(') && !isAwsReadPattern(t)), [], `${name}: solo aws fijada en lectura`);
+    assert.ok(SERVER_SECRET_READ_DENY.every((t) => disallowed.includes(t)), `${name}: credenciales vetadas`);
+    if ((raw.run as { seed?: string }).seed !== 'template') return;
+    assert.deepEqual(allowed.filter((t) => ['WebFetch', 'WebSearch'].includes(t)), [], `${name}: una plantilla no navega`);
+    assert.ok(['Edit', 'Write', 'WebFetch', 'WebSearch', 'NotebookEdit'].every((t) => disallowed.includes(t)), `${name}: sin memoria ni web`);
+    if (claim.run.aws === null) assert.ok(!allowed.some((t) => t.startsWith('Bash(aws ')), `${name}: sin la cuenta anunciada, sin aws`);
+    if (!allowed.some((t) => t.startsWith('Bash(aws '))) assert.equal(claim.run.aws, null, `${name}: sin aws, sin perfil que mapear`);
+  });
+});
+
+test('matriz dorada del resolver (t#465 P7): cubre las dos semillas, los tres tiers, los dos perfiles y las dos isolations', () => {
+  const runs = goldenClaims.map(({ raw }) => ({ run: raw.run as { seed: string; profile: string; isolation: string | null }, tier: raw.tier as string }));
+  assert.ok(goldenClaims.length >= 60, 'la matriz entera, no una muestra');
+  assert.deepEqual([...new Set(runs.map((r) => r.run.seed))].sort(), ['prompt', 'template']);
+  assert.deepEqual([...new Set(runs.map((r) => r.tier))].sort(), ['act', 'investigate', 'world']);
+  assert.deepEqual([...new Set(runs.map((r) => r.run.profile))].sort(), ['edit', 'read']);
+  assert.deepEqual([...new Set(runs.map((r) => r.run.isolation))].sort(), ['checkout', 'worktree', null].sort());
+  // el perfil edit y el checkout solo los recibe una conversación libre.
+  assert.ok(runs.filter((r) => r.run.seed === 'template').every((r) => r.run.profile === 'read' && r.run.isolation !== 'checkout'));
 });
