@@ -25,8 +25,8 @@ uso:
   duckhunt-runner aws list|add|remove
   duckhunt-runner --version
 
-config en ~/.duckhunt-runner.json (otra con DUCKHUNT_RUNNER_CONFIG=<fichero>); scratch y logs en
-~/.duckhunt-runner/ (otro con DUCKHUNT_RUNNER_HOME=<dir>).
+config en ~/.duckhunt-runner.json (otra con DUCKHUNT_RUNNER_CONFIG=<fichero>); scratch, logs y
+configs de run en ~/.duckhunt-runner/ (otro con DUCKHUNT_RUNNER_HOME=<dir>).
 `;
 
 async function main(): Promise<void> {

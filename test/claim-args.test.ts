@@ -36,15 +36,18 @@ const rawClaim = (run: Record<string, unknown> = {}, extra: Record<string, unkno
 });
 
 const allFlags = new Set(OPTIONAL_FLAGS);
+// deny del directorio de mcp-configs (run-mcp-config.ts::runConfigDeny) que el daemon fuerza en todo kit.
+const RUN_CONFIG_DENY = 'Read(//home/u/.duckhunt-runner/run-config/**)';
 const argsFor = (claimRaw: Record<string, unknown>, over: Partial<ClaudeArgsInput> = {}): string[] =>
   buildClaudeArgs({
     claim: parseClaim(claimRaw),
     prompt: '-rf: un prompt que empieza por guion',
-    mcpConfigFile: '/tmp/mcp.json',
+    mcpConfigFile: '/home/u/.duckhunt-runner/run-config/mcp-88-abcd.json',
     supported: allFlags,
     resumeSessionId: null,
     skipPermissions: false,
     payingWithApiKey: true,
+    runConfigDeny: [RUN_CONFIG_DENY],
     ...over,
   });
 
@@ -213,16 +216,16 @@ test('lectura: las reglas Bash y de escritura del allow del usuario se espejan a
   const read = argsFor(rawClaim({ profile: 'read' }, { tools: { allowed: ['Read'], disallowed: [] } }), { mirroredDeny: ['Bash(npm run test:*)', 'Edit'] });
   assert.ok(['Bash(npm run test:*)', 'Edit'].every((t) => read[read.indexOf('--disallowedTools') + 1].split(',').includes(t)));
   const edit = argsFor(rawClaim(), { mirroredDeny: ['Bash(npm run test:*)', 'Edit'] });
-  assert.deepEqual(edit[edit.indexOf('--disallowedTools') + 1], 'NotebookEdit,WebFetch,WebSearch', 'edición conserva el allow del usuario');
+  assert.deepEqual(edit[edit.indexOf('--disallowedTools') + 1], `NotebookEdit,WebFetch,WebSearch,${RUN_CONFIG_DENY}`, 'edición conserva el allow del usuario');
 });
 
 test('memoria nativa en reglas (t#434): deny espejado y, con skip-permissions, Edit/Write de vuelta al deny', () => {
   const rule = rawClaim({ kind: 'investigate', profile: undefined }, { tools: { allowed: ['Bash', 'Read'], disallowed: ['NotebookEdit'] } });
   const plain = argsFor(rule, { mirroredDeny: ['Edit(src/**)'] });
-  assert.equal(plain[plain.indexOf('--disallowedTools') + 1], 'NotebookEdit,Edit(src/**)');
+  assert.equal(plain[plain.indexOf('--disallowedTools') + 1], `NotebookEdit,Edit(src/**),${RUN_CONFIG_DENY}`);
   assert.ok(!plain.includes('--dangerously-skip-permissions'));
   const skip = argsFor(rule, { skipPermissions: true });
-  assert.equal(skip[skip.indexOf('--disallowedTools') + 1], 'NotebookEdit,Edit,Write', 'sin dontAsk, Edit/Write sin negar abrirían el repo');
+  assert.equal(skip[skip.indexOf('--disallowedTools') + 1], `NotebookEdit,Edit,Write,${RUN_CONFIG_DENY}`, 'sin dontAsk, Edit/Write sin negar abrirían el repo');
   assert.ok(skip.includes('--dangerously-skip-permissions'));
 });
 
@@ -291,14 +294,16 @@ test('claims del server (t#465): las investigaciones viajan como prompt run de l
     const args = buildClaudeArgs({
       claim,
       prompt: claim.prompt,
-      mcpConfigFile: '/tmp/mcp.json',
+      mcpConfigFile: '/home/u/.duckhunt-runner/run-config/mcp-1-abcd.json',
       supported: allFlags,
       resumeSessionId: claim.run.sessionId,
       skipPermissions: true,
       payingWithApiKey: true,
+      runConfigDeny: [RUN_CONFIG_DENY],
     });
     const allowed = flagValue(args, '--allowedTools');
     const disallowed = flagValue(args, '--disallowedTools');
+    assert.ok(disallowed.includes(RUN_CONFIG_DENY), `${name}: los mcp-config de los runs, vetados a Read`);
     assert.ok(args.includes('--strict-mcp-config'), `${name}: sin el .mcp.json del checkout`);
     assert.ok(!args.includes('--dangerously-skip-permissions'), `${name}: nunca salta permisos`);
     assert.ok(!args.includes('--max-turns') && !args.includes('--max-budget-usd'), `${name}: el tope es el wall clock`);
