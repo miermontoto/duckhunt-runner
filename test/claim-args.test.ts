@@ -349,6 +349,7 @@ test('enrutado del server (t#465 P10): --resume solo con la sesión que el serve
       resumeSessionId: claim.run.sessionId,
       skipPermissions: false,
       payingWithApiKey: false,
+      runConfigDeny: [RUN_CONFIG_DENY],
     });
     return { claim, args };
   };
