@@ -3,10 +3,12 @@
 // server solo viajan las KEYS via el claim (presencia, sin paths). `list` y `add` enseñan la salud
 // de cada repo (repo-health.ts) y `discover` no mapea una key con varios checkouts distintos: antes
 // el último pisaba al primero en silencio (okt-api-parked le ganó a okt-api por orden alfabético).
+// --no-worktree y --dangerously-skip-permissions están deprecados (0.11.0, se retiran en 0.12.0): ningún
+// duckhunt actual manda trabajo que los aplique; `add` y `list` lo dicen.
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { configPath, loadConfig, saveConfig, type RepoConfig } from './config.js';
+import { configPath, deprecatedRepoFlags, loadStoredConfig, REPO_FLAGS_DEPRECATED, saveConfig, type RepoConfig } from './config.js';
 import { REPO_KEY_RE, sameRepoKey } from './repo-key.js';
 import { describeFinding, inspectCheckouts, repoFindings, scanRepos, type CheckoutState } from './repo-health.js';
 import { scrubEnv } from './scrub-env.js';
@@ -43,7 +45,8 @@ const mainCheckout = (group: CheckoutState[]): CheckoutState =>
   group.find((s) => s.commonDir !== null && path.dirname(s.commonDir) === s.real) ?? group[0]!;
 
 export async function reposCommand(args: string[]): Promise<void> {
-  const cfg = loadConfig();
+  // sin credencial también (tras `logout` los mapas se quedan): solo se leen y escriben los mapas.
+  const cfg = loadStoredConfig();
   if (!cfg) {
     console.error('sin config: ejecuta `duckhunt-runner login <base-url>` primero');
     process.exitCode = 1;
@@ -63,7 +66,7 @@ export async function reposCommand(args: string[]): Promise<void> {
         ...(rc.dangerouslySkipPermissions ? ['skip-permissions'] : []),
         ...(rc.worktree === false ? ['sin worktree'] : []),
       ];
-      console.log(`  ${repo} → ${rc.path}${flags.length ? `  (${flags.join(', ')})` : ''}`);
+      console.log(`  ${repo} → ${rc.path}${flags.length ? `  (${flags.join(', ')}: ${REPO_FLAGS_DEPRECATED})` : ''}`);
       findings.filter((f) => f.issue.repo === repo).forEach((f) => console.log(`      ⚠ ${describeFinding(f, false)}`));
     });
     findings.filter((f) => f.issue.repo === null).forEach((f) => console.log(`  ⚠ ${describeFinding(f)}`));
@@ -97,6 +100,8 @@ export async function reposCommand(args: string[]): Promise<void> {
     };
     const saved = saveConfig((current) => ({ repos: { ...current.repos, [repo]: entry } }));
     console.log(`mapeado ${repo} → ${abs} en ${configPath()}`);
+    const deprecated = deprecatedRepoFlags(entry);
+    if (deprecated.length > 0) console.warn(`aviso: ${deprecated.join(', ')} ${REPO_FLAGS_DEPRECATED}`);
     // avisos no bloqueantes (no es git, el origin es otro repo, hay otro checkout…). con la config
     // ENTERA: sola, los demás repos mapeados del mismo directorio saldrían como checkouts sin mapear.
     const findings = repoFindings(await scanRepos(saved.repos, scrubEnv(process.env)));

@@ -44,6 +44,20 @@
 //   arrancar se borran los que dejó un daemon muerto. y antes de cada segmento con shell de lectura se
 //   revisan los symlinks commiteados del cwd: si alguno sale de él, ese segmento va sin shell
 //   (read-shell-guard.ts; los paths solo al log local, al feed el recuento).
+// - ciclo de vida (0.11.0, t#465 P12): reclama con el machine id de la config (machine.ts; lo genera al
+//   arrancar si no lo hay) y, hasta su primer claim aceptado, con el client_id que su `login` reemplaza:
+//   duckhunt adopta así la fila de esta máquina en vez de dejar una fantasma. guarda lo que el server dice
+//   de ella (bloque runner, motivo de la cabecera, worktrees conservados) en server-state.json para
+//   `status`. con todos los slots ocupados el loop no reclama: la adopción de un `login` llega con el
+//   siguiente claim (al liberarse uno); mientras, los latidos ya van con la credencial nueva. si el refresh
+//   de la credencial se rechaza (desvinculada desde duckhunt o con `logout`, revocada o caducada), lo vea el
+//   claim o el latido de un run, para: corta sus runs, no reintenta y sale con EXIT_CODE_UNPAIRED (un
+//   servicio puede no reiniciarlo con ese código: sin `login` no vuelve).
+// - endurecimiento de lectura (0.11.0): secret_paths (secret-paths.ts) al deny de todo kit de lectura,
+//   aws_strict (aws-env.ts: una cuenta sin mapear corre con la aws vacía) y seed_budget (claude-args.ts).
+//   el gc anuncia en cada claim lo que conservó por guardar trabajo (worktree_report, recuentos; una
+//   conversación que vuelve a reclamarse deja de anunciarse en el acto, sin esperar al siguiente gc). al
+//   arrancar barre una vez los mcp-config que los daemons < 0.10.2 dejaban en el tmpdir.
 
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
@@ -51,7 +65,7 @@ import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
 import { promisify } from 'node:util';
-import { refreshAccess } from './oauth.js';
+import { CredentialRejectedError, refreshAccess } from './oauth.js';
 import { AccessTokenSource } from './access-token.js';
 import {
   concurrency,
@@ -62,11 +76,24 @@ import {
   runConfigDir,
   saveConfig,
   scratchDir,
+  splitConfig,
   type LocalConfig,
   type RepoConfig,
   type RunnerConfig,
   type RunnerCredential,
 } from './config.js';
+import { ensureMachineId } from './machine.js';
+import { secretPathsDeny } from './secret-paths.js';
+import { runAwsEnv, clearRunAwsConfigs, writeEmptyAwsConfig } from './aws-env.js';
+import {
+  CLAIM_OUTCOME,
+  parseRunnerBlock,
+  serverStateChanged,
+  writeServerState,
+  type KeptWorktree,
+  type RunnerBlock,
+  type ServerState,
+} from './server-state.js';
 import { consumeStreamLine, detectClaude, newStreamState, type ClaudeInfo } from './claude.js';
 import { buildClaudeArgs, PROMPT_REQUIRED_FLAGS } from './claude-args.js';
 import { mirroredDeny, READ_MIRRORED_TOOLS, settingsFilesFor, WRITE_TOOLS } from './user-permissions.js';
@@ -77,7 +104,7 @@ import { scrubEnv } from './scrub-env.js';
 import { clampReport, reportFor, type Attempt, type KillReason, type StatusReport } from './status-report.js';
 import { prepareCheckout, prepareConversationWorktree, prepareRunWorktree, removeRunWorktree, touchWorktree } from './worktree.js';
 import { readShellGuard, readShellLog, readShellNote } from './read-shell-guard.js';
-import { clearRunMcpConfigs, runConfigDeny, writeRunMcpConfig } from './run-mcp-config.js';
+import { clearLegacyTmpConfigs, clearRunMcpConfigs, runConfigDeny, writeRunMcpConfig } from './run-mcp-config.js';
 import { chunk, CONVERSATION_GC_INTERVAL_MS, listWorktreeCandidates, removeWorktrees, selectForRemoval, type WorktreeCandidate } from './conversation-gc.js';
 import { KeyedMutex } from './keyed-mutex.js';
 import { describeFinding, REPO_HEALTH_INTERVAL_MS, repoChoices, repoFindings, repoIssues, scanRepos, type RepoChoice, type RepoIssue } from './repo-health.js';
@@ -111,6 +138,10 @@ const STATUS_POST_BACKOFF_MS = 2_000;
 const SHUTDOWN_GRACE_MS = 20_000;
 const EXIT_CODE_SIGINT = 130;
 const EXIT_CODE_SIGTERM = 143;
+// la credencial ya no vale (desvinculada, revocada o caducada): EX_CONFIG de sysexits, sin `login` no vuelve.
+export const EXIT_CODE_UNPAIRED = 78;
+// cabecera del 204 (o del 200 sin trabajo de un server >= t#465 P12) con el motivo de no recibir trabajo.
+const RUNNER_STATE_HEADER = 'x-duckhunt-runner-state';
 // topes de lo que el claim anuncia (RUNNER_CLAUDE_VERSION_MAX_CHARS) y de la nota de workdir.
 const CLAUDE_VERSION_MAX_CHARS = 80;
 const WORKDIR_MAX_CHARS = 300;
@@ -177,13 +208,19 @@ export class RunnerDaemon {
   private repoHealthRun: Promise<void> | null = null;
   // Read negado del directorio de mcp-configs: lo lleva todo kit (se calcula al arrancar).
   private runConfigDeny: string[] = [];
+  // Read negado de las rutas reales de las credenciales de la máquina: todo kit de lectura (al arrancar).
+  private secretDeny: string[] = [];
+  // conversaciones que el último gc conservó por guardar trabajo (null = aún no recogió: no se anuncia).
+  private keptWorktrees: KeptWorktree[] | null = null;
+  // lo último escrito en server-state.json.
+  private serverState: ServerState | null = null;
 
   constructor(
     cfg: RunnerConfig,
     private readonly opts: DaemonOptions = {},
   ) {
-    const { baseUrl, clientId, refreshToken, ...local } = cfg;
-    this.credential = { baseUrl, clientId, refreshToken };
+    const { credential, local } = splitConfig(cfg);
+    this.credential = credential;
     this.cfg = local;
     this.auth = new AccessTokenSource(async () => {
       const { access, credential, saved } = await refreshAccess(this.credential);
@@ -234,6 +271,11 @@ export class RunnerDaemon {
       RUNNER_CAPABILITY.events,
       RUNNER_CAPABILITY.checkout,
       ...(this.cfg.defaults.remoteRepoEdits === false ? [] : [RUNNER_CAPABILITY.repoEdit]),
+      RUNNER_CAPABILITY.secretPaths,
+      RUNNER_CAPABILITY.seedBudget,
+      RUNNER_CAPABILITY.awsStrict,
+      RUNNER_CAPABILITY.worktreeReport,
+      RUNNER_CAPABILITY.logout,
     ];
   }
 
@@ -250,8 +292,14 @@ export class RunnerDaemon {
     );
     // lanza si la ruta no cabe en una regla de permisos: sin ese deny el daemon no arranca.
     this.runConfigDeny = runConfigDeny(runConfigDir());
-    const stale = clearRunMcpConfigs();
-    if (stale > 0) console.log(`[runner] ${stale} mcp-config(s) de runs anteriores borrado(s)`);
+    const stale = clearRunMcpConfigs() + clearRunAwsConfigs();
+    if (stale > 0) console.log(`[runner] ${stale} config(s) de runs anteriores borrada(s)`);
+    const legacy = clearLegacyTmpConfigs();
+    if (legacy > 0) console.log(`[runner] ${legacy} mcp-config(s) de daemons < 0.10.2 borrado(s) del tmpdir`);
+    const secrets = secretPathsDeny(process.env);
+    this.secretDeny = secrets.rules;
+    secrets.skipped.forEach((p) => console.warn(`[runner] secret_paths: ${p} no cabe en una regla de permisos de claude: queda solo la lista genérica del server`));
+    this.adoptMachineId();
     this.installSignalHandlers();
     console.log(
       `[runner] duckhunt-runner ${runnerVersion() ?? '?'} · ${this.label()} → ${this.credential.baseUrl} (claude ${this.claude.version}, aws cli ${this.hasAws ? 'sí' : 'no'}, ${Object.keys(this.cfg.repos).length} repos, ${Object.keys(this.cfg.aws).length} cuentas aws, capacidades ${this.capabilities().join(',')}, ${this.slots} slot${this.slots === 1 ? '' : 's'}, poll ${CLAIM_POLL_MS / 1000}s)`,
@@ -275,6 +323,53 @@ export class RunnerDaemon {
     while (this.leases.size > 0) await this.idle(CLAIM_POLL_MS);
     console.log('[runner] detenido');
     return this.exitCode;
+  }
+
+  // el machine id de la config o uno nuevo que se guarda (config de 0.10). una config que no se puede
+  // escribir (montada de solo lectura) reclama sin él: duckhunt la reconoce igual por su credencial.
+  private adoptMachineId(): void {
+    if (this.cfg.machineId) return;
+    try {
+      this.cfg = { ...this.cfg, machineId: ensureMachineId() };
+    } catch (err) {
+      console.warn(`[runner] no se pudo guardar el machine id en la config: ${(err as Error).message} — reclamo sin él`);
+    }
+  }
+
+  // la credencial ya no vale: se para (sin reintentar), se cortan los runs (duckhunt ya los canceló al
+  // desvincular; sin credencial no pueden ni latir) y se sale con EXIT_CODE_UNPAIRED.
+  private stopUnpaired(err: CredentialRejectedError): void {
+    if (this.stopping) return;
+    console.error(`[runner] ${err.message}. el daemon se detiene`);
+    this.recordServerState(CLAIM_OUTCOME.unpaired, null);
+    this.stopping = true;
+    this.exitCode = EXIT_CODE_UNPAIRED;
+    this.leases.forEach((lease) => lease.kill('cancel'));
+    this.wake?.();
+  }
+
+  // guarda lo que el server acaba de decir de esta máquina para `status` (solo si cambió o envejeció).
+  private recordServerState(state: string | null, runner: RunnerBlock | null): void {
+    const next: ServerState = { at: Date.now(), baseUrl: this.credential.baseUrl, clientId: this.credential.clientId, state, runner, kept: this.keptWorktrees };
+    if (!serverStateChanged(this.serverState, next)) return;
+    try {
+      writeServerState(next);
+      this.serverState = next;
+    } catch (err) {
+      console.error(`[runner] no se pudo guardar el estado del server: ${(err as Error).message}`);
+    }
+  }
+
+  // el server aceptó un claim con el replacesClientId de esta credencial: ya adoptó (o no tenía nada que
+  // adoptar), así que deja de mandarse. el fichero solo se toca si sigue siendo de la misma credencial.
+  private replacementDelivered(clientId: string, replaces: string): void {
+    if (this.credential.clientId !== clientId || this.credential.replacesClientId !== replaces) return;
+    this.credential = { baseUrl: this.credential.baseUrl, clientId, refreshToken: this.credential.refreshToken };
+    try {
+      saveConfig((current) => (current.clientId === clientId && current.replacesClientId === replaces ? { replacesClientId: undefined } : null));
+    } catch (err) {
+      console.error(`[runner] no se pudo quitar replacesClientId de la config: ${(err as Error).message} — se reenvía al reiniciar (inocuo)`);
+    }
   }
 
   // espera interrumpible por una señal de parada.
@@ -316,6 +411,8 @@ export class RunnerDaemon {
 
   private async claim(): Promise<ClaimResponse | null> {
     let res: Response;
+    // la credencial de la que sale este claim y a quién reemplaza (hasta que el server lo acepte).
+    const { clientId, replacesClientId } = this.credential;
     try {
       res = await this.api('/claim', {
         runnerLabel: this.label(),
@@ -327,14 +424,23 @@ export class RunnerDaemon {
         slots: this.slots,
         ...(runnerVersion() ? { version: runnerVersion() } : {}),
         ...(this.claude.version ? { claudeVersion: this.claude.version.slice(0, CLAUDE_VERSION_MAX_CHARS) } : {}),
+        ...(this.cfg.machineId ? { machine: { id: this.cfg.machineId } } : {}),
+        ...(replacesClientId ? { replacesClientId } : {}),
+        ...(this.keptWorktrees ? { keptWorktrees: this.keptWorktrees } : {}),
       });
     } catch (err) {
-      console.error(`[runner] claim inaccesible: ${(err as Error).message}`);
+      if (err instanceof CredentialRejectedError) this.stopUnpaired(err);
+      else console.error(`[runner] claim inaccesible: ${(err as Error).message}`);
       return null;
     }
+    if (res.ok && replacesClientId) this.replacementDelivered(clientId, replacesClientId);
     if (Number(res.headers.get(REPO_COMMANDS_HEADER)) > 0) void this.syncRepoCommands();
-    // 204 = nada que hacer (o runner pausado desde /settings/agents).
-    if (res.status === 204) return null;
+    const header = res.headers.get(RUNNER_STATE_HEADER);
+    // 204 = nada que hacer, de un server anterior a t#465 P12 (o en pausa, sin slot, actualizar: la cabecera).
+    if (res.status === 204) {
+      this.recordServerState(header, null);
+      return null;
+    }
     if (res.status !== 200) {
       console.error(`[runner] claim falló: http ${res.status} ${await res.text().catch(() => '')}`);
       return null;
@@ -343,6 +449,12 @@ export class RunnerDaemon {
       console.error(`[runner] claim con json ilegible: ${err.message}`);
       return null;
     });
+    // sin trabajo con la fila de esta máquina (server >= t#465 P12): 200 { run: null, runner, state }.
+    if (raw !== null && typeof raw === 'object' && 'run' in raw && raw.run === null) {
+      this.recordServerState(header, parseRunnerBlock(raw));
+      return null;
+    }
+    this.recordServerState(CLAIM_OUTCOME.claimed, parseRunnerBlock(raw));
     try {
       return parseClaim(raw);
     } catch (err) {
@@ -361,6 +473,9 @@ export class RunnerDaemon {
   private start(claim: ClaimResponse): void {
     const lease = new RunLease(claim.run.id);
     this.leases.add(lease);
+    // la conversación vuelve a trabajar en su worktree («pedir commit» o cualquier mensaje): deja de
+    // anunciarse como conservada, o su hilo volvería a enseñar los recuentos viejos hasta el siguiente gc.
+    if (this.keptWorktrees?.some((k) => k.runId === claim.run.id)) this.keptWorktrees = this.keptWorktrees.filter((k) => k.runId !== claim.run.id);
     if (this.stopping) lease.kill('shutdown');
     void this.executeRun(claim, lease)
       .catch((err) => console.error(`[runner] run ${lease.runId} reventó: ${(err as Error).message}`))
@@ -478,7 +593,8 @@ export class RunnerDaemon {
       console.error(`[runner] ${(err as Error).message} — sigo con la config cargada`);
       return;
     }
-    const { baseUrl, clientId, refreshToken, ...local } = next;
+    const { credential, local } = splitConfig(next);
+    const { baseUrl, clientId } = credential;
     if (this.credentialUnsaved || (clientId !== this.credential.clientId && baseUrl === this.credential.baseUrl)) this.auth.reset();
     if (JSON.stringify(local) === JSON.stringify(this.cfg)) return;
     const reposChanged = JSON.stringify(local.repos) !== JSON.stringify(this.cfg.repos);
@@ -515,16 +631,25 @@ export class RunnerDaemon {
     this.lastGcAt = Date.now();
     try {
       const candidates = listWorktreeCandidates(Object.values(this.cfg.repos).map((r) => r.path));
-      if (candidates.length === 0) return;
+      if (candidates.length === 0) {
+        this.keptWorktrees = [];
+        return;
+      }
       const open = await this.openConversations(candidates.filter((c) => c.kind === 'conversation').map((c) => c.runId));
       const inFlight = new Set([...this.leases].map((lease) => lease.runId));
       const targets = selectForRemoval(candidates, open, Date.now(), inFlight);
-      if (targets.length === 0) return;
+      if (targets.length === 0) {
+        this.keptWorktrees = [];
+        return;
+      }
       const env = scrubEnv(process.env);
       const byRepo = targets.reduce((acc, c) => acc.set(c.repoPath, [...(acc.get(c.repoPath) ?? []), c]), new Map<string, WorktreeCandidate[]>());
-      const removed = (
-        await Promise.all([...byRepo].map(([repoPath, group]) => this.gitLocks.run(path.resolve(repoPath), () => removeWorktrees(group, env))))
-      ).reduce((a, b) => a + b, 0);
+      const collected = await Promise.all(
+        [...byRepo].map(([repoPath, group]) => this.gitLocks.run(path.resolve(repoPath), () => removeWorktrees(group, env))),
+      );
+      const removed = collected.reduce((n, c) => n + c.removed, 0);
+      // lo que se anuncia al server: recuentos por conversación, nunca paths (worktree_report).
+      this.keptWorktrees = collected.flatMap((c) => c.kept).sort((a, b) => a.runId - b.runId);
       if (removed > 0) console.log(`[runner] gc: ${removed} worktree(s) recogido(s)`);
     } catch (err) {
       console.error(`[runner] gc de worktrees falló: ${(err as Error).message}`);
@@ -593,25 +718,14 @@ export class RunnerDaemon {
             lease.kill('cancel');
           }
         })
-        .catch((err) => console.error(`[runner] heartbeat del run ${runId} falló: ${(err as Error).message}`));
+        .catch((err: Error) => {
+          // con los slots llenos el loop no reclama: el latido es quien se entera de que la credencial murió.
+          if (err instanceof CredentialRejectedError) this.stopUnpaired(err);
+          else console.error(`[runner] heartbeat del run ${runId} falló: ${err.message}`);
+        });
     }, Math.max(MIN_HEARTBEAT_MS, heartbeatMs));
   }
 
-  // --- env del run: el del usuario saneado + perfil aws mapeado ---
-
-  private envFor(run: ClaimedRun): NodeJS.ProcessEnv {
-    const env: NodeJS.ProcessEnv = { ...scrubEnv(process.env), AWS_PAGER: '' };
-    const accountId = run.aws?.accountId;
-    const account = accountId && Object.hasOwn(this.cfg.aws, accountId) ? this.cfg.aws[accountId] : undefined;
-    if (account) {
-      env.AWS_PROFILE = account.profile;
-      const region = account.region ?? run.aws?.region ?? undefined;
-      if (region) env.AWS_DEFAULT_REGION = region;
-    } else if (run.aws?.region) {
-      env.AWS_DEFAULT_REGION = run.aws.region;
-    }
-    return env;
-  }
 
   // --- ejecución ---
 
@@ -621,7 +735,17 @@ export class RunnerDaemon {
     console.log(
       `[runner] ${tag} reclamado (${run.kind}${run.profile ? `, perfil ${run.profile}` : ''}, entry ${run.entryId}${claim.tier ? `, tier ${claim.tier}` : ''}${run.repo ? `, repo ${run.repo}${run.branch ? `@${run.branch}` : ''}` : ''}${run.sessionId ? `, sesión ${run.sessionId}` : ''})`,
     );
-    const env = this.envFor(run);
+    // env del run: el del usuario saneado + el perfil aws de su cuenta; una cuenta que esta máquina no
+    // mapea, con la aws vacía del propio run (aws_strict), que se borra al cerrar el segmento.
+    let awsDir: string | null = null;
+    const dropAwsDir = (): void => {
+      if (awsDir !== null) fs.rmSync(awsDir, { recursive: true, force: true });
+    };
+    const aws = runAwsEnv({ ...scrubEnv(process.env), AWS_PAGER: '' }, run.aws, this.cfg.aws, () => (awsDir = writeEmptyAwsConfig(run.id)));
+    const env = aws.env;
+    const awsWarnings = aws.unmapped
+      ? [`cuenta aws ${aws.unmapped} sin mapear en esta máquina: la aws cli corre sin credenciales (\`duckhunt-runner aws add ${aws.unmapped} <perfil>\`)`]
+      : [];
     // identidad del proceso en cada llamada del run (servers anteriores a los segmentos: nada).
     const seg = run.segment !== null ? { segment: run.segment } : {};
     const heartbeat = this.startHeartbeat(lease, claim.heartbeatMs, seg);
@@ -632,6 +756,7 @@ export class RunnerDaemon {
       prepared = await this.prepareWorkdir(run, env);
     } catch (err) {
       clearInterval(heartbeat);
+      dropAwsDir();
       await feed?.close();
       await this.postStatus(run.id, { status: 'failed', error: `no se pudo preparar el directorio del run: ${(err as Error).message}`, ...seg });
       return;
@@ -647,7 +772,7 @@ export class RunnerDaemon {
       feed?.push(systemEvent(text, ctx));
     };
     note(prepared.note);
-    [...claim.warnings, ...prepared.warnings].forEach(note);
+    [...claim.warnings, ...prepared.warnings, ...awsWarnings].forEach(note);
 
     const releaseCwd = await this.holdCwd(run, prepared, lease, note);
     // mcp-config con el token per-run (run-mcp-config.ts: 0600 en un directorio 0700; se borra al terminar).
@@ -660,6 +785,7 @@ export class RunnerDaemon {
       report = { status: 'failed', error: (err as Error).message };
     } finally {
       if (mcpFile !== null) fs.rmSync(mcpFile, { force: true });
+      dropAwsDir();
       releaseCwd();
       clearInterval(heartbeat);
     }
@@ -717,6 +843,7 @@ export class RunnerDaemon {
         payingWithApiKey: !!process.env.ANTHROPIC_API_KEY,
         mirroredDeny: deny,
         runConfigDeny: this.runConfigDeny,
+        secretPathsDeny: this.secretDeny,
         withoutShell: shell.dropShell,
       });
     // reanudar o no lo decide el server: manda sessionId solo cuando hay sesión que retomar.
@@ -844,10 +971,14 @@ export class RunnerDaemon {
     const body = clampReport(report);
     // i/o secuencial con backoff exponencial.
     for (let attempt = 1; attempt <= STATUS_POST_ATTEMPTS; attempt++) {
+      let rejected = false;
       const res = await this.api(`/runs/${runId}/status`, body).catch((err: Error) => {
+        rejected = err instanceof CredentialRejectedError;
         console.error(`[runner] status post falló (intento ${attempt}/${STATUS_POST_ATTEMPTS}): ${err.message}`);
         return null;
       });
+      // sin credencial no hay reintento que valga (duckhunt ya lo cerró al desvincular la máquina).
+      if (rejected) return;
       // 409 = el server ya cerró el run (cancel del usuario, sweeper): benigno.
       if (res && (res.ok || res.status === HTTP_CONFLICT)) return;
       if (res && !isTransient(res.status)) {

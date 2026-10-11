@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 // cli del daemon de duckhunt (contrato 42): `login` conecta la credencial oauth (audiencia
-// /api/runner), `repos`/`aws` mantienen los mapas locales, `status` diagnostica el kit de la
-// máquina y el modo por defecto (`start`) arranca el loop de claim. `start` toma antes de nada el lock
+// /api/runner), `logout` la desvincula desde la máquina (0.11.0, t#465 P12: logout.ts), `repos`/`aws`
+// mantienen los mapas locales, `status` diagnostica el kit de la máquina y lo último que duckhunt dijo
+// de ella, y el modo por defecto (`start`) arranca el loop de claim. `start` toma antes de nada el lock
 // de un solo daemon (daemon-lock.ts) y lo suelta al salir; `login`, `repos` y `aws` con el daemon en
 // marcha valen sin reiniciarlo (lo recarga en cada vuelta de su loop).
 
 import { configPath, DEFAULT_BASE_URL, loadConfig } from './config.js';
 import { acquireDaemonLock } from './daemon-lock.js';
 import { login, parseLoginArgs } from './oauth.js';
+import { logoutCommand } from './logout.js';
 import { RunnerDaemon } from './daemon.js';
 import { reposCommand } from './repos.js';
 import { awsCommand } from './aws.js';
@@ -19,7 +21,8 @@ const USAGE = `duckhunt-runner — daemon local de agent runs
 uso:
   duckhunt-runner login [base-url] [label]   conecta el runner (pega el código del browser)
                                             sin base-url apunta a ${DEFAULT_BASE_URL}
-  duckhunt-runner status                     kit de esta máquina: claude, credencial, aws, repos
+  duckhunt-runner logout                     desvincula esta máquina de duckhunt y borra su credencial
+  duckhunt-runner status                     kit de esta máquina y lo que duckhunt dice de ella
   duckhunt-runner start [--verbose]          arranca el daemon
   duckhunt-runner repos list|add|remove|discover
   duckhunt-runner aws list|add|remove
@@ -27,6 +30,7 @@ uso:
 
 config en ~/.duckhunt-runner.json (otra con DUCKHUNT_RUNNER_CONFIG=<fichero>); scratch, logs y
 configs de run en ~/.duckhunt-runner/ (otro con DUCKHUNT_RUNNER_HOME=<dir>).
+instala fijando la versión: npx duckhunt-runner@${runnerVersion() ?? '<versión>'} <comando>.
 `;
 
 async function main(): Promise<void> {
@@ -38,6 +42,10 @@ async function main(): Promise<void> {
   if (cmd === 'login') {
     const { baseUrl, label } = parseLoginArgs(rest);
     await login(baseUrl, label);
+    return;
+  }
+  if (cmd === 'logout') {
+    await logoutCommand();
     return;
   }
   if (cmd === 'status') {

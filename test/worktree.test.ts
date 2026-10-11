@@ -9,7 +9,7 @@ import path from 'node:path';
 import { after, before, test } from 'node:test';
 import { listWorktreeCandidates, removeWorktrees, selectForRemoval } from '../src/conversation-gc.js';
 import { scrubEnv } from '../src/scrub-env.js';
-import { isUsableBranch, prepareCheckout, prepareConversationWorktree, prepareRunWorktree, removeCleanWorktree, unsavedWork } from '../src/worktree.js';
+import { isUsableBranch, prepareCheckout, prepareConversationWorktree, prepareRunWorktree, removeCleanWorktree, unsavedWork, worktreeWork } from '../src/worktree.js';
 
 const DAY_MS = 24 * 60 * 60_000;
 // identidad y firma fuera: el test no depende de la config git de la máquina.
@@ -126,6 +126,9 @@ test('run de reglas: un .git a medias no es "HEAD vacío" y el error no lleva el
 test('gc: borra cerradas y limpias, conserva cambios sin commitear y commits huérfanos', async () => {
   const committed = await prepareConversationWorktree(clone, 4, null, env);
   git(committed.workdir, 'commit', '-q', '--allow-empty', '-m', 'solo aquí');
+  git(committed.workdir, 'commit', '-q', '--allow-empty', '-m', 'y otro');
+  fs.writeFileSync(path.join(committed.workdir, 'a-medias.txt'), 'x');
+  fs.writeFileSync(path.join(committed.workdir, 'otro.txt'), 'y');
   const clean = await prepareConversationWorktree(clone, 5, null, env);
   const openOld = await prepareConversationWorktree(clone, 6, null, env);
   const old = new Date(Date.now() - 8 * DAY_MS);
@@ -145,11 +148,17 @@ test('gc: borra cerradas y limpias, conserva cambios sin commitear y commits hu�
     [4],
   );
 
-  const removed = await removeWorktrees(targets, env);
+  const { removed, kept } = await removeWorktrees(targets, env);
   assert.equal(removed, 2);
-  assert.ok(fs.existsSync(committed.workdir), 'commits sin rama ni remoto: se conserva');
+  assert.ok(fs.existsSync(committed.workdir), 'cambios y commits sin rama ni remoto: se conserva');
   assert.ok(!fs.existsSync(clean.workdir));
   assert.ok(!fs.existsSync(openOld.workdir));
+  // worktree_report (0.11.0): lo conservado, en recuentos por run y sin paths.
+  assert.deepEqual(kept, [{ runId: 4, dirtyFiles: 2, unpushedCommits: 2 }]);
+  assert.equal(await unsavedWork(committed.workdir, env), '2 cambios sin commitear');
+  fs.rmSync(path.join(committed.workdir, 'a-medias.txt'));
+  fs.rmSync(path.join(committed.workdir, 'otro.txt'));
+  assert.deepEqual(await worktreeWork(committed.workdir, env), { dirtyFiles: 0, unpushedCommits: 2 });
   assert.equal(await unsavedWork(committed.workdir, env), 'commits que ninguna rama ni remoto contiene');
 });
 

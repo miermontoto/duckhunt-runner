@@ -6,6 +6,9 @@
 // cumple — una investigación es un prompt run de lectura y nunca sale de ahí. el enrutado del server
 // (t#465 P10, los routing-*.json) solo manda la sesión a la máquina que la tiene (si la conversación se
 // movió, va sin sesión y con el prompt de respaldo como prompt) y el repo en la grafía de su mapa.
+// 0.11.0 (t#465 P12): el claim de un server con lifecycle (lifecycle-*.json) es el mismo kit con el
+// bloque runner al final, que parseClaim ignora; todo kit de lectura lleva además los deny de
+// secret_paths y una plantilla vuelve a llevar su presupuesto (seed_budget) con api key.
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -14,6 +17,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { buildClaudeArgs, type ClaudeArgsInput } from '../src/claude-args.js';
 import { AWS_OUTFILE_COMMANDS, claimRunId, isAwsReadPattern, parseClaim } from '../src/claim.js';
+import { parseRunnerBlock } from '../src/server-state.js';
 import { mirrorAllow, mirroredDeny, READ_MIRRORED_TOOLS, settingsFilesFor, WRITE_TOOLS } from '../src/user-permissions.js';
 import { OPTIONAL_FLAGS } from '../src/claude.js';
 import { clampReport } from '../src/status-report.js';
@@ -306,7 +310,10 @@ test('claims del server (t#465): las investigaciones viajan como prompt run de l
     assert.ok(disallowed.includes(RUN_CONFIG_DENY), `${name}: los mcp-config de los runs, vetados a Read`);
     assert.ok(args.includes('--strict-mcp-config'), `${name}: sin el .mcp.json del checkout`);
     assert.ok(!args.includes('--dangerously-skip-permissions'), `${name}: nunca salta permisos`);
-    assert.ok(!args.includes('--max-turns') && !args.includes('--max-budget-usd'), `${name}: el tope es el wall clock`);
+    assert.ok(!args.includes('--max-turns'), `${name}: sin tope de turnos, el tope es el wall clock`);
+    // seed_budget (0.11.0): pagando con api key, una plantilla lleva su presupuesto; una conversación libre, nunca.
+    const template = (raw.run as { seed?: string }).seed === 'template';
+    assert.deepEqual(flagValue(args, '--max-budget-usd'), template ? [String(claim.maxBudgetUsd)] : [], `${name}: presupuesto solo en plantillas`);
     assert.equal(args[args.indexOf('--permission-mode') + 1], 'dontAsk', name);
     if (claim.run.profile === 'edit') {
       assert.ok(allowed.includes('Bash') && !args.includes('--setting-sources'), `${name}: edición, como siempre`);
@@ -365,4 +372,51 @@ test('enrutado del server (t#465 P10): --resume solo con la sesión que el serve
   assert.match(moved.claim.prompt, /sesión no está disponible aquí/);
   // el repo en la grafía del mapa de esta máquina: la búsqueda de su carpeta es por la clave exacta.
   assert.equal(golden('routing-machine-spelling').claim.run.repo, 'OKT/Api');
+});
+
+test('lifecycle (t#465 P12): el claim de 0.11 es el kit de 0.10 más el bloque runner, que parseClaim ignora', () => {
+  const pairs = [
+    ['lifecycle-prompt-read', 'prompt-read-full'],
+    ['lifecycle-template', 'template-full-aws-announced'],
+  ] as const;
+  pairs.forEach(([name, like]) => {
+    const fixture = goldenClaims.find((g) => g.name === `claim-kits/${name}.json`);
+    const base = goldenClaims.find((g) => g.name === `claim-kits/${like}.json`);
+    assert.ok(fixture && base, name);
+    const block = parseRunnerBlock(fixture.raw);
+    assert.ok(block && block.id > 0 && block.paused === false && block.accepts === 'all' && block.maxSlots === null, `${name}: el bloque runner`);
+    assert.equal(parseRunnerBlock(base.raw), null, `${like}: un server sin lifecycle no lo manda`);
+    const claim = parseClaim(fixture.raw);
+    assert.deepEqual(claim.warnings, [], name);
+    assert.deepEqual(claim.tools, parseClaim(base.raw).tools, `${name}: el mismo kit`);
+    assert.ok(!('runner' in claim), `${name}: el bloque no es del run`);
+  });
+});
+
+test('secret_paths (0.11.0): todo kit de lectura niega las rutas reales de las credenciales; edición no', () => {
+  const secret = ['Read(//home/u/dotfiles/duckhunt-runner.json)', 'Read(//home/u/.duckhunt-runner/logs/**)'];
+  const denied = (raw: Record<string, unknown>) => flagValue(argsFor(raw, { secretPathsDeny: secret }), '--disallowedTools');
+  const read = denied(rawClaim({ profile: 'read' }, { tools: { allowed: ['Read'], disallowed: [] } }));
+  assert.ok(secret.every((r) => read.includes(r)), 'lectura');
+  const rule = denied(rawClaim({ kind: 'investigate', profile: undefined }, { tools: { allowed: ['Bash', 'Read'], disallowed: [] } }));
+  assert.ok(secret.every((r) => rule.includes(r)), 'reglas heredadas');
+  assert.ok(!secret.some((r) => denied(rawClaim()).includes(r)), 'edición: con Bash entero no acotarían nada');
+  // y en todo claim de lectura real del server.
+  claimFixtures
+    .filter(({ raw }) => (raw.run as { profile?: string }).profile === 'read')
+    .forEach(({ name, raw }) => assert.ok(secret.every((r) => denied(raw).includes(r)), name));
+});
+
+test('seed_budget (0.11.0): una plantilla aplica maxBudgetUsd con api key o la config; una conversación libre nunca', () => {
+  const template = rawClaim({ profile: 'read', seed: 'template' }, { tools: { allowed: ['Read'], disallowed: [] }, maxTurns: 40, maxBudgetUsd: 20 });
+  const budget = (raw: Record<string, unknown>, over: Partial<ClaudeArgsInput> = {}) => flagValue(argsFor(raw, over), '--max-budget-usd');
+  assert.deepEqual(budget(template), ['20']);
+  assert.deepEqual(budget(template, { payingWithApiKey: false }), [], 'con suscripción el coste es nominal');
+  assert.deepEqual(budget(template, { payingWithApiKey: false, configBudgetUsd: 5 }), ['5'], 'la config manda');
+  assert.deepEqual(budget(template, { configBudgetUsd: 0 }), [], '0 = nunca');
+  assert.ok(!argsFor(template).includes('--max-turns'), 'el tope de turnos no vuelve');
+  assert.equal(parseClaim(template).run.seed, 'template');
+  const prompt = rawClaim({ profile: 'read', seed: 'prompt' }, { tools: { allowed: ['Read'], disallowed: [] }, maxBudgetUsd: 20 });
+  assert.deepEqual(budget(prompt, { configBudgetUsd: 5 }), [], 'una conversación libre no lleva presupuesto');
+  assert.equal(parseClaim(rawClaim({ seed: 'otro' })).run.seed, null);
 });

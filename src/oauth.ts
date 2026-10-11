@@ -6,12 +6,17 @@
 // rota su refresh token: daemon-lock.ts); el fichero solo la cambia con un `login` nuevo (dcr = otro
 // clientId), que el daemon adopta en su siguiente refresh si es de la misma instancia. a otra
 // instancia no se cambia en caliente: los runs en vuelo latirían contra un server que no los conoce.
+// ciclo de vida (0.11.0, t#465 P12): `login` deja en la config el id de la máquina y el client_id al que
+// reemplaza (machine.ts::loginIdentity), y un rechazo del token endpoint (invalid_grant: credencial
+// desvinculada desde duckhunt, revocada por un replay o caducada) es un CredentialRejectedError: el
+// daemon para en vez de reintentar cada 5 s con una credencial que ya no vuelve.
 
 import crypto from 'node:crypto';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import { configPath, DEFAULT_BASE_URL, loadConfig, saveConfig, type RunnerCredential } from './config.js';
 import { daemonLockHolder } from './daemon-lock.js';
+import { loginIdentity } from './machine.js';
 
 // path del recurso runner en el server (espejo de canonicalRunnerResourceUrl).
 const RUNNER_RESOURCE_PATH = '/api/runner';
@@ -19,6 +24,27 @@ const RUNNER_RESOURCE_PATH = '/api/runner';
 const OOB_REDIRECT_PATH = '/oauth/authorized';
 // sin respuesta del token endpoint en este plazo = fallo (un refresh colgado pararía el daemon).
 const TOKEN_TIMEOUT_MS = 30_000;
+// error oauth (rfc 6749) con el que el token endpoint rechaza una credencial que ya no vale.
+const INVALID_GRANT = 'invalid_grant';
+
+// el token endpoint respondió con un error oauth (su código y su descripción).
+class TokenEndpointError extends Error {
+  constructor(
+    readonly code: string | null,
+    readonly description: string,
+  ) {
+    super(`token endpoint: ${description}`);
+    this.name = 'TokenEndpointError';
+  }
+}
+
+/** el token endpoint rechazó el refresh (invalid_grant): desvinculada, revocada o caducada. no se recupera sin `login`. */
+export class CredentialRejectedError extends Error {
+  constructor(description: string) {
+    super(`la credencial de esta máquina ya no vale (desvinculada desde duckhunt, revocada o caducada: ${description}): vuelve a hacer \`duckhunt-runner login\``);
+    this.name = 'CredentialRejectedError';
+  }
+}
 
 function b64url(buf: Buffer): string {
   return buf.toString('base64url');
@@ -39,7 +65,7 @@ async function postToken(baseUrl: string, form: Record<string, string>): Promise
   });
   const body = (await res.json().catch(() => ({}))) as Partial<TokenResponse> & { error_description?: string; error?: string };
   if (!res.ok || !body.access_token || !body.refresh_token) {
-    throw new Error(`token endpoint: ${body.error_description ?? body.error ?? `http ${res.status}`}`);
+    throw new TokenEndpointError(body.error ?? null, body.error_description ?? body.error ?? `http ${res.status}`);
   }
   return body as TokenResponse;
 }
@@ -98,12 +124,25 @@ export async function login(baseUrl: string, label?: string): Promise<void> {
     resource,
   });
 
-  // solo la credencial (y la etiqueta si se pasó): mapas, defaults y lo demás del fichero se quedan.
+  // solo la credencial, la identidad de la máquina (y la etiqueta si se pasó): mapas, defaults y lo demás
+  // del fichero se quedan. replacesClientId ausente = undefined, que el json omite (borra uno viejo).
   const previous: { baseUrl?: string } = {};
   const clientId = client.client_id;
   saveConfig((current) => {
     previous.baseUrl = current.baseUrl;
-    return { baseUrl: base, clientId, refreshToken: tokens.refresh_token, ...(label ? { label } : {}), repos: current.repos, aws: current.aws, defaults: current.defaults };
+    const identity = loginIdentity(current, base);
+    return {
+      baseUrl: base,
+      clientId,
+      refreshToken: tokens.refresh_token,
+      replacesClientId: identity.replacesClientId,
+      machineId: identity.machineId,
+      machineHost: identity.machineHost,
+      ...(label ? { label } : {}),
+      repos: current.repos,
+      aws: current.aws,
+      defaults: current.defaults,
+    };
   });
   console.log(`\nconectado. config en ${configPath()} — mapea tus repos (\`repos discover ~/dev\`) y cuentas aws (\`aws add\`).`);
   const daemon = daemonLockHolder();
@@ -146,7 +185,12 @@ function credentialToRefresh(current: RunnerCredential): RunnerCredential {
     return current;
   }
   console.log('[runner] credencial nueva de `login`: el daemon la adopta');
-  return { baseUrl: disk.baseUrl, clientId: disk.clientId, refreshToken: disk.refreshToken };
+  return {
+    baseUrl: disk.baseUrl,
+    clientId: disk.clientId,
+    refreshToken: disk.refreshToken,
+    ...(disk.replacesClientId ? { replacesClientId: disk.replacesClientId } : {}),
+  };
 }
 
 // guarda el refresh token recién rotado si el fichero sigue siendo de su cliente (un `login` hecho
@@ -172,6 +216,8 @@ export async function refreshAccess(current: RunnerCredential): Promise<RefreshR
     grant_type: 'refresh_token',
     refresh_token: cred.refreshToken,
     client_id: cred.clientId,
+  }).catch((err: unknown) => {
+    throw err instanceof TokenEndpointError && err.code === INVALID_GRANT ? new CredentialRejectedError(err.description) : err;
   });
   const credential = { ...cred, refreshToken: tokens.refresh_token };
   return {

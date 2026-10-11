@@ -12,6 +12,10 @@
 // daemon en marcha; ahora el daemon los recarga en cada vuelta de su loop. footgun aceptado: dos
 // escritores en el mismo instante (relectura y escritura son síncronas, sub-milisegundo) se pisan y
 // gana el último.
+// identidad (0.11.0, t#465 P12): machineId + machineHost (machine.ts) y replacesClientId, el client_id
+// del login anterior que viaja con la credencial hasta su primer claim. `logout` borra la credencial y
+// deja el resto (mapas, defaults, la identidad de la máquina): loadStoredConfig la lee sin credencial.
+// <runnerHome>/server-state.json guarda lo último que el server dijo de esta máquina (server-state.ts).
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -31,14 +35,23 @@ export const DEFAULT_BASE_URL = 'https://duckhunt.info';
 export interface RepoConfig {
   // path absoluto al checkout local del repo.
   path: string;
-  // opt-in explícito per-repo a --dangerously-skip-permissions (decisión del usuario). solo los kinds
-  // de reglas heredados (investigate/resume) de un server anterior a t#465 P6: desde P6 toda
+  // DEPRECADO (0.11.0, se retira en 0.12.0): opt-in per-repo a --dangerously-skip-permissions. solo
+  // los kinds de reglas heredados (investigate/resume) de un server anterior a t#465 P6: desde P6 toda
   // conversación, las de reglas incluidas, es un prompt run y cumple el perfil read|edit del server.
+  // `repos add` y `status` avisan de que se ignora.
   dangerouslySkipPermissions?: boolean;
-  // aislar cada run en un git worktree (default true). false = correr en el checkout. mismo alcance
-  // que el anterior: un prompt run usa siempre el worktree de su conversación (o el checkout si el
-  // usuario lo eligió al abrirla).
+  // DEPRECADO (ídem): aislar cada run en un git worktree (default true). false = correr en el
+  // checkout. mismo alcance que el anterior: un prompt run usa siempre el worktree de su conversación
+  // (o el checkout si el usuario lo eligió al abrirla).
   worktree?: boolean;
+}
+
+// aviso de los flags de repo que ya no aplica nada (se retiran en 0.12.0).
+export const REPO_FLAGS_DEPRECATED = 'ignorado: duckhunt ejecuta las investigaciones en el sandbox de lectura (se retira en 0.12.0)';
+
+/** flags deprecados de un repo del mapa, con su nombre en la config (`repos add`, `repos list` y `status` los avisan). */
+export function deprecatedRepoFlags(repo: RepoConfig): string[] {
+  return [...(repo.worktree === false ? ['worktree: false'] : []), ...(repo.dangerouslySkipPermissions ? ['dangerouslySkipPermissions'] : [])];
 }
 
 export interface AwsAccountConfig {
@@ -66,11 +79,17 @@ export interface RunnerCredential {
   baseUrl: string;
   clientId: string;
   refreshToken: string;
+  // client_id del login anterior de esta máquina, hasta el primer claim con éste (0.11.0): duckhunt
+  // adopta su fila y revoca la credencial vieja.
+  replacesClientId?: string;
 }
 
 export interface RunnerConfig extends RunnerCredential {
   // etiqueta del runner en agent_run.runner_label (default: hostname).
   label?: string;
+  // uuid estable de esta máquina (machine.ts) y el hostname con el que se generó.
+  machineId?: string;
+  machineHost?: string;
   // mapa clave ws/slug → checkout local.
   repos: Record<string, RepoConfig>;
   // mapa id de cuenta aws (12 dígitos) → perfil local.
@@ -165,17 +184,32 @@ export function parseConfig(text: string): RunnerConfig {
     baseUrl: cfg.baseUrl,
     clientId: cfg.clientId,
     refreshToken: cfg.refreshToken,
+    ...(typeof cfg.replacesClientId === 'string' && cfg.replacesClientId ? { replacesClientId: cfg.replacesClientId } : {}),
     label: cfg.label,
+    ...(typeof cfg.machineId === 'string' ? { machineId: cfg.machineId } : {}),
+    ...(typeof cfg.machineHost === 'string' ? { machineHost: cfg.machineHost } : {}),
     repos: cfg.repos,
     aws: cfg.aws,
     defaults: cfg.defaults,
   };
 }
 
+/** separa la credencial (la rota el daemon) de lo que recarga en caliente (mapas, etiqueta, defaults, máquina). */
+export function splitConfig(cfg: RunnerConfig): { credential: RunnerCredential; local: LocalConfig } {
+  const { baseUrl, clientId, refreshToken, replacesClientId, ...local } = cfg;
+  return { credential: { baseUrl, clientId, refreshToken, ...(replacesClientId ? { replacesClientId } : {}) }, local };
+}
+
 /** carga la config; null si no existe (login pendiente). lanza si el json es inválido. */
 export function loadConfig(): RunnerConfig | null {
   const text = readConfigText();
   return text === null ? null : parseConfig(text);
+}
+
+/** el fichero tal cual, también sin credencial (tras `logout`); null si no existe. lanza si el json es inválido. */
+export function loadStoredConfig(): StoredConfig | null {
+  const text = readConfigText();
+  return text === null ? null : stored(parseObject(text));
 }
 
 // path real del fichero: el tmp va a su lado y un symlink (dotfiles) sigue siendo symlink, también
