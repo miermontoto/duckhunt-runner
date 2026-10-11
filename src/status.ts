@@ -1,18 +1,58 @@
 // `duckhunt-runner status`: si hay un daemon en marcha (daemon-lock.ts), qué kit tiene esta máquina
 // (claude, credencial detectada, aws cli) y qué hay mapeado (repos con sus avisos de salud, cuentas
-// aws). diagnóstico local, sin tocar el server.
+// aws). diagnóstico local, sin tocar el server: lo que duckhunt dice de esta máquina (nombre, pausa,
+// qué acepta, tope de slots, por qué no recibe trabajo y los worktrees que el gc conservó) es lo del
+// último claim del daemon (server-state.ts), con su edad (t#465 P12). también avisa de los flags de
+// repo deprecados (worktree: false, dangerouslySkipPermissions) que ya no aplica nada.
 
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { concurrency, configPath, loadConfig, scratchDir } from './config.js';
+import { concurrency, configPath, deprecatedRepoFlags, loadStoredConfig, REPO_FLAGS_DEPRECATED, scratchDir } from './config.js';
 import { daemonLockHolder } from './daemon-lock.js';
 import { detectClaude } from './claude.js';
 import { describeFinding, repoFindings, scanRepos } from './repo-health.js';
 import { scrubEnv } from './scrub-env.js';
+import { ownedHere } from './machine.js';
+import { CLAIM_OUTCOME, readServerState, type ServerState } from './server-state.js';
 import { runnerVersion } from './version.js';
+
+// motivo legible del estado que dijo el server.
+const STATE_TEXT: Readonly<Record<string, string>> = {
+  [CLAIM_OUTCOME.claimed]: 'reclamó un run',
+  [CLAIM_OUTCOME.unpaired]: 'credencial rechazada: desvinculada desde duckhunt, revocada o caducada (`duckhunt-runner login`)',
+  paused: 'en pausa (la tuya o la de esta máquina, desde duckhunt)',
+  full: 'sin slot libre',
+  upgrade_required: 'no recibe trabajo: actualiza duckhunt-runner o claude code',
+};
+
+const ago = (ms: number): string => {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return s < 120 ? `${s} s` : s < 7200 ? `${Math.round(s / 60)} min` : `${Math.round(s / 3600)} h`;
+};
+
+/** líneas de lo que duckhunt dijo de esta máquina en el último claim (para `status`). */
+export function describeServerState(state: ServerState | null, clientId: string | undefined, now = Date.now()): string[] {
+  if (!state) return ['en duckhunt: sin datos (el daemon aún no ha reclamado con esta credencial)'];
+  const stale = clientId !== undefined && state.clientId !== clientId ? ' — de una credencial anterior: arranca el daemon para refrescarlo' : '';
+  const r = state.runner;
+  const lines = [
+    `en duckhunt: hace ${ago(now - state.at)}${stale}`,
+    r
+      ? `  máquina #${r.id}${r.name ? ` «${r.name}»` : ''} · pausa ${r.paused ? 'sí' : 'no'} · acepta ${r.accepts} · tope de slots ${r.maxSlots ?? 'el anunciado'}`
+      : '  sin los ajustes de la máquina (duckhunt anterior a 0.11)',
+    `  estado: ${state.state === null ? 'recibe trabajo (nada en cola)' : (STATE_TEXT[state.state] ?? state.state)}`,
+  ];
+  const kept = state.kept ?? [];
+  return [
+    ...lines,
+    ...(kept.length === 0
+      ? []
+      : [`  worktrees conservados: ${kept.length}`, ...kept.map((k) => `    r#${k.runId}: ${k.dirtyFiles} sin commitear, ${k.unpushedCommits} commit(s) sin subir`)]),
+  ];
+}
 
 const execFileP = promisify(execFile);
 
@@ -46,12 +86,14 @@ export async function statusCommand(): Promise<void> {
   console.log(`daemon:     duckhunt-runner ${runnerVersion() ?? '?'} (config ${configPath()})`);
   const running = daemonLockHolder();
   console.log(`en marcha:  ${running ? `pid ${running.pid} desde ${running.startedAt} (config ${running.config})` : 'no'}`);
-  const cfg = loadConfig();
+  const cfg = loadStoredConfig();
   if (!cfg) {
     console.log(`sin config (${configPath()}): ejecuta \`duckhunt-runner login <base-url>\``);
   } else {
-    console.log(`servidor:   ${cfg.baseUrl}`);
-    console.log(`runner:     ${cfg.label ?? os.hostname()} (client ${cfg.clientId})`);
+    console.log(`servidor:   ${cfg.baseUrl ?? '(sin login)'}`);
+    console.log(`runner:     ${cfg.label ?? os.hostname()} (${cfg.clientId ? `client ${cfg.clientId}` : 'sin credencial: `duckhunt-runner login`'})`);
+    console.log(`máquina:    ${cfg.machineId ?? 'sin id (lo genera el daemon al arrancar)'}${cfg.machineId && !ownedHere(cfg) ? ` — generado en ${cfg.machineHost ?? 'otra máquina'}: haz \`login\` aquí para que sea otra máquina` : ''}`);
+    if (cfg.clientId) describeServerState(readServerState(), cfg.clientId).forEach((line) => console.log(line));
     console.log(`modelo:     ${cfg.defaults.model ?? 'default del cli'}`);
     console.log(`slots:      ${concurrency(cfg.defaults)} run(s) a la vez (defaults.maxConcurrent)`);
     console.log(`mapa:       ${cfg.defaults.remoteRepoEdits === false ? 'solo por la cli (defaults.remoteRepoEdits: false)' : 'también desde duckhunt (quitar repos, elegir carpeta)'}`);
@@ -70,7 +112,10 @@ export async function statusCommand(): Promise<void> {
   if (!cfg) return;
   const repos = Object.entries(cfg.repos);
   console.log(`repos:      ${repos.length === 0 ? 'ninguno mapeado (`repos discover <dir>`)' : ''}`);
-  repos.forEach(([k, r]) => console.log(`  ${k} → ${r.path}`));
+  repos.forEach(([k, r]) => {
+    const flags = deprecatedRepoFlags(r);
+    console.log(`  ${k} → ${r.path}${flags.length > 0 ? ` (${flags.join(', ')}: ${REPO_FLAGS_DEPRECATED})` : ''}`);
+  });
   const findings = repoFindings(await scanRepos(cfg.repos, scrubEnv(process.env)));
   console.log(`avisos:     ${findings.length === 0 ? 'ninguno' : `${findings.length} (los mismos que ve duckhunt, sin los paths)`}`);
   findings.forEach((f) => console.log(`  ⚠ ${describeFinding(f)}`));

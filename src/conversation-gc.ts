@@ -7,10 +7,14 @@
 // contiene NO se borra nunca; se conserva y se avisa en el log. con runs en paralelo el gc corre
 // mientras otros slots trabajan: nunca toca el worktree de un run en vuelo (lo reclamó este daemon
 // y el server aún podría darlo por cerrado) y cada borrado va bajo el lock git de su checkout.
+// worktree_report (0.11.0, t#465 P12): de cada conversación que se conserva por guardar trabajo sale un
+// recuento (KeptWorktree: ficheros sin commitear y commits sin subir, nunca paths) que el daemon anuncia
+// en cada claim hasta la siguiente recogida; el hilo de esa conversación lo enseña con «pedir commit».
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { CONVERSATION_WORKTREE_PREFIX, RUN_WORKTREE_PREFIX, removeCleanWorktree, unsavedWork, worktreesDir } from './worktree.js';
+import { CONVERSATION_WORKTREE_PREFIX, RUN_WORKTREE_PREFIX, describeWork, removeCleanWorktree, worktreeWork, worktreesDir } from './worktree.js';
+import type { KeptWorktree } from './server-state.js';
 
 // inactividad tras la que un worktree se puede borrar aunque el server lo dé por abierto
 // (AGENT_CONVERSATION_IDLE_TTL_MS del server).
@@ -70,26 +74,35 @@ export function chunk<T>(items: T[], size = CONVERSATIONS_QUERY_MAX): T[][] {
   return Array.from({ length: Math.ceil(items.length / size) }, (_, i) => items.slice(i * size, (i + 1) * size));
 }
 
+/** lo que hizo una recogida: cuántos borró y las conversaciones que conservó por guardar trabajo. */
+export interface WorktreeCollection {
+  removed: number;
+  kept: KeptWorktree[];
+}
+
 /**
  * borra los worktrees seleccionados que no guarden trabajo. secuencial (git bloquea el repo por
- * operación). devuelve cuántos borró; conservar o fallar se loguea, nunca lanza.
+ * operación). devuelve cuántos borró y el recuento de las conversaciones conservadas; conservar o
+ * fallar se loguea, nunca lanza.
  */
-export async function removeWorktrees(targets: WorktreeCandidate[], env: NodeJS.ProcessEnv): Promise<number> {
-  let removed = 0;
+export async function removeWorktrees(targets: WorktreeCandidate[], env: NodeJS.ProcessEnv): Promise<WorktreeCollection> {
+  const out: WorktreeCollection = { removed: 0, kept: [] };
   // i/o secuencial: cada `git worktree remove` toca el mismo repositorio.
   for (const c of targets) {
     const name = path.basename(c.dir);
     try {
-      const keep = await unsavedWork(c.dir, env);
+      const work = await worktreeWork(c.dir, env);
+      const keep = describeWork(work);
       if (keep) {
         console.warn(`[runner] worktree ${c.dir} conservado: ${keep} (bórralo a mano con \`git worktree remove\` cuando ya no lo necesites)`);
+        if (c.kind === 'conversation') out.kept.push({ runId: c.runId, ...work });
         continue;
       }
       await removeCleanWorktree(c.repoPath, c.dir, env);
-      removed++;
+      out.removed++;
     } catch (err) {
       console.error(`[runner] no se pudo recoger el worktree ${name}: ${(err as Error).message}`);
     }
   }
-  return removed;
+  return out;
 }

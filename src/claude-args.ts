@@ -24,12 +24,17 @@
 // mcp-config de los runs (run-mcp-config.ts), que llevan el token per-run de cada slot; sin él no se
 // lanza nada. y `withoutShell` quita la shell de lectura a un segmento (read-shell-guard.ts: un
 // symlink commiteado que sale del cwd): Bash entera al deny y ningún Bash(...) en el allow.
+// 0.11.0 (t#465 P12): todo kit de lectura (y los de reglas heredados) niega además a Read las rutas
+// reales de las credenciales de esta máquina (secret_paths, secret-paths.ts: su config y su estado,
+// $CLAUDE_CONFIG_DIR, AWS_*_FILE y los realpath de la lista genérica del server). y una plantilla
+// (run.seed = template, seed_budget) vuelve a llevar --max-budget-usd aunque viaje como prompt run, con la
+// misma regla de siempre (solo con api key o un presupuesto de la config); el de turnos, nunca.
 
-import { BASH_TOOL, MEMORY_WRITE_TOOLS, PROMPT_PROFILE, RUN_KIND, type ClaimResponse, type PromptProfile } from './claim.js';
+import { BASH_TOOL, MEMORY_WRITE_TOOLS, PROMPT_PROFILE, RUN_KIND, RUN_SEED, type ClaimResponse, type PromptProfile, type RunSeed } from './claim.js';
 import type { OptionalFlag } from './claude.js';
 
 export interface ClaudeArgsInput {
-  claim: Pick<ClaimResponse, 'tools' | 'permissionMode' | 'maxTurns' | 'maxBudgetUsd'> & { run: { kind: string; profile: PromptProfile | null } };
+  claim: Pick<ClaimResponse, 'tools' | 'permissionMode' | 'maxTurns' | 'maxBudgetUsd'> & { run: { kind: string; profile: PromptProfile | null; seed?: RunSeed | null } };
   prompt: string;
   mcpConfigFile: string;
   // flags opcionales que `claude --help` lista en esta máquina.
@@ -46,6 +51,8 @@ export interface ClaudeArgsInput {
   mirroredDeny?: readonly string[];
   // Read del directorio de mcp-configs (run-mcp-config.ts::runConfigDeny): al deny de todo kit.
   runConfigDeny: readonly string[];
+  // Read de las rutas reales de las credenciales de la máquina (secret-paths.ts): al deny de lectura.
+  secretPathsDeny?: readonly string[];
   // segmento sin shell de lectura (read-shell-guard.ts::readShellGuard).
   withoutShell?: boolean;
 }
@@ -71,15 +78,17 @@ export function buildClaudeArgs(i: ClaudeArgsInput): string[] {
   }
   // presupuesto: solo tiene sentido cuando el coste es REAL (api key). con login de suscripción el
   // cli lo aplicaría sobre un coste nominal que nadie paga y mata runs legítimos (el guard contra
-  // loops es el timeout). config manda: número = forzar, 0 = nunca. prompt runs: nunca.
-  const budget = isPrompt ? 0 : (i.configBudgetUsd ?? (i.payingWithApiKey ? (claim.maxBudgetUsd ?? 0) : 0));
+  // loops es el timeout). config manda: número = forzar, 0 = nunca. prompt runs: nunca, salvo los que
+  // nacieron de una plantilla (seed_budget).
+  const budgeted = !isPrompt || claim.run.seed === RUN_SEED.template;
+  const budget = budgeted ? (i.configBudgetUsd ?? (i.payingWithApiKey ? (claim.maxBudgetUsd ?? 0) : 0)) : 0;
   const maxTurns = isPrompt ? 0 : (claim.maxTurns ?? 0);
   const skip = i.skipPermissions && !isPrompt;
   const allowed = i.withoutShell ? claim.tools.allowed.filter((t) => t !== BASH_TOOL && !t.startsWith(`${BASH_TOOL}(`)) : claim.tools.allowed;
   const disallowed = Array.from(
     new Set([
       ...claim.tools.disallowed,
-      ...(readPrompt || !isPrompt ? (i.mirroredDeny ?? []) : []),
+      ...(readPrompt || !isPrompt ? [...(i.mirroredDeny ?? []), ...(i.secretPathsDeny ?? [])] : []),
       ...(skip ? MEMORY_WRITE_TOOLS : []),
       ...(i.withoutShell ? [BASH_TOOL] : []),
       ...i.runConfigDeny,

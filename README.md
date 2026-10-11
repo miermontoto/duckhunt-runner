@@ -28,12 +28,14 @@ disk. With the progress feed on, it also receives what the agent says and one li
 ## Setup
 
 ```sh
-npx duckhunt-runner login
-npx duckhunt-runner repos discover ~/dev
-npx duckhunt-runner start
+npx duckhunt-runner@0.11.0 login
+npx duckhunt-runner@0.11.0 repos discover ~/dev
+npx duckhunt-runner@0.11.0 start
 ```
 
-That is the whole thing. Step by step:
+Pin the version: the daemon runs `claude -p` with a shell on your machine, so install the release you
+mean to run (Settings → Agents → Machines shows the commands pinned to the version duckhunt
+recommends). That is the whole thing. Step by step:
 
 | Command | What it does |
 | --- | --- |
@@ -42,14 +44,16 @@ That is the whole thing. Step by step:
 | `repos list\|add\|remove` | Manage that map by hand: `repos add <workspace/slug> <path>`. `list` and `add` show each repo's health warnings (see below). |
 | `aws add <accountId> <profile>` | Optional. Binds an AWS account id to a profile of your local AWS CLI, so the agent can read metrics, logs and resource state for that account. |
 | `aws list\|remove` | Manage the AWS map. |
-| `status` | Reports whether a daemon is running and this machine's kit: Claude version, which credential it will use, AWS profiles and mapped repos. Run this first when something does not work. |
+| `status` | Reports whether a daemon is running, this machine's kit (Claude version, which credential it will use, AWS profiles and mapped repos) and what duckhunt last said about this machine (see [Machines](#machines-and-credentials)). Run this first when something does not work. |
+| `logout` | Unpairs this machine from duckhunt and deletes its credential from the config file (0.11.0 or later; see [Machines](#machines-and-credentials)). |
 | `start [--verbose]` | Starts the claim loop. |
 
-Configuration lives in `~/.duckhunt-runner.json`. It holds the base URL, the OAuth credential, the
-repo and AWS maps, and optional defaults (`model`, `maxBudgetUsd`, `maxConcurrent`). Set `DUCKHUNT_RUNNER_CONFIG` to use
+Configuration lives in `~/.duckhunt-runner.json`. It holds the base URL, the OAuth credential, this
+machine's id, the repo and AWS maps, and optional defaults (`model`, `maxBudgetUsd`, `maxConcurrent`). Set `DUCKHUNT_RUNNER_CONFIG` to use
 another file (a second account, a test instance) and `DUCKHUNT_RUNNER_HOME` to move the state
-directory (`~/.duckhunt-runner`: the scratch directory, `--verbose` logs, the daemon lock and the
-per-run MCP configs). `--version` prints the daemon version.
+directory (`~/.duckhunt-runner`: the scratch directory, `--verbose` logs, the daemon lock, the
+per-run MCP configs and `server-state.json`, what duckhunt last said about this machine). `--version`
+prints the daemon version.
 
 The daemon does not need a restart after `login`, `repos`, `aws` or a hand edit of the file: it
 rereads the config every few seconds, even while all its slots are busy. Each command, and the
@@ -60,8 +64,9 @@ daemon keeps the config it has and says so.
 ### Repo health
 
 The daemon checks every mapped checkout when it starts and every 10 minutes, prints what changed,
-and reports it to duckhunt, which shows it on the runner card and in the repo picker and notifies
-you when a repo stops being usable. Only the repo key and a code travel, never a path.
+and reports it to duckhunt, which shows it on the machine's row (Settings → Agents → Machines) and in
+the repo picker and notifies you when a repo stops being usable. Only the repo key and a code travel,
+never a path.
 
 | Code | Meaning | Blocks runs |
 | --- | --- | --- |
@@ -78,7 +83,7 @@ Duplicates are looked for among the siblings of each mapped checkout, one level 
 
 #### Fixing the map from duckhunt
 
-The mapped-repos list on the runner card can remove a repo from this machine's map, or point it at
+The mapped-repos list on the machine's row can remove a repo from this machine's map, or point it at
 another folder when the daemon found more than one checkout of it (or found it somewhere else after
 its folder disappeared). To make that choice possible, the daemon sends the **folder name** of each
 candidate (with its parent only when two share a name), its branch, the age of its last commit and
@@ -91,7 +96,7 @@ daemon writes only that entry of its map to the config file, checks again and re
 a few seconds.
 
 To keep the map CLI-only on a machine, set `"remoteRepoEdits": false` under `defaults` in
-`~/.duckhunt-runner.json`: the card then hides the controls.
+`~/.duckhunt-runner.json`: the row then hides the controls.
 
 ### Keeping it running
 
@@ -104,8 +109,10 @@ already does for this — a `screen`/`tmux` session, a systemd user service, `la
 Description=duckhunt runner
 
 [Service]
-ExecStart=/usr/bin/npx duckhunt-runner start
+ExecStart=/usr/bin/npx duckhunt-runner@0.11.0 start
 Restart=always
+# 78: this machine was unpaired (or its credential expired); it needs a new `login`, not a restart.
+RestartPreventExitStatus=78
 
 [Install]
 WantedBy=default.target
@@ -118,6 +125,39 @@ Only one daemon runs per state directory. `start` takes `~/.duckhunt-runner/daem
 run while the daemon that holds it is alive; a lock left by a daemon that died, or from before a
 reboot, is replaced. To run a
 second account on the same machine, give it its own `DUCKHUNT_RUNNER_CONFIG` and `DUCKHUNT_RUNNER_HOME`.
+
+### Machines and credentials
+
+Each `login` registers a new credential, and duckhunt lists every machine you have paired under
+Settings → Agents → Machines, where you can rename it, pause it, choose what it accepts
+(conversations, unattended investigations or both), cap its slots and unpair it.
+
+From 0.11.0 the daemon gives this machine a stable id (a random UUID, stored in the config file
+together with the hostname it was created on) and announces it with every claim. Until the first
+claim with a new credential, it also announces the client id that `login` replaced. When duckhunt
+sees a known id from the same account, it **adopts** the existing machine: the new credential takes
+over the machine's name, settings and conversations, the old credential is revoked, and no ghost
+machine is left behind. Runs already in progress keep their MCP access: their per-run tokens are
+only revoked when each step ends. Adoption never crosses accounts. A config file copied to another
+host does not claim to be the original machine: `login` there creates a new id instead.
+
+`duckhunt-runner logout` unpairs the machine from the machine itself: duckhunt revokes its
+credential, deletes the machine and cancels the runs it had in progress (exactly what the × on its
+row does), and the daemon deletes `clientId` and `refreshToken` from the config file. The maps,
+defaults and machine id stay, so a later `login` pairs it again. Against a duckhunt that does not
+know `logout` yet (404), or with a credential that was already dead, it only deletes the local one and
+says so; a network or server error deletes nothing, so you can retry. A running daemon stops on its
+next call.
+
+When the credential is rejected (the machine was unpaired from duckhunt or with `logout`, or the
+credential was revoked or expired), the daemon stops claiming, stops its runs and exits with code
+**78** instead of retrying every few seconds. Run `login` again to pair it.
+
+`status` prints what duckhunt said about this machine in the daemon's last claim, and how long ago:
+its name in duckhunt, whether it is paused, what it accepts, its slot cap, why it is not getting work
+(paused, no free slot, needs an update) and the worktrees kept with unsaved work. It never talks to
+the server itself: refreshing the credential from a second process would rotate the running daemon's
+token, which duckhunt treats as a replay.
 
 ### Parallel runs
 
@@ -166,6 +206,15 @@ run's token:
 So an unattended run can never change anything, and anything that leaves duckhunt needs you to have
 said yes to that specific action, spelled out with the literal command. Changing AWS resources or
 code is never part of that: the run proposes an `edit` conversation, which you review and launch.
+
+#### AWS accounts (0.11.0 or later)
+
+A run carries the AWS account of its entry. The daemon maps it to the profile you bound with
+`aws add`. An account this machine does not map no longer falls back to your default profile, which
+may belong to another account: the AWS CLI runs with empty config and credentials files of its own
+(and no profile, no keys from the environment and no instance or container credentials), so every
+call fails, and the run's feed says which account to map. duckhunt already omits the AWS read
+patterns for an investigation whose account this machine does not announce; this is the second line.
 
 ## Prompt runs
 
@@ -224,6 +273,23 @@ pattern other than a read-only AWS CLI one:
 
 Older daemons keep the previous `read` profile: no shell.
 
+#### Credential paths (0.11.0 or later)
+
+duckhunt denies `Read` on a fixed list of home-relative credential paths in every `read` kit
+(`~/.aws/**`, `~/.ssh/**`, `~/.duckhunt-runner.json`, `~/.claude/.credentials.json` and a few more),
+because the server never learns your paths. The daemon adds the ones only this machine knows, without
+sending them anywhere: its real config file (also when `DUCKHUNT_RUNNER_CONFIG` moves it), its state
+directory (the logs, the lock, `server-state.json` and the run configs; not the scratch directory,
+which is the working directory of runs without a repo), `$CLAUDE_CONFIG_DIR/.credentials.json`,
+`AWS_SHARED_CREDENTIALS_FILE` and `AWS_CONFIG_FILE` when they are set, and the real path behind any
+of the listed ones that is a symlink (dotfiles). A path that a Claude permission rule cannot express
+(commas, brackets, wildcards) is skipped with a warning at startup.
+
+Checked with Claude Code 2.1.296: `Read`, `Grep` and `Glob` honour these deny rules, through symlinks
+and in recursive searches. The read-only shell approves nothing outside its working directory, and
+inside it honours a denied path named directly but not a recursive read, which is why a committed
+symlink that leaves the working directory takes the shell away for that step (see above).
+
 #### Native memory (0.8.0 or later)
 
 The daemon announces `native_memory` and the server stops denying `Edit` and `Write` outright for
@@ -252,16 +318,20 @@ conversation (with the identity check) linked to the one that proposed it. This 
 change.
 
 Every prompt run uses `--strict-mcp-config`, so a `.mcp.json` in the checkout never loads.
-Settings → Agents can force `read` for everything (read-only mode) or per repo, pause the runner,
-or stop it from accepting prompt runs. Read-only mode applies to existing `edit` conversations from
+Settings → Agents can force `read` for everything (read-only mode), and Settings → Agents → Repos
+per repo. Settings → Agents → Machines pauses all your agents or one machine, and chooses what each
+machine accepts. Read-only mode applies to existing `edit` conversations from
 their next step on. A per-repo `read` lock covers conversations on that repo; it is not a sandbox,
-since an `edit` conversation on another repo (or none) still has a shell. Prompt runs have no turn or budget limit: each step is capped
-by the wall-clock limit chosen in Settings → Agents (1 to 8 hours, 4 by default; automation runs
-keep 30 minutes), and the model is your `defaults.model` (or the CLI default).
-`worktree: false` and `--dangerously-skip-permissions` in the repo map no longer apply to anything a
-current duckhunt sends: every conversation, automation runs included, is a prompt run with its own
-worktree (or the checkout, when you choose it). They only affect the legacy automation runs an older
-duckhunt server queued.
+since an `edit` conversation on another repo (or none) still has a shell. Conversations you start
+have no turn or budget limit: each step is capped by the wall-clock limit chosen in Settings → Agents
+(1 to 8 hours, 4 by default), and the model is your `defaults.model` (or the CLI default). Automation
+runs keep 30 minutes per step and, from 0.11.0, their budget again when you pay with an API key
+(`ANTHROPIC_API_KEY`) or set `defaults.maxBudgetUsd`.
+`worktree: false` and `--dangerously-skip-permissions` in the repo map are deprecated (0.11.0) and go
+away in 0.12.0: nothing a current duckhunt sends applies them, because every conversation, automation
+runs included, is a prompt run with its own worktree (or the checkout, when you choose it). They only
+affect the legacy automation runs an older duckhunt server queued; `repos add`, `repos list` and
+`status` say they are ignored.
 
 Each step's MCP config, which holds the run's token, is written to `~/.duckhunt-runner/run-config/`
 (a `0700` directory, files `0600`) and deleted when the step ends; the daemon removes any left
@@ -269,7 +339,8 @@ behind by a daemon that died when it starts. Every run, `read` or `edit`, has `R
 directory (Claude still loads its own `--mcp-config` from it), and no run's working directory is
 inside it, so a `read` run can't read the token of a run in another slot. An `edit` run's shell
 still could: it runs only after you confirm your identity. Daemons before 0.10.2 used the system
-temp directory.
+temp directory; from 0.11.0 the daemon removes, once when it starts, the ones they left there
+(`duckhunt-runner-<run>-<hex>.json`, your own regular files only).
 
 ### One worktree per conversation
 
@@ -288,8 +359,10 @@ its whole process group; a late report from that step never closes the step that
 At most every 30 minutes the daemon removes the worktrees of conversations that duckhunt reports as
 closed, and any worktree unused for 7 days, skipping those of runs it is working on. It never removes one with
 uncommitted changes or with commits that no branch or remote contains: those are kept and logged, and
-you can remove them with `git worktree remove` when you are done. Worktrees kept from failed
-automation runs (`run-<id>`) expire after the same 7 days.
+you can remove them with `git worktree remove` when you are done. From 0.11.0 the daemon also tells
+duckhunt how many changed files and unpushed commits each kept conversation worktree holds (counts
+only, never paths), and the conversation shows it with a button that asks the agent to commit them.
+Worktrees kept from failed automation runs (`run-<id>`) expire after the same 7 days.
 
 ### Working in the checkout instead
 

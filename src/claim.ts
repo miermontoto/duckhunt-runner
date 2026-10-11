@@ -18,6 +18,9 @@
 //   `aws s3 rm … --exclude list-x`) y sus lecturas que escriben un fichero local, negadas siempre.
 //   un bug o una deriva del server nunca le da a una lectura una shell que ejecute o escriba.
 // - `run.segment` es la identidad del proceso: viaja de vuelta en heartbeat/progress/events/status.
+// - `run.seed` (t#465 P6) dice si la conversación nació de una plantilla de investigación: con
+//   seed_budget (0.11.0) su presupuesto se aplica aunque viaje como prompt run (claude-args.ts). el bloque
+//   `runner` de un server >= t#465 P12 no es del run: lo lee server-state.ts, y parseClaim lo ignora.
 
 // capacidades que el daemon anuncia en el claim. el server entrega kind=prompt solo a quien
 // anuncia `prompt`, pide el feed de progreso solo a quien anuncia `events` y deja abrir una
@@ -33,6 +36,15 @@ export const RUNNER_CAPABILITY = {
   nativeMemory: 'native_memory',
   // acepta cambios del mapa de repos pedidos desde duckhunt (repo-commands.ts); apagable en local.
   repoEdit: 'repo_edit',
+  // 0.11.0 (t#465 P12): niega a Read las rutas reales de las credenciales de esta máquina en todo kit
+  // de lectura (secret-paths.ts), aplica el presupuesto a las plantillas (seed_budget), corre con la aws
+  // vacía una cuenta sin mapear (aws-env.ts), anuncia el trabajo que su gc conservó (keptWorktrees) y
+  // sabe desvincularse (`logout`, y lee el bloque runner del claim).
+  secretPaths: 'secret_paths',
+  seedBudget: 'seed_budget',
+  awsStrict: 'aws_strict',
+  worktreeReport: 'worktree_report',
+  logout: 'logout',
 } as const;
 export type RunnerCapability = (typeof RUNNER_CAPABILITY)[keyof typeof RUNNER_CAPABILITY];
 
@@ -56,6 +68,13 @@ export const PROMPT_PROFILE = {
   edit: 'edit',
 } as const;
 export type PromptProfile = (typeof PROMPT_PROFILE)[keyof typeof PROMPT_PROFILE];
+
+// de qué nació la conversación (run.seed, t#465 P6): una plantilla de investigación o el texto de la persona.
+export const RUN_SEED = {
+  template: 'template',
+  prompt: 'prompt',
+} as const;
+export type RunSeed = (typeof RUN_SEED)[keyof typeof RUN_SEED];
 
 // techo local de permission modes: el server manda dontAsk; bypassPermissions nunca se acepta
 // desde fuera (el opt-in a saltarse permisos es solo local, `repos add --dangerously-skip-permissions`).
@@ -185,6 +204,8 @@ export interface ClaimedRun {
   sessionId: string | null;
   parentRunId: number | null;
   profile: PromptProfile | null;
+  // null = server anterior a t#465 P6 (o un valor desconocido).
+  seed: RunSeed | null;
   // solo prompt runs; en runs de reglas siempre worktree (no se consulta).
   isolation: RunIsolation;
   // segmento del claim (null = server anterior a los segmentos).
@@ -341,6 +362,7 @@ export function parseClaim(raw: unknown): ClaimResponse {
       sessionId,
       parentRunId: posInt(r.parentRunId),
       profile,
+      seed: r.seed === RUN_SEED.template || r.seed === RUN_SEED.prompt ? r.seed : null,
       isolation: kind === RUN_KIND.prompt && r.isolation === RUN_ISOLATION.checkout ? RUN_ISOLATION.checkout : RUN_ISOLATION.worktree,
       segment: posInt(r.segment),
     },

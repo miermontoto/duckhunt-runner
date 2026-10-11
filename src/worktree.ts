@@ -251,13 +251,29 @@ export async function removeRunWorktree(repoPath: string, dir: string, env: Node
   });
 }
 
-/** motivo para NO borrar un worktree (cambios sin commitear o commits que ninguna rama/remoto guarda), o null. */
-export async function unsavedWork(dir: string, env: NodeJS.ProcessEnv): Promise<string | null> {
+/** lo que un worktree guarda y se perdería al borrarlo: ficheros sin commitear y commits que ninguna rama, remoto ni tag contiene. */
+export interface WorktreeWork {
+  dirtyFiles: number;
+  unpushedCommits: number;
+}
+
+/** recuentos del trabajo que guarda un worktree (los anuncia worktree_report: nunca paths). */
+export async function worktreeWork(dir: string, env: NodeJS.ProcessEnv): Promise<WorktreeWork> {
   const status = await git(dir, ['status', '--porcelain'], env);
-  if (status) return `${status.split('\n').length} cambios sin commitear`;
   // commits alcanzables solo desde el HEAD detached de este worktree: al borrarlo se perderían.
-  const orphan = await git(dir, ['rev-list', '-n', '1', 'HEAD', '--not', '--branches', '--remotes', '--tags'], env);
-  return orphan ? 'commits que ninguna rama ni remoto contiene' : null;
+  const orphans = await git(dir, ['rev-list', '--count', 'HEAD', '--not', '--branches', '--remotes', '--tags'], env);
+  return { dirtyFiles: status ? status.split('\n').length : 0, unpushedCommits: Number.parseInt(orphans, 10) || 0 };
+}
+
+/** motivo para NO borrar un worktree (cambios sin commitear o commits que ninguna rama/remoto guarda), o null. */
+export function describeWork(work: WorktreeWork): string | null {
+  if (work.dirtyFiles > 0) return `${work.dirtyFiles} cambios sin commitear`;
+  return work.unpushedCommits > 0 ? 'commits que ninguna rama ni remoto contiene' : null;
+}
+
+/** motivo para NO borrar un worktree, o null (worktreeWork + describeWork). */
+export async function unsavedWork(dir: string, env: NodeJS.ProcessEnv): Promise<string | null> {
+  return describeWork(await worktreeWork(dir, env));
 }
 
 /** borra un worktree de conversación LIMPIO (sin --force: git se niega si aparece algo sucio). */

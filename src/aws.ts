@@ -2,7 +2,7 @@
 // claim trae solo el id de cuenta (y región) de la conexión del entry; el daemon lo traduce a
 // AWS_PROFILE/AWS_DEFAULT_REGION del proceso claude. el server nunca ve perfiles ni credenciales.
 
-import { configPath, loadConfig, saveConfig } from './config.js';
+import { configPath, loadStoredConfig, saveConfig } from './config.js';
 
 const ACCOUNT_ID_RE = /^\d{12}$/;
 
@@ -13,7 +13,8 @@ const USAGE = `uso:
 `;
 
 export function awsCommand(args: string[]): void {
-  const cfg = loadConfig();
+  // sin credencial también (tras `logout` los mapas se quedan): solo se leen y escriben los mapas.
+  const cfg = loadStoredConfig();
   if (!cfg) {
     console.error('sin config: ejecuta `duckhunt-runner login <base-url>` primero');
     process.exitCode = 1;
