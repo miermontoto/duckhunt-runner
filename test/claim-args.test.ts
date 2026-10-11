@@ -1,7 +1,9 @@
 // claim → argv de claude: validación local (nada del server acaba como flag) y flags por kind. y el
 // contrato del cable con el server (t#465): los claims reales que compone duckhunt (copias de sus
-// fixtures en test/fixtures/claims, que genera su template-seed-kit.test.ts) los acepta parseClaim y
-// buildClaudeArgs los cumple — una investigación es un prompt run de lectura y nunca sale de ahí.
+// fixtures en test/fixtures/claims, que genera su template-seed-kit.test.ts, y la matriz dorada del
+// resolver de política en test/fixtures/claim-kits, de su claim-kit.test.ts: semilla × perfil × tier ×
+// capabilities × candados × commentJira × aws anunciada) los acepta parseClaim y buildClaudeArgs los
+// cumple — una investigación es un prompt run de lectura y nunca sale de ahí.
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -261,12 +263,16 @@ const SERVER_SECRET_READ_DENY = [
   'Read(~/.docker/config.json)',
   'Read(//tmp/duckhunt-runner-*)',
 ];
-const CLAIM_FIXTURES_DIR = new URL('../../test/fixtures/claims/', import.meta.url);
-const claimFixtures = fs
-  .readdirSync(CLAIM_FIXTURES_DIR)
-  .filter((f) => f.endsWith('.json'))
-  .sort()
-  .map((name) => ({ name, raw: JSON.parse(fs.readFileSync(new URL(name, CLAIM_FIXTURES_DIR), 'utf8')) as Record<string, unknown> }));
+const fixturesIn = (dir: string) => {
+  const url = new URL(`../../test/fixtures/${dir}/`, import.meta.url);
+  return fs
+    .readdirSync(url)
+    .filter((f) => f.endsWith('.json'))
+    .sort()
+    .map((name) => ({ name: `${dir}/${name}`, raw: JSON.parse(fs.readFileSync(new URL(name, url), 'utf8')) as Record<string, unknown> }));
+};
+const goldenClaims = fixturesIn('claim-kits');
+const claimFixtures = [...fixturesIn('claims'), ...goldenClaims];
 const flagValue = (args: string[], flag: string): string[] => {
   const i = args.indexOf(flag);
   return i === -1 ? [] : args[i + 1]!.split(',');
@@ -310,4 +316,15 @@ test('claims del server (t#465): las investigaciones viajan como prompt run de l
     if (claim.run.aws === null) assert.ok(!allowed.some((t) => t.startsWith('Bash(aws ')), `${name}: sin la cuenta anunciada, sin aws`);
     if (!allowed.some((t) => t.startsWith('Bash(aws '))) assert.equal(claim.run.aws, null, `${name}: sin aws, sin perfil que mapear`);
   });
+});
+
+test('matriz dorada del resolver (t#465 P7): cubre las dos semillas, los tres tiers, los dos perfiles y las dos isolations', () => {
+  const runs = goldenClaims.map(({ raw }) => ({ run: raw.run as { seed: string; profile: string; isolation: string | null }, tier: raw.tier as string }));
+  assert.ok(goldenClaims.length >= 60, 'la matriz entera, no una muestra');
+  assert.deepEqual([...new Set(runs.map((r) => r.run.seed))].sort(), ['prompt', 'template']);
+  assert.deepEqual([...new Set(runs.map((r) => r.tier))].sort(), ['act', 'investigate', 'world']);
+  assert.deepEqual([...new Set(runs.map((r) => r.run.profile))].sort(), ['edit', 'read']);
+  assert.deepEqual([...new Set(runs.map((r) => r.run.isolation))].sort(), ['checkout', 'worktree', null].sort());
+  // el perfil edit y el checkout solo los recibe una conversación libre.
+  assert.ok(runs.filter((r) => r.run.seed === 'template').every((r) => r.run.profile === 'read' && r.run.isolation !== 'checkout'));
 });
