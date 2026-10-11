@@ -9,7 +9,8 @@
 //   matan también lo que lanzó la tool Bash (tests, servidores). por eso el daemon instala sus
 //   handlers de SIGINT/SIGTERM: ctrl-c ya no le llega al hijo por la terminal.
 // - kind=prompt usa un worktree POR CONVERSACIÓN que sobrevive entre segmentos (worktree.ts); lo
-//   recoge conversation-gc.ts en el loop de claim. los runs de reglas siguen con su worktree efímero.
+//   recoge conversation-gc.ts en el loop de claim. los kinds de reglas heredados (servers anteriores a
+//   t#465 P6, que ya manda toda conversación como prompt run) siguen con su worktree efímero.
 //   si el usuario abrió la conversación en el checkout (run.isolation, 0.6.0), corre en el checkout
 //   tal cual, sin worktree, y se turna con los demás runs de ese checkout (cwdLocks).
 // - runs en paralelo (r#105): el server ya reclama atómicamente y una conversación es UNA fila, así
@@ -38,9 +39,13 @@
 //   la cambia el refresh (oauth.ts). un `login` nuevo de la misma instancia (otro clientId) o un
 //   refresh rotado que no se pudo guardar fuerzan un refresh, que adopta o reescribe lo que toca. al
 //   guardar, el daemon solo escribe sus claves (config.ts).
+// - sandbox de lectura (0.10.2, t#465): el mcp-config de cada segmento (token per-run) va a
+//   <runnerHome>/run-config/ (0700) y todo kit niega Read de ese directorio (run-mcp-config.ts); al
+//   arrancar se borran los que dejó un daemon muerto. y antes de cada segmento con shell de lectura se
+//   revisan los symlinks commiteados del cwd: si alguno sale de él, ese segmento va sin shell
+//   (read-shell-guard.ts; los paths solo al log local, al feed el recuento).
 
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
-import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -54,6 +59,7 @@ import {
   mergeEntries,
   parseConfig,
   readConfigText,
+  runConfigDir,
   saveConfig,
   scratchDir,
   type LocalConfig,
@@ -70,6 +76,8 @@ import { clip, feedEventsFromStream, systemEvent, type FeedContext } from './fee
 import { scrubEnv } from './scrub-env.js';
 import { clampReport, reportFor, type Attempt, type KillReason, type StatusReport } from './status-report.js';
 import { prepareCheckout, prepareConversationWorktree, prepareRunWorktree, removeRunWorktree, touchWorktree } from './worktree.js';
+import { readShellGuard, readShellLog, readShellNote } from './read-shell-guard.js';
+import { clearRunMcpConfigs, runConfigDeny, writeRunMcpConfig } from './run-mcp-config.js';
 import { chunk, CONVERSATION_GC_INTERVAL_MS, listWorktreeCandidates, removeWorktrees, selectForRemoval, type WorktreeCandidate } from './conversation-gc.js';
 import { KeyedMutex } from './keyed-mutex.js';
 import { describeFinding, REPO_HEALTH_INTERVAL_MS, repoChoices, repoFindings, repoIssues, scanRepos, type RepoChoice, type RepoIssue } from './repo-health.js';
@@ -167,6 +175,8 @@ export class RunnerDaemon {
   private lastRepoHealthAt = 0;
   // chequeo en curso: los forzados lo esperan en vez de solaparse con él.
   private repoHealthRun: Promise<void> | null = null;
+  // Read negado del directorio de mcp-configs: lo lleva todo kit (se calcula al arrancar).
+  private runConfigDeny: string[] = [];
 
   constructor(
     cfg: RunnerConfig,
@@ -238,6 +248,10 @@ export class RunnerDaemon {
       () => true,
       () => false,
     );
+    // lanza si la ruta no cabe en una regla de permisos: sin ese deny el daemon no arranca.
+    this.runConfigDeny = runConfigDeny(runConfigDir());
+    const stale = clearRunMcpConfigs();
+    if (stale > 0) console.log(`[runner] ${stale} mcp-config(s) de runs anteriores borrado(s)`);
     this.installSignalHandlers();
     console.log(
       `[runner] duckhunt-runner ${runnerVersion() ?? '?'} · ${this.label()} → ${this.credential.baseUrl} (claude ${this.claude.version}, aws cli ${this.hasAws ? 'sí' : 'no'}, ${Object.keys(this.cfg.repos).length} repos, ${Object.keys(this.cfg.aws).length} cuentas aws, capacidades ${this.capabilities().join(',')}, ${this.slots} slot${this.slots === 1 ? '' : 's'}, poll ${CLAIM_POLL_MS / 1000}s)`,
@@ -534,7 +548,7 @@ export class RunnerDaemon {
     }
     if (run.kind === RUN_KIND.prompt) {
       // worktree salvo que el usuario eligiera el checkout: `worktree: false` y skip-permissions del
-      // repo son solo para runs de reglas.
+      // repo son solo para los kinds de reglas heredados (un server anterior a t#465 P6).
       const wt = await this.gitLocks.run(path.resolve(repoCfg.path), () => prepareConversationWorktree(repoCfg.path, run.id, run.branch, env));
       return { ...wt, repoCfg, worktree: wt.workdir, conversation: true };
     }
@@ -636,24 +650,16 @@ export class RunnerDaemon {
     [...claim.warnings, ...prepared.warnings].forEach(note);
 
     const releaseCwd = await this.holdCwd(run, prepared, lease, note);
-    // mcp-config temporal con el token per-run (0600; se borra al terminar).
-    const mcpFile = path.join(os.tmpdir(), `duckhunt-runner-${run.id}-${crypto.randomBytes(4).toString('hex')}.json`);
+    // mcp-config con el token per-run (run-mcp-config.ts: 0600 en un directorio 0700; se borra al terminar).
+    let mcpFile: string | null = null;
     let report: StatusReport;
     try {
-      fs.writeFileSync(
-        mcpFile,
-        JSON.stringify({
-          mcpServers: {
-            [claim.mcp.serverName]: { type: 'http', url: claim.mcp.url, headers: { Authorization: `Bearer ${claim.mcp.token}` } },
-          },
-        }),
-        { mode: 0o600 },
-      );
+      mcpFile = writeRunMcpConfig(run.id, claim.mcp);
       report = await this.runAttempts(claim, lease, prepared, env, mcpFile, feed, ctx, note);
     } catch (err) {
       report = { status: 'failed', error: (err as Error).message };
     } finally {
-      fs.rmSync(mcpFile, { force: true });
+      if (mcpFile !== null) fs.rmSync(mcpFile, { force: true });
       releaseCwd();
       clearInterval(heartbeat);
     }
@@ -691,6 +697,13 @@ export class RunnerDaemon {
       : run.kind !== RUN_KIND.prompt
         ? mirroredDeny(settingsFilesFor(prepared.workdir, false), WRITE_TOOLS)
         : [];
+    // shell de lectura solo en un checkout del que una lectura recursiva no pueda salir (el scratch no
+    // es un checkout: no se revisa). una vez por segmento: el reintento desde cero usa el mismo cwd.
+    const shell = await readShellGuard(prepared.repoCfg ? prepared.workdir : null, claim.tools, deny, env);
+    if (shell.dropShell) {
+      console.warn(`[runner] run ${run.id}: shell de lectura fuera en este segmento: ${readShellLog(shell)}`);
+      note(readShellNote(shell)!);
+    }
     const args = (prompt: string, resumeSessionId: string | null): string[] =>
       buildClaudeArgs({
         claim,
@@ -703,6 +716,8 @@ export class RunnerDaemon {
         skipPermissions: prepared.repoCfg?.dangerouslySkipPermissions === true,
         payingWithApiKey: !!process.env.ANTHROPIC_API_KEY,
         mirroredDeny: deny,
+        runConfigDeny: this.runConfigDeny,
+        withoutShell: shell.dropShell,
       });
     // reanudar o no lo decide el server: manda sessionId solo cuando hay sesión que retomar.
     const resume = run.sessionId;

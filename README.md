@@ -5,7 +5,7 @@ Local daemon for [duckhunt](https://duckhunt.info) agent runs.
 When something needs investigating — a CloudWatch alarm, a failing check, an issue — duckhunt
 queues an *agent run*. This daemon claims it and launches **Claude Code headless on your own
 machine**, so the agent works with your Claude login, your git checkouts and your AWS CLI. It
-writes the verdict back to duckhunt as a work note, which reaches you as a push notification.
+answers in the run's conversation in duckhunt, which reaches you as a push notification.
 
 You can also start a run yourself: the *Agents* page in duckhunt is a chat with an agent running
 on this machine, in a checkout of one of your repos (see [Prompt runs](#prompt-runs)).
@@ -48,8 +48,8 @@ That is the whole thing. Step by step:
 Configuration lives in `~/.duckhunt-runner.json`. It holds the base URL, the OAuth credential, the
 repo and AWS maps, and optional defaults (`model`, `maxBudgetUsd`, `maxConcurrent`). Set `DUCKHUNT_RUNNER_CONFIG` to use
 another file (a second account, a test instance) and `DUCKHUNT_RUNNER_HOME` to move the state
-directory (`~/.duckhunt-runner`: the scratch directory, `--verbose` logs and the daemon lock). `--version` prints the
-daemon version.
+directory (`~/.duckhunt-runner`: the scratch directory, `--verbose` logs, the daemon lock and the
+per-run MCP configs). `--version` prints the daemon version.
 
 The daemon does not need a restart after `login`, `repos`, `aws` or a hand edit of the file: it
 rereads the config every few seconds, even while all its slots are busy. Each command, and the
@@ -131,8 +131,8 @@ to run several at once; a running daemon picks it up within a few seconds:
 Each Claude process takes a few hundred MB, and every parallel session draws on the same Claude plan
 limits. A conversation never runs twice at once: duckhunt keeps it as a single run. What the runs
 share on this machine takes turns: git operations on the same checkout (fetch, worktree
-creation and cleanup), automation runs in a checkout mapped with `worktree: false`, and prompt runs
-with the `edit` profile and no repo (they share the scratch directory). A run waiting for its turn
+creation and cleanup), conversations opened in the checkout itself, and prompt runs with the `edit`
+profile and no repo (they share the scratch directory). A run waiting for its turn
 still heartbeats and says so in its feed. The daemon reports its slot count, and Settings → Agents
 shows how many are in use. Never run two daemons on the same config file: the credential rotates on
 every refresh and duckhunt revokes it when it sees an old one again. `start` refuses a second daemon
@@ -143,10 +143,12 @@ on the same state directory; raise one daemon's slots instead.
 1. **A run is queued** from duckhunt: the *investigate with agent* action on an entry, the same
    button on an alert notification, or an automation rule with that action.
 2. **The daemon claims it** and gets a prompt, a tool profile and a short-lived MCP token scoped to
-   that single run. It launches `claude -p` in the mapped checkout (or a scratch directory when the
-   alarm has no repo).
-3. **The agent investigates** and leaves its verdict as a work note on the entry. You get a push
-   with a one-line summary on top and can reply to it straight from the notification.
+   that single run. It launches `claude -p` in a worktree of the mapped checkout (or a scratch
+   directory when the alarm has no repo). An automation run is a `read` conversation like any other
+   (see [Prompt runs](#prompt-runs)), with an even smaller kit: no web, no memory, and no shell when
+   the rule may comment on the ticket.
+3. **The agent investigates** and answers in the run's conversation, on the *Agents* page. You get a
+   push with a one-line summary on top and can reply to it straight from the notification.
 4. **If it needs a decision from you**, it asks and ends its turn. Your answer resumes it in the
    *same* Claude session, so nothing it had already found is lost.
 
@@ -159,10 +161,11 @@ run's token:
 | --- | --- |
 | Started automatically | Read only. |
 | Born from an instruction of yours | Also write inside duckhunt (create tasks, snooze the inbox, label). |
-| Born from a yes/no you confirmed | Also touch the outside world — the ticket, AWS. |
+| Born from a yes/no you confirmed | Also act outside duckhunt through its tools (comment on or move the ticket). |
 
 So an unattended run can never change anything, and anything that leaves duckhunt needs you to have
-said yes to that specific action, spelled out with the literal command.
+said yes to that specific action, spelled out with the literal command. Changing AWS resources or
+code is never part of that: the run proposes an `edit` conversation, which you review and launch.
 
 ## Prompt runs
 
@@ -206,6 +209,18 @@ pattern other than a read-only AWS CLI one:
 - `Bash` rules in the `allow` list of your user settings (`~/.claude/settings.json`) would apply to
   `read` conversations too, so the daemon mirrors them into the deny list for those runs. If that
   file can't be read, a `read` conversation gets no shell at all.
+- The shell can't leave the working directory, but inside it a recursive read doesn't honour the
+  `Read` deny list: `grep -R` follows symlinks, so a branch that commits a symlink to `~` or `/`
+  would let it read `~/.aws` or this daemon's config. The `Read`, `Grep` and `Glob` tools do honour
+  the deny list through symlinks. So before every step (0.10.2 or later) the daemon lists the
+  symlinks committed in the working directory (`git ls-files`, submodules included, plus the
+  daemon's own worktrees inside a checkout) and, if any of them points outside it (even one whose
+  target doesn't exist yet), runs that step without the shell and without the AWS CLI; a working
+  directory that contains your home or the daemon's state directory gets the same treatment, and so
+  does a checkout git can't list (or a daemon worktree inside it that is no longer a git worktree).
+  The feed says so with the count; the paths only go to the daemon's log. Symlinks that were never
+  committed or staged (untracked or ignored), nested clones that aren't submodules and the scratch
+  directory are your own local state, or the work of an `edit` step you confirmed, and aren't checked.
 
 Older daemons keep the previous `read` profile: no shell.
 
@@ -218,9 +233,10 @@ session in that repo) and refuses every other path. The daemon still refuses a `
 allows them.
 
 - `Edit`/`Write` rules in the `allow` list of the settings a run loads would open more than that, so
-  the daemon mirrors them into the deny list: your user settings for `read` conversations; user,
-  project and local settings for automation runs. If a settings file can't be read, those tools are
-  denied outright (and the run gets no memory).
+  the daemon mirrors them into the deny list: your user settings for `read` conversations
+  (automation runs included); user, project and local settings for the legacy automation runs of an
+  older duckhunt. If a settings file can't be read, those tools are denied outright (and the run
+  gets no memory).
 - Automation runs get no memory: they process alerts nobody reviewed, and whatever they wrote would load
   into your later sessions. The server keeps denying `Edit` and `Write` for them; the daemon would still
   mirror rules and re-deny both under `--dangerously-skip-permissions` if that ever changed.
@@ -242,7 +258,18 @@ their next step on. A per-repo `read` lock covers conversations on that repo; it
 since an `edit` conversation on another repo (or none) still has a shell. Prompt runs have no turn or budget limit: each step is capped
 by the wall-clock limit chosen in Settings → Agents (1 to 8 hours, 4 by default; automation runs
 keep 30 minutes), and the model is your `defaults.model` (or the CLI default).
-`worktree: false` and `--dangerously-skip-permissions` in the repo map only apply to automation runs.
+`worktree: false` and `--dangerously-skip-permissions` in the repo map no longer apply to anything a
+current duckhunt sends: every conversation, automation runs included, is a prompt run with its own
+worktree (or the checkout, when you choose it). They only affect the legacy automation runs an older
+duckhunt server queued.
+
+Each step's MCP config, which holds the run's token, is written to `~/.duckhunt-runner/run-config/`
+(a `0700` directory, files `0600`) and deleted when the step ends; the daemon removes any left
+behind by a daemon that died when it starts. Every run, `read` or `edit`, has `Read` denied on that
+directory (Claude still loads its own `--mcp-config` from it), and no run's working directory is
+inside it, so a `read` run can't read the token of a run in another slot. An `edit` run's shell
+still could: it runs only after you confirm your identity. Daemons before 0.10.2 used the system
+temp directory.
 
 ### One worktree per conversation
 
@@ -269,10 +296,10 @@ automation runs (`run-<id>`) expire after the same 7 days.
 When you open a conversation you can choose `checkout` instead of `worktree` (0.6.0 or later). The
 agent then works in your working copy as it is: your current branch and your uncommitted changes,
 with no fetch and no branch switch; the branch picker does not apply. The choice holds for the whole
-conversation. Conversations on the same checkout take turns, like automation runs on a repo with
-`worktree: false`. In `edit`, Claude loads the checkout's own settings, including the hooks in
-`.claude/settings.local.json` that a worktree never has. The daemon adds `/.duckhunt/` to the
-checkout's `.git/info/exclude` so its worktrees never show up as your changes.
+conversation. Conversations on the same checkout take turns. In `edit`, Claude loads the checkout's
+own settings, including the hooks in `.claude/settings.local.json` that a worktree never has. The
+daemon adds `/.duckhunt/` to the checkout's `.git/info/exclude` so its worktrees never show up as
+your changes.
 
 ### Progress feed
 

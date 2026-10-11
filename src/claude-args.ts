@@ -18,9 +18,14 @@
 // memoria nativa (t#434): read y los runs de reglas ya no niegan Edit/Write enteras (sin regla de
 // allow solo alcanzan la memoria del cli). un run de reglas con el opt-in local
 // --dangerously-skip-permissions no pasa por dontAsk, así que ahí vuelven al deny: sin permisos que
-// pedir, Edit/Write sin negar abrirían el repo entero.
+// pedir, Edit/Write sin negar abrirían el repo entero. (desde t#465 P6 el server ya no manda runs de
+// reglas: toda conversación es un prompt run; esa rama solo sirve a un server anterior.)
+// deny forzados en TODO kit, de lectura y de edición (0.10.2, t#465): el Read del directorio de los
+// mcp-config de los runs (run-mcp-config.ts), que llevan el token per-run de cada slot; sin él no se
+// lanza nada. y `withoutShell` quita la shell de lectura a un segmento (read-shell-guard.ts: un
+// symlink commiteado que sale del cwd): Bash entera al deny y ningún Bash(...) en el allow.
 
-import { MEMORY_WRITE_TOOLS, PROMPT_PROFILE, RUN_KIND, type ClaimResponse, type PromptProfile } from './claim.js';
+import { BASH_TOOL, MEMORY_WRITE_TOOLS, PROMPT_PROFILE, RUN_KIND, type ClaimResponse, type PromptProfile } from './claim.js';
 import type { OptionalFlag } from './claude.js';
 
 export interface ClaudeArgsInput {
@@ -39,6 +44,10 @@ export interface ClaudeArgsInput {
   // reglas del allow de los settings que carga el run, espejadas (mirroredDeny); se aplican a un prompt
   // run read y a los runs de reglas, nunca a uno de edición.
   mirroredDeny?: readonly string[];
+  // Read del directorio de mcp-configs (run-mcp-config.ts::runConfigDeny): al deny de todo kit.
+  runConfigDeny: readonly string[];
+  // segmento sin shell de lectura (read-shell-guard.ts::readShellGuard).
+  withoutShell?: boolean;
 }
 
 /** flags sin los que el cli no puede cumplir un prompt run (el daemon solo anuncia `prompt` si los tiene todos). */
@@ -57,17 +66,23 @@ export function buildClaudeArgs(i: ClaudeArgsInput): string[] {
   if (missing.length > 0) {
     throw new Error(`el claude instalado no soporta ${missing.join(', ')}: actualiza claude code (sin ellos un prompt run no cumple su perfil)`);
   }
+  if (i.runConfigDeny.length === 0 || !has('--disallowedTools')) {
+    throw new Error('sin --disallowedTools y el deny del directorio de configs de run no se lanza nada: los mcp-config de los runs quedarían al alcance de Read');
+  }
   // presupuesto: solo tiene sentido cuando el coste es REAL (api key). con login de suscripción el
   // cli lo aplicaría sobre un coste nominal que nadie paga y mata runs legítimos (el guard contra
   // loops es el timeout). config manda: número = forzar, 0 = nunca. prompt runs: nunca.
   const budget = isPrompt ? 0 : (i.configBudgetUsd ?? (i.payingWithApiKey ? (claim.maxBudgetUsd ?? 0) : 0));
   const maxTurns = isPrompt ? 0 : (claim.maxTurns ?? 0);
   const skip = i.skipPermissions && !isPrompt;
+  const allowed = i.withoutShell ? claim.tools.allowed.filter((t) => t !== BASH_TOOL && !t.startsWith(`${BASH_TOOL}(`)) : claim.tools.allowed;
   const disallowed = Array.from(
     new Set([
       ...claim.tools.disallowed,
       ...(readPrompt || !isPrompt ? (i.mirroredDeny ?? []) : []),
       ...(skip ? MEMORY_WRITE_TOOLS : []),
+      ...(i.withoutShell ? [BASH_TOOL] : []),
+      ...i.runConfigDeny,
     ]),
   );
   return [
@@ -79,8 +94,9 @@ export function buildClaudeArgs(i: ClaudeArgsInput): string[] {
     i.mcpConfigFile,
     ...(has('--strict-mcp-config') ? ['--strict-mcp-config'] : []),
     ...(readPrompt ? ['--setting-sources', 'user'] : []),
-    ...(claim.tools.allowed.length > 0 ? ['--allowedTools', claim.tools.allowed.join(',')] : []),
-    ...(has('--disallowedTools') && disallowed.length > 0 ? ['--disallowedTools', disallowed.join(',')] : []),
+    ...(allowed.length > 0 ? ['--allowedTools', allowed.join(',')] : []),
+    '--disallowedTools',
+    disallowed.join(','),
     '--permission-mode',
     claim.permissionMode,
     ...(has('--max-turns') && maxTurns > 0 ? ['--max-turns', String(maxTurns)] : []),
