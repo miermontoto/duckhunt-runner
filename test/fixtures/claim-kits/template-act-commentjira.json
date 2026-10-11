@@ -75,7 +75,7 @@
     ]
   },
   "permissionMode": "dontAsk",
-  "maxTurns": 40,
+  "maxTurns": null,
   "maxBudgetUsd": 20,
   "timeoutMs": 1800000,
   "heartbeatMs": 20000,
