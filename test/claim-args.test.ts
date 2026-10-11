@@ -3,7 +3,9 @@
 // fixtures en test/fixtures/claims, que genera su template-seed-kit.test.ts, y la matriz dorada del
 // resolver de política en test/fixtures/claim-kits, de su claim-kit.test.ts: semilla × perfil × tier ×
 // capabilities × candados × commentJira × aws anunciada) los acepta parseClaim y buildClaudeArgs los
-// cumple — una investigación es un prompt run de lectura y nunca sale de ahí.
+// cumple — una investigación es un prompt run de lectura y nunca sale de ahí. el enrutado del server
+// (t#465 P10, los routing-*.json) solo manda la sesión a la máquina que la tiene (si la conversación se
+// movió, va sin sesión y con el prompt de respaldo como prompt) y el repo en la grafía de su mapa.
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -327,4 +329,34 @@ test('matriz dorada del resolver (t#465 P7): cubre las dos semillas, los tres ti
   assert.deepEqual([...new Set(runs.map((r) => r.run.isolation))].sort(), ['checkout', 'worktree', null].sort());
   // el perfil edit y el checkout solo los recibe una conversación libre.
   assert.ok(runs.filter((r) => r.run.seed === 'template').every((r) => r.run.profile === 'read' && r.run.isolation !== 'checkout'));
+});
+
+test('enrutado del server (t#465 P10): --resume solo con la sesión que el server manda, y el repo tal cual llega', () => {
+  const golden = (name: string) => {
+    const fixture = goldenClaims.find((g) => g.name === `claim-kits/${name}.json`);
+    assert.ok(fixture, name);
+    const claim = parseClaim(fixture.raw);
+    const args = buildClaudeArgs({
+      claim,
+      prompt: claim.prompt,
+      mcpConfigFile: '/tmp/mcp.json',
+      supported: allFlags,
+      resumeSessionId: claim.run.sessionId,
+      skipPermissions: false,
+      payingWithApiKey: false,
+    });
+    return { claim, args };
+  };
+  // la misma máquina tras un re-login: reanuda, con el respaldo por si la sesión no está.
+  const relogin = golden('routing-relogin-resume');
+  assert.deepEqual(relogin.args.slice(relogin.args.indexOf('--resume'), relogin.args.indexOf('--resume') + 2), ['--resume', 's1']);
+  assert.notEqual(relogin.claim.fallbackPrompt, null);
+  // otra máquina tras la gracia: arranca sin sesión con el prompt de respaldo (el que recupera el hilo).
+  const moved = golden('routing-moved-fallback');
+  assert.equal(moved.claim.run.sessionId, null);
+  assert.ok(!moved.args.includes('--resume'));
+  assert.equal(moved.claim.fallbackPrompt, null);
+  assert.match(moved.claim.prompt, /sesión no está disponible aquí/);
+  // el repo en la grafía del mapa de esta máquina: la búsqueda de su carpeta es por la clave exacta.
+  assert.equal(golden('routing-machine-spelling').claim.run.repo, 'OKT/Api');
 });
