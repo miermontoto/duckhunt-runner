@@ -35,10 +35,10 @@ export const DEFAULT_BASE_URL = 'https://duckhunt.info';
 export interface RepoConfig {
   // path absoluto al checkout local del repo.
   path: string;
-  // DEPRECADO (0.11.0, se retira en 0.12.0): opt-in per-repo a --dangerously-skip-permissions. solo
-  // los kinds de reglas heredados (investigate/resume) de un server anterior a t#465 P6: desde P6 toda
-  // conversación, las de reglas incluidas, es un prompt run y cumple el perfil read|edit del server.
-  // `repos add` y `status` avisan de que se ignora.
+  // DEPRECADO (0.11.0, se retira en una versión posterior): opt-in per-repo a
+  // --dangerously-skip-permissions. solo los kinds de reglas heredados (investigate/resume) de un server
+  // anterior a t#465 P6: desde P6 toda conversación, las de reglas incluidas, es un prompt run y cumple
+  // el perfil read|edit del server. `repos add` y `status` avisan de que se ignora.
   dangerouslySkipPermissions?: boolean;
   // DEPRECADO (ídem): aislar cada run en un git worktree (default true). false = correr en el
   // checkout. mismo alcance que el anterior: un prompt run usa siempre el worktree de su conversación
@@ -46,8 +46,8 @@ export interface RepoConfig {
   worktree?: boolean;
 }
 
-// aviso de los flags de repo que ya no aplica nada (se retiran en 0.12.0).
-export const REPO_FLAGS_DEPRECATED = 'ignorado: duckhunt ejecuta las investigaciones en el sandbox de lectura (se retira en 0.12.0)';
+// aviso de los flags de repo que ya no aplica nada (se retiran en una versión posterior).
+export const REPO_FLAGS_DEPRECATED = 'ignorado: duckhunt ejecuta las investigaciones en el sandbox de lectura (se retira en una versión posterior)';
 
 /** flags deprecados de un repo del mapa, con su nombre en la config (`repos add`, `repos list` y `status` los avisan). */
 export function deprecatedRepoFlags(repo: RepoConfig): string[] {
@@ -61,7 +61,8 @@ export interface AwsAccountConfig {
 }
 
 export interface RunnerDefaults {
-  // modelo que se pasa a claude (--model). ausente = el default del cli del usuario.
+  // modelo de esta máquina (--model) cuando duckhunt no pide ninguno: desde 0.12.0 el del claim (la
+  // elección de la persona para esa conversación) manda sobre este. ausente = el default del cli.
   model?: string;
   // runs en paralelo (slots). ausente = 1, el comportamiento de siempre: un run a la vez.
   maxConcurrent?: number;

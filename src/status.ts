@@ -1,9 +1,10 @@
 // `duckhunt-runner status`: si hay un daemon en marcha (daemon-lock.ts), qué kit tiene esta máquina
-// (claude, credencial detectada, aws cli) y qué hay mapeado (repos con sus avisos de salud, cuentas
-// aws). diagnóstico local, sin tocar el server: lo que duckhunt dice de esta máquina (nombre, pausa,
-// qué acepta, tope de slots, por qué no recibe trabajo y los worktrees que el gc conservó) es lo del
-// último claim del daemon (server-state.ts), con su edad (t#465 P12). también avisa de los flags de
-// repo deprecados (worktree: false, dangerouslySkipPermissions) que ya no aplica nada.
+// (claude, credencial detectada, aws cli, las capacidades que anunciaría el daemon) y qué hay mapeado
+// (repos con sus avisos de salud, cuentas aws). diagnóstico local, sin tocar el server: lo que duckhunt
+// dice de esta máquina (nombre, pausa, qué acepta, tope de slots, por qué no recibe trabajo y los
+// worktrees que el gc conservó) es lo del último claim del daemon (server-state.ts), con su edad (t#465
+// P12). también avisa de los flags de repo deprecados (worktree: false, dangerouslySkipPermissions) que
+// ya no aplica nada.
 
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
@@ -13,6 +14,7 @@ import { promisify } from 'node:util';
 import { concurrency, configPath, deprecatedRepoFlags, loadStoredConfig, REPO_FLAGS_DEPRECATED, scratchDir } from './config.js';
 import { daemonLockHolder } from './daemon-lock.js';
 import { detectClaude } from './claude.js';
+import { announcedCapabilities } from './announced-capabilities.js';
 import { describeFinding, repoFindings, scanRepos } from './repo-health.js';
 import { scrubEnv } from './scrub-env.js';
 import { ownedHere } from './machine.js';
@@ -94,7 +96,7 @@ export async function statusCommand(): Promise<void> {
     console.log(`runner:     ${cfg.label ?? os.hostname()} (${cfg.clientId ? `client ${cfg.clientId}` : 'sin credencial: `duckhunt-runner login`'})`);
     console.log(`máquina:    ${cfg.machineId ?? 'sin id (lo genera el daemon al arrancar)'}${cfg.machineId && !ownedHere(cfg) ? ` — generado en ${cfg.machineHost ?? 'otra máquina'}: haz \`login\` aquí para que sea otra máquina` : ''}`);
     if (cfg.clientId) describeServerState(readServerState(), cfg.clientId).forEach((line) => console.log(line));
-    console.log(`modelo:     ${cfg.defaults.model ?? 'default del cli'}`);
+    console.log(`modelo:     el que pida duckhunt en cada run; si no pide ninguno, ${cfg.defaults.model ? `${cfg.defaults.model} (defaults.model)` : 'el default del cli'}`);
     console.log(`slots:      ${concurrency(cfg.defaults)} run(s) a la vez (defaults.maxConcurrent)`);
     console.log(`mapa:       ${cfg.defaults.remoteRepoEdits === false ? 'solo por la cli (defaults.remoteRepoEdits: false)' : 'también desde duckhunt (quitar repos, elegir carpeta)'}`);
   }
@@ -108,6 +110,10 @@ export async function statusCommand(): Promise<void> {
     .then((r) => (r.stdout || r.stderr).trim().split('\n')[0]!)
     .catch(() => null);
   console.log(`aws cli:    ${aws ?? 'no instalada (los runs no podrán consultar aws)'}`);
+  // las que anunciaría el daemon con este kit (model solo si el cli lista --model).
+  if (claude.version) {
+    console.log(`capacidades: ${announcedCapabilities({ hasAws: aws !== null, supported: claude.supported, remoteRepoEdits: cfg?.defaults.remoteRepoEdits }).join(' ')}`);
+  }
   console.log(`scratch:    ${scratchDir()}`);
   if (!cfg) return;
   const repos = Object.entries(cfg.repos);

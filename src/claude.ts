@@ -2,6 +2,10 @@
 // versiones; los flags opcionales se pasan solo si `claude --help` los lista) y parseo del
 // stream-json de un run headless (contadores de tool calls, objeto result final). el evento
 // parseado se devuelve para que el feed de progreso (feed.ts) lo lea sin volver a parsear.
+// modelo reportado (0.12.0, t#465): el del evento `system/init` (el que eligió el cli para el bucle
+// principal, tras --model si lo hubo) y, sin init, la clave de modelUsage con más coste. antes era la
+// primera clave de modelUsage, que suele ser el haiku auxiliar del cli (títulos, resúmenes): prod tenía
+// 30 runs reportados como claude-haiku-4-5.
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -18,6 +22,8 @@ export const OPTIONAL_FLAGS = [
   '--disallowedTools',
   '--verbose',
   '--setting-sources',
+  // 0.12.0: el modelo que pide duckhunt por run (capability `model`).
+  '--model',
 ] as const;
 export type OptionalFlag = (typeof OPTIONAL_FLAGS)[number];
 
@@ -26,22 +32,30 @@ export interface ClaudeInfo {
   supported: Set<OptionalFlag>;
 }
 
+// un flag cuenta solo si aparece entero, no como trozo de otro más largo: `--fallback-model` no
+// lista `--model`, ni lo listaría un `--model-x` futuro.
+const flagListed = (help: string, flag: string): boolean => new RegExp(`(?<![\\w-])${flag}(?![\\w-])`).test(help);
+
+/** flags opcionales que lista la salida de `claude --help`. */
+export function supportedFlags(help: string): Set<OptionalFlag> {
+  return new Set(OPTIONAL_FLAGS.filter((f) => flagListed(help, f)));
+}
+
 /** `claude --version` + flags soportados según `claude --help`. version null si el cli no arranca. */
 export async function detectClaude(): Promise<ClaudeInfo> {
-  const supported = new Set<OptionalFlag>();
   let version: string | null = null;
   try {
     version = (await execFileP('claude', ['--version'], { encoding: 'utf-8' })).stdout.trim() || null;
   } catch {
-    return { version: null, supported };
+    return { version: null, supported: new Set() };
   }
   try {
     const help = (await execFileP('claude', ['--help'], { encoding: 'utf-8', maxBuffer: 4 * 1024 * 1024 })).stdout;
-    OPTIONAL_FLAGS.filter((f) => help.includes(f)).forEach((f) => supported.add(f));
+    return { version, supported: supportedFlags(help) };
   } catch (err) {
     console.error(`[runner] claude --help falló (se asumen flags mínimos): ${(err as Error).message}`);
+    return { version, supported: new Set() };
   }
-  return { version, supported };
 }
 
 // objeto `type: 'result'` final del stream-json (solo los campos que el daemon reporta).
@@ -61,11 +75,13 @@ export interface StreamState {
   // reanudar, mcp caído) de un fallo a mitad de run.
   sawAssistant: boolean;
   sessionId: string | null;
+  // modelo del evento system/init: el del bucle principal de este proceso.
+  initModel: string | null;
   result: StreamResult | null;
 }
 
 export function newStreamState(): StreamState {
-  return { toolCalls: 0, sawAssistant: false, sessionId: null, result: null };
+  return { toolCalls: 0, sawAssistant: false, sessionId: null, initModel: null, result: null };
 }
 
 // bloque de contenido de un mensaje del stream: text (prosa), tool_use (name + input),
@@ -86,11 +102,27 @@ export interface StreamLine {
   total_cost_usd?: unknown;
   num_turns?: unknown;
   modelUsage?: Record<string, unknown>;
+  // solo en system/init.
+  model?: unknown;
   message?: { content?: StreamContent[] | string };
 }
 
 function num(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+// costUSD de una entrada de modelUsage (null si no es un objeto con un número).
+const usageCost = (u: unknown): number | null => (typeof u === 'object' && u !== null ? num((u as { costUSD?: unknown }).costUSD) : null);
+
+/** modelo de un run: el del init y, sin él, el de modelUsage que más costó (la primera clave si ninguna trae coste). */
+export function reportedModel(initModel: string | null, modelUsage: Record<string, unknown> | undefined): string | null {
+  if (initModel) return initModel;
+  const entries = Object.entries(modelUsage ?? {});
+  const costly = entries
+    .map(([model, usage]) => ({ model, cost: usageCost(usage) }))
+    .filter((e): e is { model: string; cost: number } => e.cost !== null)
+    .reduce<{ model: string; cost: number } | null>((best, e) => (best === null || e.cost > best.cost ? e : best), null);
+  return costly?.model ?? entries[0]?.[0] ?? null;
 }
 
 /** consume una línea de stdout (stream-json) y devuelve el evento parseado; null si no es json. */
@@ -104,6 +136,7 @@ export function consumeStreamLine(state: StreamState, line: string): StreamLine 
     return null;
   }
   if (typeof ev.session_id === 'string' && ev.session_id) state.sessionId = ev.session_id;
+  if (ev.type === 'system' && ev.subtype === 'init' && typeof ev.model === 'string' && ev.model) state.initModel = ev.model;
   if (ev.type === 'assistant') {
     state.sawAssistant = true;
     const content = ev.message?.content;
@@ -111,7 +144,6 @@ export function consumeStreamLine(state: StreamState, line: string): StreamLine 
     return ev;
   }
   if (ev.type === 'result') {
-    const models = ev.modelUsage ? Object.keys(ev.modelUsage) : [];
     state.result = {
       subtype: ev.subtype ?? null,
       isError: ev.is_error === true,
@@ -119,7 +151,7 @@ export function consumeStreamLine(state: StreamState, line: string): StreamLine 
       costUsd: num(ev.total_cost_usd),
       numTurns: num(ev.num_turns),
       sessionId: typeof ev.session_id === 'string' ? ev.session_id : state.sessionId,
-      model: models[0] ?? null,
+      model: reportedModel(state.initModel, ev.modelUsage),
     };
   }
   return ev;

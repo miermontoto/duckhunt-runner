@@ -29,6 +29,14 @@
 // $CLAUDE_CONFIG_DIR, AWS_*_FILE y los realpath de la lista genérica del server). y una plantilla
 // (run.seed = template, seed_budget) vuelve a llevar --max-budget-usd aunque viaje como prompt run, con la
 // misma regla de siempre (solo con api key o un presupuesto de la config); el de turnos, nunca.
+// --model (0.12.0): `model` ya llega resuelto por el daemon (el run.model del claim, validado por
+// parseClaim; si no, defaults.model de la config) y va en todo segmento, también con --resume (cambia el
+// modelo de la sesión desde ese turno). sin ninguno no se pasa y manda el default del cli.
+// memoria de las plantillas y los runs de reglas: el deny lo decide el server (tools.disallowed). desde
+// t#465 (lote 9) una plantilla puede llegar SIN Edit/Write en el deny (la persona deja la memoria nativa
+// encendida, su knob ruleMemory): aquí no cambia nada, porque una plantilla es un prompt run read y
+// parseClaim ya deja Edit/Write fuera del deny forzado; solo vuelven al deny en un run de reglas heredado
+// con --dangerously-skip-permissions (arriba).
 
 import { BASH_TOOL, MEMORY_WRITE_TOOLS, PROMPT_PROFILE, RUN_KIND, RUN_SEED, type ClaimResponse, type PromptProfile, type RunSeed } from './claim.js';
 import type { OptionalFlag } from './claude.js';
@@ -40,7 +48,8 @@ export interface ClaudeArgsInput {
   // flags opcionales que `claude --help` lista en esta máquina.
   supported: ReadonlySet<OptionalFlag>;
   resumeSessionId: string | null;
-  // config local: modelo, presupuesto forzado (0 = nunca) y opt-in a saltarse permisos del repo.
+  // modelo resuelto (el del claim o el de la config; ausente = default del cli), presupuesto forzado
+  // de la config (0 = nunca) y opt-in local a saltarse permisos del repo.
   model?: string;
   configBudgetUsd?: number;
   skipPermissions: boolean;

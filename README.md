@@ -28,9 +28,9 @@ disk. With the progress feed on, it also receives what the agent says and one li
 ## Setup
 
 ```sh
-npx duckhunt-runner@0.11.0 login
-npx duckhunt-runner@0.11.0 repos discover ~/dev
-npx duckhunt-runner@0.11.0 start
+npx duckhunt-runner@0.12.0 login
+npx duckhunt-runner@0.12.0 repos discover ~/dev
+npx duckhunt-runner@0.12.0 start
 ```
 
 Pin the version: the daemon runs `claude -p` with a shell on your machine, so install the release you
@@ -109,7 +109,7 @@ already does for this — a `screen`/`tmux` session, a systemd user service, `la
 Description=duckhunt runner
 
 [Service]
-ExecStart=/usr/bin/npx duckhunt-runner@0.11.0 start
+ExecStart=/usr/bin/npx duckhunt-runner@0.12.0 start
 Restart=always
 # 78: this machine was unpaired (or its credential expired); it needs a new `login`, not a restart.
 RestartPreventExitStatus=78
@@ -181,12 +181,14 @@ on the same state directory; raise one daemon's slots instead.
 ## How a run works
 
 1. **A run is queued** from duckhunt: the *investigate with agent* action on an entry, the same
-   button on an alert notification, or an automation rule with that action.
-2. **The daemon claims it** and gets a prompt, a tool profile and a short-lived MCP token scoped to
-   that single run. It launches `claude -p` in a worktree of the mapped checkout (or a scratch
-   directory when the alarm has no repo). An automation run is a `read` conversation like any other
-   (see [Prompt runs](#prompt-runs)), with an even smaller kit: no web, no memory, and no shell when
-   the rule may comment on the ticket.
+   button on an alert notification, or an automation rule with that action (or one that runs a
+   prompt of yours, see below).
+2. **The daemon claims it** and gets a prompt, a tool profile, the model to use and a short-lived MCP
+   token scoped to that single run. It launches `claude -p` in a worktree of the mapped checkout (or a
+   scratch directory when the alarm has no repo). An investigation is a `read` conversation like any
+   other (see [Prompt runs](#prompt-runs)), with an even smaller kit: no web, and no shell when the
+   rule may comment on the ticket. Whether it can extend Claude's native memory is your choice (see
+   [Native memory](#native-memory-080-or-later)).
 3. **The agent investigates** and answers in the run's conversation, on the *Agents* page. You get a
    push with a one-line summary on top and can reply to it straight from the notification.
 4. **If it needs a decision from you**, it asks and ends its turn. Your answer resumes it in the
@@ -203,9 +205,17 @@ run's token:
 | Born from an instruction of yours | Also write inside duckhunt (create tasks, snooze the inbox, label). |
 | Born from a yes/no you confirmed | Also act outside duckhunt through its tools (comment on or move the ticket). |
 
-So an unattended run can never change anything, and anything that leaves duckhunt needs you to have
-said yes to that specific action, spelled out with the literal command. Changing AWS resources or
-code is never part of that: the run proposes an `edit` conversation, which you review and launch.
+So an unattended investigation can never change anything, and anything that leaves duckhunt needs you
+to have said yes to that specific action, spelled out with the literal command. Changing AWS resources
+or code is never part of that: the run proposes an `edit` conversation, which you review and launch.
+
+A rule can also *run a prompt* you wrote (on a schedule, when an entry is created, updated or
+notified, or when a task moves). That run starts with your instruction, so it may also write inside
+duckhunt (create, move and organise tasks, label, take notes) and read the repo you chose. With the
+`edit` profile, which you arm once with the identity check when you save the rule, it may also change
+code in its own worktree, never in your checkout; below the confirmed tier its deny list also blocks
+`git push`, `git remote` and `gh` (a best-effort guard, not a sandbox). Anything that leaves duckhunt
+(a Jira comment or transition, an email, a pull request) still needs your yes in that run.
 
 #### AWS accounts (0.11.0 or later)
 
@@ -224,6 +234,21 @@ other run, with your Claude login, and every reply or follow-up resumes the same
 Requires daemon 0.4.0+ and a Claude CLI that supports `--permission-mode`, `--strict-mcp-config`,
 `--disallowedTools` and `--setting-sources`; otherwise the daemon does not offer prompt runs and is
 never handed one.
+
+### Model (0.12.0 or later)
+
+The model is the one duckhunt asks for: your default in Settings → Agents, the one you pick in the
+composer or later in the thread, or the one set on a rule action. When duckhunt asks for none, the
+daemon uses `defaults.model` from the config file, and without that the Claude CLI default. A model you
+change in the thread applies from the next step on, resumed sessions included. The daemon only passes a
+model alias or id (`opus`, `sonnet`, `claude-opus-5-5`…) and ignores anything else with a note in the
+feed; the run then uses this machine's model.
+
+It announces the `model` capability only when `claude --help` lists `--model`, and duckhunt only sends
+a model to daemons that announce it, so an older daemon keeps using `defaults.model`. The model each
+run reports back is the one its main loop used (the CLI's init event), not the small auxiliary model
+the CLI also calls for titles and summaries. `status` prints the capabilities this machine announces
+(`capacidades`, `model` among them) and `start` logs them when it starts.
 
 ### Profiles
 
@@ -303,9 +328,14 @@ allows them.
   (automation runs included); user, project and local settings for the legacy automation runs of an
   older duckhunt. If a settings file can't be read, those tools are denied outright (and the run
   gets no memory).
-- Automation runs get no memory: they process alerts nobody reviewed, and whatever they wrote would load
-  into your later sessions. The server keeps denying `Edit` and `Write` for them; the daemon would still
-  mirror rules and re-deny both under `--dangerously-skip-permissions` if that ever changed.
+- duckhunt can now let investigations and rule runs extend Claude Code's native memory too: a setting
+  of yours in Settings → Agents, on by default (nothing changes in the daemon; the server just stops
+  denying `Edit` and `Write` for them). Repo runs write the repo's memory, the one your interactive
+  sessions in that repo load. Repo-less runs share the scratch directory's memory with your repo-less
+  conversations. Those runs process content nobody reviewed (an alert, a ticket), and whatever they
+  write loads into your later sessions: turn the setting off if you do not want unattended content in
+  your memory. The daemon still mirrors your rules and, for the legacy automation runs of an older
+  duckhunt under `--dangerously-skip-permissions`, denies both again.
 - `edit` conversations always could write their memory: the agent is now told it may, outside its
   worktree too.
 
@@ -324,14 +354,14 @@ machine accepts. Read-only mode applies to existing `edit` conversations from
 their next step on. A per-repo `read` lock covers conversations on that repo; it is not a sandbox,
 since an `edit` conversation on another repo (or none) still has a shell. Conversations you start
 have no turn or budget limit: each step is capped by the wall-clock limit chosen in Settings → Agents
-(1 to 8 hours, 4 by default), and the model is your `defaults.model` (or the CLI default). Automation
-runs keep 30 minutes per step and, from 0.11.0, their budget again when you pay with an API key
-(`ANTHROPIC_API_KEY`) or set `defaults.maxBudgetUsd`.
+(1 to 8 hours, 4 by default), and the model is the one duckhunt asks for (see
+[Model](#model-0120-or-later)). Automation runs keep 30 minutes per step and, from 0.11.0, their
+budget again when you pay with an API key (`ANTHROPIC_API_KEY`) or set `defaults.maxBudgetUsd`.
 `worktree: false` and `--dangerously-skip-permissions` in the repo map are deprecated (0.11.0) and go
-away in 0.12.0: nothing a current duckhunt sends applies them, because every conversation, automation
-runs included, is a prompt run with its own worktree (or the checkout, when you choose it). They only
-affect the legacy automation runs an older duckhunt server queued; `repos add`, `repos list` and
-`status` say they are ignored.
+away in a later release: nothing a current duckhunt sends applies them, because every conversation,
+automation runs included, is a prompt run with its own worktree (or the checkout, when you choose it).
+They only affect the legacy automation runs an older duckhunt server queued; `repos add`, `repos list`
+and `status` say they are ignored.
 
 Each step's MCP config, which holds the run's token, is written to `~/.duckhunt-runner/run-config/`
 (a `0700` directory, files `0600`) and deleted when the step ends; the daemon removes any left
