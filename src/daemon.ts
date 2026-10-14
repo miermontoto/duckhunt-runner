@@ -58,6 +58,13 @@
 //   el gc anuncia en cada claim lo que conservó por guardar trabajo (worktree_report, recuentos; una
 //   conversación que vuelve a reclamarse deja de anunciarse en el acto, sin esperar al siguiente gc). al
 //   arrancar barre una vez los mcp-config que los daemons < 0.10.2 dejaban en el tmpdir.
+// - modelo por run (0.12.0, t#465): anuncia `model` si el cli lista --model (announced-capabilities.ts)
+//   y pasa a claude el del claim; sin él, `defaults.model` de la config; sin ninguno, el default del cli.
+//   el claim manda sobre la config porque es la elección de la persona para esa conversación (su
+//   default de ajustes, el composer, el hilo o la acción de una regla); la config queda como el default
+//   de la máquina. también al reanudar: --model con --resume cambia el modelo de la sesión desde ese
+//   turno, y el reintento desde cero usa el mismo. el modelo que se reporta en /status es el que de
+//   verdad usó el bucle principal (claude.ts::reportedModel).
 
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
@@ -95,9 +102,10 @@ import {
   type ServerState,
 } from './server-state.js';
 import { consumeStreamLine, detectClaude, newStreamState, type ClaudeInfo } from './claude.js';
-import { buildClaudeArgs, PROMPT_REQUIRED_FLAGS } from './claude-args.js';
+import { buildClaudeArgs } from './claude-args.js';
+import { announcedCapabilities } from './announced-capabilities.js';
 import { mirroredDeny, READ_MIRRORED_TOOLS, settingsFilesFor, WRITE_TOOLS } from './user-permissions.js';
-import { claimRunId, EVENTS_DEFAULTS, parseClaim, PROMPT_PROFILE, RUN_ISOLATION, RUN_KIND, RUNNER_CAPABILITY, type ClaimedRun, type ClaimResponse } from './claim.js';
+import { claimRunId, EVENTS_DEFAULTS, parseClaim, PROMPT_PROFILE, RUN_ISOLATION, RUN_KIND, type ClaimedRun, type ClaimResponse } from './claim.js';
 import { EventUploader, type SeqEvent } from './event-uploader.js';
 import { clip, feedEventsFromStream, systemEvent, type FeedContext } from './feed.js';
 import { scrubEnv } from './scrub-env.js';
@@ -259,24 +267,9 @@ export class RunnerDaemon {
   }
 
   // capacidades que se anuncian: prompt solo si el cli puede cumplir su perfil (permission mode
-  // explícito, sin mcp del repo, deny list y settings solo del usuario en lectura).
+  // explícito, sin mcp del repo, deny list y settings solo del usuario en lectura), model solo con --model.
   private capabilities(): string[] {
-    return [
-      ...(this.hasAws ? [RUNNER_CAPABILITY.aws] : []),
-      // read_shell y native_memory van con prompt: exigen poder cumplir el perfil read (parseClaim lo
-      // valida) y pasar el deny espejado (--disallowedTools).
-      ...(PROMPT_REQUIRED_FLAGS.every((f) => this.claude.supported.has(f))
-        ? [RUNNER_CAPABILITY.prompt, RUNNER_CAPABILITY.readShell, RUNNER_CAPABILITY.nativeMemory]
-        : []),
-      RUNNER_CAPABILITY.events,
-      RUNNER_CAPABILITY.checkout,
-      ...(this.cfg.defaults.remoteRepoEdits === false ? [] : [RUNNER_CAPABILITY.repoEdit]),
-      RUNNER_CAPABILITY.secretPaths,
-      RUNNER_CAPABILITY.seedBudget,
-      RUNNER_CAPABILITY.awsStrict,
-      RUNNER_CAPABILITY.worktreeReport,
-      RUNNER_CAPABILITY.logout,
-    ];
+    return announcedCapabilities({ hasAws: this.hasAws, supported: this.claude.supported, remoteRepoEdits: this.cfg.defaults.remoteRepoEdits });
   }
 
   /** loop principal: gc → claim → ejecutar en un slot libre → repetir, hasta SIGINT/SIGTERM.
@@ -733,7 +726,7 @@ export class RunnerDaemon {
     const { run } = claim;
     const tag = `run ${run.id}`;
     console.log(
-      `[runner] ${tag} reclamado (${run.kind}${run.profile ? `, perfil ${run.profile}` : ''}, entry ${run.entryId}${claim.tier ? `, tier ${claim.tier}` : ''}${run.repo ? `, repo ${run.repo}${run.branch ? `@${run.branch}` : ''}` : ''}${run.sessionId ? `, sesión ${run.sessionId}` : ''})`,
+      `[runner] ${tag} reclamado (${run.kind}${run.profile ? `, perfil ${run.profile}` : ''}, entry ${run.entryId}${claim.tier ? `, tier ${claim.tier}` : ''}${run.repo ? `, repo ${run.repo}${run.branch ? `@${run.branch}` : ''}` : ''}${run.sessionId ? `, sesión ${run.sessionId}` : ''}${run.model ? `, modelo ${run.model}` : ''})`,
     );
     // env del run: el del usuario saneado + el perfil aws de su cuenta; una cuenta que esta máquina no
     // mapea, con la aws vacía del propio run (aws_strict), que se borra al cerrar el segmento.
@@ -837,7 +830,8 @@ export class RunnerDaemon {
         mcpConfigFile: mcpFile,
         supported: this.claude.supported,
         resumeSessionId,
-        model: this.cfg.defaults.model,
+        // el que pide duckhunt para esta conversación; si no pide ninguno, el default de la máquina.
+        model: run.model ?? this.cfg.defaults.model,
         configBudgetUsd: this.cfg.defaults.maxBudgetUsd,
         skipPermissions: prepared.repoCfg?.dangerouslySkipPermissions === true,
         payingWithApiKey: !!process.env.ANTHROPIC_API_KEY,

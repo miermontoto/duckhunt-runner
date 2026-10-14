@@ -21,6 +21,12 @@
 // - `run.seed` (t#465 P6) dice si la conversación nació de una plantilla de investigación: con
 //   seed_budget (0.11.0) su presupuesto se aplica aunque viaje como prompt run (claude-args.ts). el bloque
 //   `runner` de un server >= t#465 P12 no es del run: lo lee server-state.ts, y parseClaim lo ignora.
+// - `run.model` (0.12.0, capability `model`): el modelo que la persona eligió para esa conversación
+//   (su default de ajustes, el composer, el hilo o la acción de una regla); null = ninguno, manda
+//   `defaults.model` de la config y si no el default del cli. acaba en argv tras `--model`, así que
+//   solo pasa un alias o un id de modelo (MODEL_RE, el AGENT_MODEL_ID_RE del server); cualquier otra
+//   cosa se ignora con un aviso y el run sigue con el modelo de la máquina: un modelo raro no merece
+//   tumbar el claim, y un `-x` nunca llega al cli como flag.
 
 // capacidades que el daemon anuncia en el claim. el server entrega kind=prompt solo a quien
 // anuncia `prompt`, pide el feed de progreso solo a quien anuncia `events` y deja abrir una
@@ -45,6 +51,9 @@ export const RUNNER_CAPABILITY = {
   awsStrict: 'aws_strict',
   worktreeReport: 'worktree_report',
   logout: 'logout',
+  // 0.12.0 (t#465): pasa a claude el modelo que pide el claim (run.model) con --model. el server solo
+  // lo manda a quien lo anuncia, y se anuncia solo si `claude --help` lista --model.
+  model: 'model',
 } as const;
 export type RunnerCapability = (typeof RUNNER_CAPABILITY)[keyof typeof RUNNER_CAPABILITY];
 
@@ -178,8 +187,11 @@ const READ_FORCED_DENY: readonly string[] = [
   ...READ_FORBIDDEN_TOOLS.filter((t) => !MEMORY_WRITE_TOOLS.includes(t)),
   ...AWS_OUTFILE_COMMANDS.map((c) => `${BASH_TOOL}(aws ${c}*)`),
 ];
-// longitud con la que una rama descartada aparece en el aviso.
-const WARNING_BRANCH_CHARS = 80;
+// longitud con la que un valor descartado (rama, modelo) aparece en el aviso.
+const WARNING_VALUE_CHARS = 80;
+// alias (`opus`, `sonnet`…) o id completo de modelo (`claude-opus-5-5`): minúsculas, dígitos, '.' y '-',
+// empieza por letra (nunca parece un flag). el mismo patrón que AGENT_MODEL_ID_RE del server.
+export const MODEL_RE = /^[a-z][a-z0-9.-]{1,63}$/;
 // workspace/slug u owner/repo (REPO_KEY_RE del server).
 export const REPO_KEY_RE = /^[^/\s]+\/[^/\s]+$/;
 // session id de claude (uuid): va tras --resume, nunca debe parecer un flag.
@@ -210,6 +222,8 @@ export interface ClaimedRun {
   isolation: RunIsolation;
   // segmento del claim (null = server anterior a los segmentos).
   segment: number | null;
+  // modelo que pide duckhunt (0.12.0; null = ninguno: el de la config o el default del cli).
+  model: string | null;
 }
 
 export interface EventsConfig {
@@ -311,12 +325,18 @@ export function parseClaim(raw: unknown): ClaimResponse {
   const rawBranch = str(r.branch);
   const branch = rawBranch !== null && isValidBranchName(rawBranch) ? rawBranch : null;
   if (rawBranch !== null && branch === null) {
-    warnings.push(`rama ${JSON.stringify(rawBranch.slice(0, WARNING_BRANCH_CHARS))} ignorada (nombre no utilizable): worktree sobre la rama por defecto`);
+    warnings.push(`rama ${JSON.stringify(rawBranch.slice(0, WARNING_VALUE_CHARS))} ignorada (nombre no utilizable): worktree sobre la rama por defecto`);
   }
   const sessionId = str(r.sessionId);
   if (sessionId !== null && !SESSION_ID_RE.test(sessionId)) throw new Error('claim inválido: sessionId con formato inesperado');
   const profile = r.profile === PROMPT_PROFILE.read || r.profile === PROMPT_PROFILE.edit ? r.profile : null;
   if (kind === RUN_KIND.prompt && profile === null) throw new Error('claim inválido: prompt run sin perfil read|edit');
+  const model = typeof r.model === 'string' && MODEL_RE.test(r.model) ? r.model : null;
+  if (r.model !== undefined && r.model !== null && model === null) {
+    // de un valor que no es texto solo su tipo: el aviso va al feed.
+    const shown = typeof r.model === 'string' ? JSON.stringify(r.model.slice(0, WARNING_VALUE_CHARS)) : `(${typeof r.model})`;
+    warnings.push(`modelo ${shown} ignorado (no es un alias ni un id de modelo): el run usa el modelo de esta máquina`);
+  }
 
   const prompt = str(raw.prompt);
   if (!prompt || !prompt.trim()) throw new Error('claim inválido: prompt vacío');
@@ -365,6 +385,7 @@ export function parseClaim(raw: unknown): ClaimResponse {
       seed: r.seed === RUN_SEED.template || r.seed === RUN_SEED.prompt ? r.seed : null,
       isolation: kind === RUN_KIND.prompt && r.isolation === RUN_ISOLATION.checkout ? RUN_ISOLATION.checkout : RUN_ISOLATION.worktree,
       segment: posInt(r.segment),
+      model,
     },
     prompt,
     fallbackPrompt: str(raw.fallbackPrompt),

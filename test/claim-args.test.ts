@@ -9,6 +9,9 @@
 // 0.11.0 (t#465 P12): el claim de un server con lifecycle (lifecycle-*.json) es el mismo kit con el
 // bloque runner al final, que parseClaim ignora; todo kit de lectura lleva además los deny de
 // secret_paths y una plantilla vuelve a llevar su presupuesto (seed_budget) con api key.
+// 0.12.0 (t#465): `run.model` solo pasa como alias o id de modelo y manda sobre defaults.model; una
+// plantilla con la memoria nativa encendida (sin Edit/Write en el deny) se cumple igual, y el kit
+// desatendido de un prompt de regla (sin web, push y remotos negados en edición) llega entero al argv.
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -326,7 +329,10 @@ test('claims del server (t#465): las investigaciones viajan como prompt run de l
     assert.ok(SERVER_SECRET_READ_DENY.every((t) => disallowed.includes(t)), `${name}: credenciales vetadas`);
     if ((raw.run as { seed?: string }).seed !== 'template') return;
     assert.deepEqual(allowed.filter((t) => ['WebFetch', 'WebSearch'].includes(t)), [], `${name}: una plantilla no navega`);
-    assert.ok(['Edit', 'Write', 'WebFetch', 'WebSearch', 'NotebookEdit'].every((t) => disallowed.includes(t)), `${name}: sin memoria ni web`);
+    assert.ok(['WebFetch', 'WebSearch', 'NotebookEdit'].every((t) => disallowed.includes(t)), `${name}: sin web`);
+    // memoria nativa (t#465, lote 9): la decide el server con el ajuste de la persona. Edit/Write nunca
+    // en el allow (arriba) y, en el deny, las dos (memoria apagada) o ninguna (encendida).
+    assert.equal(disallowed.includes('Edit'), disallowed.includes('Write'), `${name}: memoria entera o nada`);
     if (claim.run.aws === null) assert.ok(!allowed.some((t) => t.startsWith('Bash(aws ')), `${name}: sin la cuenta anunciada, sin aws`);
     if (!allowed.some((t) => t.startsWith('Bash(aws '))) assert.equal(claim.run.aws, null, `${name}: sin aws, sin perfil que mapear`);
   });
@@ -419,4 +425,100 @@ test('seed_budget (0.11.0): una plantilla aplica maxBudgetUsd con api key o la c
   const prompt = rawClaim({ profile: 'read', seed: 'prompt' }, { tools: { allowed: ['Read'], disallowed: [] }, maxBudgetUsd: 20 });
   assert.deepEqual(budget(prompt, { configBudgetUsd: 5 }), [], 'una conversación libre no lleva presupuesto');
   assert.equal(parseClaim(rawClaim({ seed: 'otro' })).run.seed, null);
+});
+
+test('modelo (0.12.0): parseClaim guarda un alias o un id de modelo; cualquier otra cosa, null con aviso', () => {
+  assert.equal(parseClaim(rawClaim({ model: 'opus' })).run.model, 'opus');
+  assert.equal(parseClaim(rawClaim({ model: 'claude-opus-5-5' })).run.model, 'claude-opus-5-5');
+  assert.equal(parseClaim(rawClaim({ model: 'claude-sonnet-4.5' })).run.model, 'claude-sonnet-4.5');
+  const absent = parseClaim(rawClaim());
+  assert.equal(absent.run.model, null, 'un server o un daemon sin la capability');
+  assert.deepEqual(absent.warnings, []);
+  const none = parseClaim(rawClaim({ model: null }));
+  assert.equal(none.run.model, null, "'machine': el modelo de esta máquina");
+  assert.deepEqual(none.warnings, []);
+  ['-x', 'opus; rm', 'OPUS', `a${'b'.repeat(64)}`, '--dangerously-skip-permissions', '', 42, { id: 'opus' }].forEach((model) => {
+    const claim = parseClaim(rawClaim({ model }));
+    assert.equal(claim.run.model, null, JSON.stringify(model));
+    assert.equal(claim.warnings.length, 1, JSON.stringify(model));
+    assert.match(claim.warnings[0]!, /modelo .* ignorado \(no es un alias ni un id de modelo\)/);
+  });
+  assert.equal(parseClaim(rawClaim({ model: `a${'b'.repeat(63)}` })).run.model?.length, 64, '64 caracteres sí');
+  assert.match(parseClaim(rawClaim({ model: 7 })).warnings[0]!, /modelo \(number\) ignorado/, 'de un valor que no es texto solo su tipo');
+});
+
+test('modelo (0.12.0): el del claim manda sobre defaults.model; sin ninguno no hay --model', () => {
+  // así lo resuelve el daemon: run.model ?? defaults.model.
+  const modelArgs = (claimModel: unknown, configModel: string | undefined) => {
+    const claim = parseClaim(rawClaim({ model: claimModel }));
+    return flagValue(argsFor(rawClaim({ model: claimModel }), { model: claim.run.model ?? configModel }), '--model');
+  };
+  assert.deepEqual(modelArgs('sonnet', 'opus'), ['sonnet'], 'la elección de la persona');
+  assert.deepEqual(modelArgs(null, 'opus'), ['opus'], 'sin elección, el de la máquina');
+  assert.deepEqual(modelArgs(undefined, 'opus'), ['opus'], 'server sin la capability');
+  assert.deepEqual(modelArgs('-x', 'opus'), ['opus'], 'uno inválido cae al de la máquina');
+  assert.deepEqual(modelArgs(null, undefined), [], 'ni uno ni otro: el default del cli');
+  // también al reanudar: --model con --resume cambia el modelo de la sesión.
+  const resumed = argsFor(rawClaim({ model: 'haiku', sessionId: 's1' }), { model: 'haiku', resumeSessionId: 's1' });
+  assert.deepEqual(flagValue(resumed, '--model'), ['haiku']);
+  assert.deepEqual(flagValue(resumed, '--resume'), ['s1']);
+  assert.ok(resumed.indexOf('--model') < resumed.indexOf('--'), 'antes del prompt');
+});
+
+test('memoria nativa de las plantillas (t#465, lote 9): sin Edit/Write en el deny del server el daemon no las añade', () => {
+  // los dos kits reales del server ante un daemon native_memory: el ajuste ruleMemory encendido (el
+  // default) y apagado (template-rule-memory-off).
+  const base = goldenClaims.find((g) => g.name === 'claim-kits/template-full-aws-announced.json');
+  const memoryOff = goldenClaims.find((g) => g.name === 'claim-kits/template-rule-memory-off.json');
+  assert.ok(base && memoryOff);
+  const tools = base.raw.tools as { allowed: string[]; disallowed: string[] };
+  assert.ok(!tools.disallowed.includes('Edit') && !tools.disallowed.includes('Write'), 'encendida, el server ya no las niega');
+  const claim = parseClaim(base.raw);
+  assert.deepEqual(claim.warnings, []);
+  assert.equal(claim.run.seed, 'template');
+  assert.equal(claim.run.profile, 'read');
+  assert.ok(!claim.tools.disallowed.includes('Edit') && !claim.tools.disallowed.includes('Write'), 'parseClaim no las fuerza');
+  // skip-permissions local a propósito: una plantilla es un prompt run y nunca lo hereda.
+  const args = buildClaudeArgs({
+    claim,
+    prompt: claim.prompt,
+    mcpConfigFile: '/home/u/.duckhunt-runner/run-config/mcp-1-abcd.json',
+    supported: allFlags,
+    resumeSessionId: null,
+    skipPermissions: true,
+    payingWithApiKey: false,
+    mirroredDeny: ['Write(src/**)'],
+    runConfigDeny: [RUN_CONFIG_DENY],
+  });
+  const disallowed = flagValue(args, '--disallowedTools');
+  const allowed = flagValue(args, '--allowedTools');
+  assert.ok(!disallowed.includes('Edit') && !disallowed.includes('Write'), 'su memoria nativa queda al alcance (dontAsk)');
+  assert.ok(!allowed.includes('Edit') && !allowed.includes('Write'), 'pero ninguna regla las permite');
+  assert.ok(disallowed.includes('Write(src/**)'), 'las reglas de escritura del usuario, espejadas');
+  assert.ok(['WebFetch', 'WebSearch', 'NotebookEdit', RUN_CONFIG_DENY].every((t) => disallowed.includes(t)));
+  assert.equal(args[args.indexOf('--permission-mode') + 1], 'dontAsk');
+  assert.ok(!args.includes('--dangerously-skip-permissions'));
+  // con la memoria apagada el server las niega enteras y el daemon lo respeta.
+  const off = flagValue(argsFor(memoryOff.raw), '--disallowedTools');
+  assert.ok(off.includes('Edit') && off.includes('Write'));
+  assert.equal((memoryOff.raw.run as { seed?: string }).seed, 'template');
+});
+
+test('prompts de reglas (t#465, lote 9): el kit desatendido del server llega entero al argv', () => {
+  const rulePrompts = goldenClaims.filter((g) => g.name.startsWith('claim-kits/rule-prompt-'));
+  assert.ok(rulePrompts.length >= 7, 'los del motor y los del kit desatendido');
+  rulePrompts.forEach(({ name, raw }) => {
+    const claim = parseClaim(raw);
+    assert.deepEqual(claim.warnings, [], name);
+    const serverDeny = (raw.tools as { disallowed: string[] }).disallowed;
+    const args = argsFor(raw);
+    const allowed = flagValue(args, '--allowedTools');
+    const disallowed = flagValue(args, '--disallowedTools');
+    // sin web (tampoco tras el sí) y nunca en el checkout de la persona.
+    assert.ok(['WebFetch', 'WebSearch'].every((t) => disallowed.includes(t) && !allowed.includes(t)), `${name}: sin web`);
+    assert.notEqual((raw.run as { isolation?: string | null }).isolation, 'checkout', name);
+    // en edición, el deny de push y remotos que manda el server (por debajo de world) va tal cual.
+    const pushDeny = ['Bash(git push*)', 'Bash(git remote*)', 'Bash(gh *)'];
+    if (pushDeny.every((t) => serverDeny.includes(t))) assert.ok(pushDeny.every((t) => disallowed.includes(t)), `${name}: push y remotos negados`);
+  });
 });

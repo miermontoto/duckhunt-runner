@@ -3,8 +3,8 @@
 // server solo viajan las KEYS via el claim (presencia, sin paths). `list` y `add` enseñan la salud
 // de cada repo (repo-health.ts) y `discover` no mapea una key con varios checkouts distintos: antes
 // el último pisaba al primero en silencio (okt-api-parked le ganó a okt-api por orden alfabético).
-// --no-worktree y --dangerously-skip-permissions están deprecados (0.11.0, se retiran en 0.12.0): ningún
-// duckhunt actual manda trabajo que los aplique; `add` y `list` lo dicen.
+// --no-worktree y --dangerously-skip-permissions están deprecados (0.11.0, se retiran en una versión
+// posterior): ningún duckhunt actual manda trabajo que los aplique; `add` y `list` lo dicen.
 
 import fs from 'node:fs';
 import path from 'node:path';
