@@ -210,7 +210,7 @@ to have said yes to that specific action, spelled out with the literal command. 
 or code is never part of that: the run proposes an `edit` conversation, which you review and launch.
 
 A rule can also *run a prompt* you wrote (on a schedule, when an entry is created, updated or
-notified, or when a task moves). That run starts with your instruction, so it may also write inside
+notified, or when you move a task; a move by someone you share the workspace with never starts it). That run starts with your instruction, so it may also write inside
 duckhunt (create, move and organise tasks, label, take notes) and read the repo you chose. With the
 `edit` profile, which you arm once with the identity check when you save the rule, it may also change
 code in its own worktree, never in your checkout; below the confirmed tier its deny list also blocks

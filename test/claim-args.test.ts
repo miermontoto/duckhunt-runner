@@ -10,7 +10,8 @@
 // bloque runner al final, que parseClaim ignora; todo kit de lectura lleva además los deny de
 // secret_paths y una plantilla vuelve a llevar su presupuesto (seed_budget) con api key.
 // 0.12.0 (t#465): `run.model` solo pasa como alias o id de modelo y manda sobre defaults.model; una
-// plantilla con la memoria nativa encendida (sin Edit/Write en el deny) se cumple igual.
+// plantilla con la memoria nativa encendida (sin Edit/Write en el deny) se cumple igual, y el kit
+// desatendido de un prompt de regla (sin web, push y remotos negados en edición) llega entero al argv.
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -465,12 +466,14 @@ test('modelo (0.12.0): el del claim manda sobre defaults.model; sin ninguno no h
 });
 
 test('memoria nativa de las plantillas (t#465, lote 9): sin Edit/Write en el deny del server el daemon no las añade', () => {
+  // los dos kits reales del server ante un daemon native_memory: el ajuste ruleMemory encendido (el
+  // default) y apagado (template-rule-memory-off).
   const base = goldenClaims.find((g) => g.name === 'claim-kits/template-full-aws-announced.json');
-  assert.ok(base);
+  const memoryOff = goldenClaims.find((g) => g.name === 'claim-kits/template-rule-memory-off.json');
+  assert.ok(base && memoryOff);
   const tools = base.raw.tools as { allowed: string[]; disallowed: string[] };
-  // el kit que manda el server con el ajuste de memoria encendido: el mismo, sin Edit/Write en el deny.
-  const memoryOn = { ...base.raw, tools: { allowed: tools.allowed, disallowed: tools.disallowed.filter((t) => t !== 'Edit' && t !== 'Write') } };
-  const claim = parseClaim(memoryOn);
+  assert.ok(!tools.disallowed.includes('Edit') && !tools.disallowed.includes('Write'), 'encendida, el server ya no las niega');
+  const claim = parseClaim(base.raw);
   assert.deepEqual(claim.warnings, []);
   assert.equal(claim.run.seed, 'template');
   assert.equal(claim.run.profile, 'read');
@@ -495,7 +498,27 @@ test('memoria nativa de las plantillas (t#465, lote 9): sin Edit/Write en el den
   assert.ok(['WebFetch', 'WebSearch', 'NotebookEdit', RUN_CONFIG_DENY].every((t) => disallowed.includes(t)));
   assert.equal(args[args.indexOf('--permission-mode') + 1], 'dontAsk');
   assert.ok(!args.includes('--dangerously-skip-permissions'));
-  // con la memoria apagada (el kit de siempre) siguen negadas.
-  const off = flagValue(argsFor(base.raw), '--disallowedTools');
+  // con la memoria apagada el server las niega enteras y el daemon lo respeta.
+  const off = flagValue(argsFor(memoryOff.raw), '--disallowedTools');
   assert.ok(off.includes('Edit') && off.includes('Write'));
+  assert.equal((memoryOff.raw.run as { seed?: string }).seed, 'template');
+});
+
+test('prompts de reglas (t#465, lote 9): el kit desatendido del server llega entero al argv', () => {
+  const rulePrompts = goldenClaims.filter((g) => g.name.startsWith('claim-kits/rule-prompt-'));
+  assert.ok(rulePrompts.length >= 7, 'los del motor y los del kit desatendido');
+  rulePrompts.forEach(({ name, raw }) => {
+    const claim = parseClaim(raw);
+    assert.deepEqual(claim.warnings, [], name);
+    const serverDeny = (raw.tools as { disallowed: string[] }).disallowed;
+    const args = argsFor(raw);
+    const allowed = flagValue(args, '--allowedTools');
+    const disallowed = flagValue(args, '--disallowedTools');
+    // sin web (tampoco tras el sí) y nunca en el checkout de la persona.
+    assert.ok(['WebFetch', 'WebSearch'].every((t) => disallowed.includes(t) && !allowed.includes(t)), `${name}: sin web`);
+    assert.notEqual((raw.run as { isolation?: string | null }).isolation, 'checkout', name);
+    // en edición, el deny de push y remotos que manda el server (por debajo de world) va tal cual.
+    const pushDeny = ['Bash(git push*)', 'Bash(git remote*)', 'Bash(gh *)'];
+    if (pushDeny.every((t) => serverDeny.includes(t))) assert.ok(pushDeny.every((t) => disallowed.includes(t)), `${name}: push y remotos negados`);
+  });
 });
