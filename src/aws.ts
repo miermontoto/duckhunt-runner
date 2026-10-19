@@ -1,10 +1,21 @@
 // subcomandos `duckhunt-runner aws ...`: mapa id de cuenta aws → perfil local de la aws cli. el
 // claim trae solo el id de cuenta (y región) de la conexión del entry; el daemon lo traduce a
 // AWS_PROFILE/AWS_DEFAULT_REGION del proceso claude. el server nunca ve perfiles ni credenciales.
+// desde t#495 (M2) es también `resource … aws` (resource.ts), que acepta además la clave `default`: la identidad
+// aws por defecto de la máquina, que solo existe si el usuario la expone. `aws add` sigue pidiendo un id de cuenta.
 
 import { configPath, loadStoredConfig, saveConfig } from './config.js';
+import { AWS_ACCOUNT_ID_RE, AWS_DEFAULT_KEY, isAwsKey } from './resources/aws.js';
 
-const ACCOUNT_ID_RE = /^\d{12}$/;
+/** claves que acepta `add` y cómo se describen en el error. */
+export interface AwsKeys {
+  accepts: (key: string) => boolean;
+  hint: string;
+}
+
+const ACCOUNT_KEYS: AwsKeys = { accepts: (key) => AWS_ACCOUNT_ID_RE.test(key), hint: '12 dígitos' };
+/** las de `resource add aws`: un id de cuenta o `default`. */
+export const RESOURCE_AWS_KEYS: AwsKeys = { accepts: isAwsKey, hint: `12 dígitos o \`${AWS_DEFAULT_KEY}\`` };
 
 const USAGE = `uso:
   duckhunt-runner aws list
@@ -12,7 +23,7 @@ const USAGE = `uso:
   duckhunt-runner aws remove <account-id>
 `;
 
-export function awsCommand(args: string[]): void {
+export function awsCommand(args: string[], keys: AwsKeys = ACCOUNT_KEYS): void {
   // sin credencial también (tras `logout` los mapas se quedan): solo se leen y escriben los mapas.
   const cfg = loadStoredConfig();
   if (!cfg) {
@@ -39,8 +50,8 @@ export function awsCommand(args: string[]): void {
       process.exitCode = 1;
       return;
     }
-    if (!ACCOUNT_ID_RE.test(account)) {
-      console.error(`id de cuenta inválido: "${account}" (12 dígitos)`);
+    if (!keys.accepts(account)) {
+      console.error(`id de cuenta inválido: "${account}" (${keys.hint})`);
       process.exitCode = 1;
       return;
     }

@@ -44,6 +44,8 @@ export const REPO_ISSUE = {
   orphanWorktrees: 'orphan_worktrees',
 } as const;
 export type RepoIssueKind = (typeof REPO_ISSUE)[keyof typeof REPO_ISSUE];
+/** los que hacen fallar un run o lo ponen a trabajar sobre otro repo (ver cabecera). */
+export const BLOCKING_REPO_ISSUES: ReadonlySet<RepoIssueKind> = new Set([REPO_ISSUE.missing, REPO_ISSUE.notGit, REPO_ISSUE.remoteMismatch]);
 
 const ISSUE_LABEL: Record<RepoIssueKind, string> = {
   missing: 'el checkout no existe',

@@ -4,7 +4,8 @@
 // mantienen los mapas locales, `status` diagnostica el kit de la máquina y lo último que duckhunt dijo
 // de ella, y el modo por defecto (`start`) arranca el loop de claim. `start` toma antes de nada el lock
 // de un solo daemon (daemon-lock.ts) y lo suelta al salir; `login`, `repos` y `aws` con el daemon en
-// marcha valen sin reiniciarlo (lo recarga en cada vuelta de su loop).
+// marcha valen sin reiniciarlo (lo recarga en cada vuelta de su loop). `resource` (t#495, M2) es la cli genérica
+// de los recursos de la máquina por tipo: `repos` y `aws` son sus tipos repo y aws (resource.ts).
 
 import { configPath, DEFAULT_BASE_URL, loadConfig } from './config.js';
 import { acquireDaemonLock } from './daemon-lock.js';
@@ -13,6 +14,7 @@ import { logoutCommand } from './logout.js';
 import { RunnerDaemon } from './daemon.js';
 import { reposCommand } from './repos.js';
 import { awsCommand } from './aws.js';
+import { resourceCommand } from './resource.js';
 import { statusCommand } from './status.js';
 import { runnerVersion } from './version.js';
 
@@ -26,6 +28,7 @@ uso:
   duckhunt-runner start [--verbose]          arranca el daemon
   duckhunt-runner repos list|add|remove|discover
   duckhunt-runner aws list|add|remove
+  duckhunt-runner resource list|add|remove|check [repo|aws]   los recursos de la máquina por tipo
   duckhunt-runner --version
 
 config en ~/.duckhunt-runner.json (otra con DUCKHUNT_RUNNER_CONFIG=<fichero>); scratch, logs y
@@ -58,6 +61,10 @@ async function main(): Promise<void> {
   }
   if (cmd === 'aws') {
     awsCommand(rest);
+    return;
+  }
+  if (cmd === 'resource') {
+    await resourceCommand(rest);
     return;
   }
   if (cmd !== undefined && cmd !== 'start' && cmd !== 'run') {

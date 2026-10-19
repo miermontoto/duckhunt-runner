@@ -15,6 +15,13 @@
 
 import type { KeyedMutex } from '../keyed-mutex.js';
 
+// tipos de recurso que sirve este daemon (su proveedor, en resources/<tipo>). aquí, sin dependencias: también los
+// usa la config (config-legacy.ts).
+export const RESOURCE_TYPE = {
+  repo: 'repo',
+  aws: 'aws',
+} as const;
+
 export const ACCESS = {
   read: 'read',
   interact: 'interact',
