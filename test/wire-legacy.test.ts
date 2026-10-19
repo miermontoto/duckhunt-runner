@@ -14,6 +14,7 @@ import { RunLease } from '../src/run-lease.js';
 import type { KeptWorktree } from '../src/server-state.js';
 import type { StatusReport } from '../src/status-report.js';
 import type { SeqEvent } from '../src/event-uploader.js';
+import type { Platform } from '../src/platforms/platform.js';
 import { runnerVersion } from '../src/version.js';
 
 const BASE = 'https://duckhunt.test';
@@ -36,12 +37,21 @@ const cfg: RunnerConfig = {
   defaults: { maxConcurrent: 2 },
 };
 
-interface DaemonInternals {
-  reloadConfig(): Promise<void>;
+// lo que estos casos tocan: el claim y el latido del daemon y las llamadas del cable de su plataforma legacy.
+interface Wire {
   claim(): Promise<unknown>;
   openConversations(ids: string[]): Promise<Set<string>>;
   postEvents(runId: string, events: SeqEvent[], seg: { segment?: number }): Promise<number>;
   postStatus(runId: string, report: StatusReport): Promise<void>;
+  postProgress(runId: string, toolCalls: number, seg: { segment?: number }, workdir?: string): void;
+  startHeartbeat(lease: RunLease, heartbeatMs: number, seg: { segment?: number }): NodeJS.Timeout;
+  keptWorktrees: KeptWorktree[] | null;
+}
+
+interface DaemonInternals {
+  reloadConfig(): Promise<void>;
+  claim(): Promise<unknown>;
+  platform: Platform;
   postProgress(runId: string, toolCalls: number, seg: { segment?: number }, workdir?: string): void;
   startHeartbeat(lease: RunLease, heartbeatMs: number, seg: { segment?: number }): NodeJS.Timeout;
   keptWorktrees: KeptWorktree[] | null;
@@ -62,10 +72,20 @@ function capture(): string[] {
   return calls;
 }
 
-async function daemon(): Promise<DaemonInternals> {
+async function daemon(): Promise<Wire> {
   const d = new RunnerDaemon(loadConfig()!) as unknown as DaemonInternals;
   await d.reloadConfig();
-  return d;
+  return {
+    claim: () => d.claim(),
+    openConversations: (ids) => d.platform.openConversations(ids),
+    postEvents: (runId, events, seg) => d.platform.events(runId, events, seg),
+    postStatus: (runId, report) => d.platform.result(runId, report),
+    postProgress: (runId, toolCalls, seg, workdir) => d.postProgress(runId, toolCalls, seg, workdir),
+    startHeartbeat: (lease, ms, seg) => d.startHeartbeat(lease, ms, seg),
+    set keptWorktrees(kept: KeptWorktree[] | null) {
+      d.keptWorktrees = kept;
+    },
+  };
 }
 
 const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 20));

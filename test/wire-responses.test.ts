@@ -15,6 +15,7 @@ import { RunLease } from '../src/run-lease.js';
 import { readServerState } from '../src/server-state.js';
 import { LEGACY_PLATFORM_ID } from '../src/paths.js';
 import type { StatusReport } from '../src/status-report.js';
+import type { Platform } from '../src/platforms/platform.js';
 
 const BASE = 'https://duckhunt.test';
 const API = `${BASE}/api/runner`;
@@ -75,8 +76,7 @@ interface DaemonInternals {
   reloadConfig(): Promise<void>;
   claim(): Promise<unknown>;
   startHeartbeat(lease: RunLease, heartbeatMs: number, seg: { segment?: number }): NodeJS.Timeout;
-  postStatus(runId: string, report: StatusReport): Promise<void>;
-  openConversations(ids: string[]): Promise<Set<string>>;
+  platform: Platform;
   leases: Set<RunLease>;
   stopping: boolean;
   exitCode: number;
@@ -89,8 +89,8 @@ async function wire(leases: RunLease[] = []): Promise<Wire> {
   return {
     claim: () => d.claim(),
     startHeartbeat: (lease, ms, seg) => d.startHeartbeat(lease, ms, seg),
-    postStatus: (runId, report) => d.postStatus(runId, report),
-    openConversations: (ids) => d.openConversations(ids),
+    postStatus: (runId, report) => d.platform.result(runId, report),
+    openConversations: (ids) => d.platform.openConversations(ids),
     get stopping() {
       return d.stopping;
     },
