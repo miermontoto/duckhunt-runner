@@ -16,7 +16,7 @@ import { OPTIONAL_FLAGS } from '../src/claude.js';
 import { escapingSymlinks, hasReadShell, isInside, readShellGuard, readShellLog, readShellNote } from '../src/read-shell-guard.js';
 import { scrubEnv } from '../src/scrub-env.js';
 import { LEGACY_PLATFORM_ID } from '../src/paths.js';
-import { prepareConversationWorktree } from '../src/worktree.js';
+import { prepareConversationWorktree } from '../src/resources/repo/worktree.js';
 
 // identidad, firma y submódulos locales: el test no depende de la config git de la máquina.
 const env: NodeJS.ProcessEnv = {

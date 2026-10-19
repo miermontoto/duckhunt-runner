@@ -10,7 +10,7 @@ import path from 'node:path';
 import { after, before, test } from 'node:test';
 import type { RepoConfig } from '../src/config.js';
 import { applyRepoCommand, parseRepoCommands } from '../src/repo-commands.js';
-import { repoChoices, scanRepos } from '../src/repo-health.js';
+import { repoChoices, scanRepos } from '../src/resources/repo/health.js';
 import { scrubEnv } from '../src/scrub-env.js';
 
 const env: NodeJS.ProcessEnv = {

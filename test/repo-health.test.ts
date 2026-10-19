@@ -9,7 +9,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
 import type { RepoConfig } from '../src/config.js';
-import { repoChoices, repoFindings, repoIssues, scanRepos, type RepoFinding } from '../src/repo-health.js';
+import { repoChoices, repoFindings, repoIssues, scanRepos, type RepoFinding } from '../src/resources/repo/health.js';
 import { repoKeyFromRemote } from '../src/repo-key.js';
 import { reposCommand } from '../src/repos.js';
 import { scrubEnv } from '../src/scrub-env.js';

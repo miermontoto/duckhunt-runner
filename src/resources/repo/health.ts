@@ -21,10 +21,10 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { RepoConfig } from './config.js';
-import { repoKeyFromRemote, sameRepoKey } from './repo-key.js';
+import type { RepoConfig } from '../../config.js';
+import { repoKeyFromRemote, sameRepoKey } from '../../repo-key.js';
 import { gitMaybe } from './worktree.js';
-import { LEGACY_PLATFORM_ID, worktreesDir } from './paths.js';
+import { LEGACY_PLATFORM_ID, worktreesDir } from '../../paths.js';
 
 // cadencia del chequeo (y el primero, al arrancar).
 export const REPO_HEALTH_INTERVAL_MS = 10 * 60_000;
