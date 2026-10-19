@@ -3,10 +3,13 @@
 # que filtrar. `id-token: write` es lo que permite acuñar el token efímero; sin ese permiso npm
 # cae a buscar credencial y falla. la provenance sale sola por este camino.
 #
-# este job tiene permiso para publicar en el registro, así que todo lo que ejecuta va clavado:
+# el job publish tiene permiso para publicar en el registro, así que todo lo que ejecuta va clavado:
 # las actions por SHA (un tag de git es mutable — reapuntarlo es la vía clásica para colar código
 # en un job con credenciales) y npm por versión exacta. al subir cualquiera de las dos, comprueba
 # antes a qué release corresponde.
+#
+# los tests corren antes en su propio job, SIN `id-token`: ejecutan el código del repo (git, procesos
+# hijo, ficheros temporales) y no necesitan credencial, así que no la ven. publish solo arranca si pasan.
 name: release
 
 on:
@@ -16,11 +19,28 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
-  publish:
+  test:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 22
+
+      # mismas devDeps y mismo --ignore-scripts que el build de publish.
+      - run: npm ci --ignore-scripts
+      - run: npm test
+
+  publish:
+    needs: test
+    runs-on: ubuntu-latest
+    # solo este job acuña el token oidc.
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
 
