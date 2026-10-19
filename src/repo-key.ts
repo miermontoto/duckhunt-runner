@@ -1,5 +1,5 @@
 // key workspace/slug de un repo a partir del url de su remote: la que el server usa en target_repo.repo
-// y el daemon en su mapa de repos. la usan `repos discover` y el chequeo de salud (repo-health.ts).
+// y el daemon en su mapa de repos. la usan `repos discover` y el chequeo de salud (resources/repo/health.ts).
 // github y bitbucket identifican el repo con los DOS PRIMEROS segmentos del path: un clone hecho con
 // la url del navegador (…/okticket/new-boilerplate/src/main/) derivaba "src/main" con los dos
 // últimos y dos repos distintos acababan bajo la misma key. el resto de hosts (subgrupos de gitlab,

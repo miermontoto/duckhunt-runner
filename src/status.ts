@@ -16,7 +16,7 @@ import { LEGACY_PLATFORM_ID, scratchDir } from './paths.js';
 import { daemonLockHolder } from './daemon-lock.js';
 import { detectClaude } from './claude.js';
 import { announcedCapabilities } from './announced-capabilities.js';
-import { describeFinding, repoFindings, scanRepos } from './repo-health.js';
+import { describeFinding, repoFindings, scanRepos } from './resources/repo/health.js';
 import { scrubEnv } from './scrub-env.js';
 import { ownedHere } from './machine.js';
 import { CLAIM_OUTCOME, readServerState, type ServerState } from './server-state.js';

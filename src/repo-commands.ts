@@ -1,6 +1,6 @@
 // cambios del mapa de repos pedidos desde duckhunt (t#463 fase 2): quitar un repo o cambiar la
 // carpeta de uno entre los candidatos que este daemon anunció. regla dura: el server NUNCA mete un
-// path. elige un id opaco de la última lista de candidatos (repo-health.ts::repoChoices) y aquí se
+// path. elige un id opaco de la última lista de candidatos (resources/repo/health.ts::repoChoices) y aquí se
 // rechaza cualquier id que no esté en ella, que sea de otro repo o cuya carpeta ya no sea un
 // checkout de ese repo. quitar un mapeo no borra nada del disco. los errores viajan al server: sin
 // paths. el daemon aplica el cambio y guarda solo esas entradas del mapa sobre el fichero
@@ -8,7 +8,7 @@
 // máquina con `defaults.remoteRepoEdits: false`.
 
 import type { RepoConfig } from './config.js';
-import { inspectCheckouts } from './repo-health.js';
+import { inspectCheckouts } from './resources/repo/health.js';
 import { sameRepoKey } from './repo-key.js';
 
 export const REPO_COMMAND_ACTION = { unmap: 'unmap', remap: 'remap' } as const;

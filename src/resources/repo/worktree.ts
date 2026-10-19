@@ -5,7 +5,7 @@
 // - conv-<id>: prompt runs (t#378), uno POR CONVERSACIÓN. detached sobre origin/<rama> tras un
 //   `git fetch`; si la rama no existe aún, sobre la rama por defecto del remoto (origin/HEAD) y el
 //   agente la crea si el prompt lo pide. se CONSERVA entre segmentos (waiting/done/failed): lo que
-//   edite el perfil edit sobrevive a una pregunta o a un seguimiento. lo recoge conversation-gc.ts.
+//   edite el perfil edit sobrevive a una pregunta o a un seguimiento. lo recoge gc.ts.
 // - un prompt run con isolation=checkout no tiene worktree: corre en el checkout tal cual y aquí solo
 //   se describe (prepareCheckout) su rama, commit y cambios para la nota.
 // el directorio del daemon (.duckhunt/, o .runner/ para otras plataformas) va a .git/info/exclude del
@@ -24,8 +24,8 @@ import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { isValidBranchName } from './claim.js';
-import { checkoutExcludePattern, worktreesDir } from './paths.js';
+import { isValidBranchName } from '../../claim.js';
+import { checkoutExcludePattern, worktreesDir } from '../../paths.js';
 
 const execFileP = promisify(execFile);
 

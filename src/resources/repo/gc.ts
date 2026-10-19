@@ -17,9 +17,9 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { CONVERSATION_WORKTREE_PREFIX, RUN_WORKTREE_PREFIX, describeWork, removeCleanWorktree, worktreeWork } from './worktree.js';
-import type { KeptWorktree } from './server-state.js';
-import { RUN_ID_RE } from './run-id.js';
-import { worktreesDir } from './paths.js';
+import type { KeptWorktree } from '../../server-state.js';
+import { RUN_ID_RE } from '../../run-id.js';
+import { worktreesDir } from '../../paths.js';
 
 // inactividad tras la que un worktree se puede borrar aunque el server lo dé por abierto
 // (AGENT_CONVERSATION_IDLE_TTL_MS del server).

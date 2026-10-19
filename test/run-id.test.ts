@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { compareRunIds, isLegacyRunId, legacyWireRunId, RUN_ID_RE, runIdFromLegacy } from '../src/run-id.js';
-import { listWorktreeCandidates } from '../src/conversation-gc.js';
+import { listWorktreeCandidates } from '../src/resources/repo/gc.js';
 import { LEGACY_PLATFORM_ID, worktreesDir } from '../src/paths.js';
 
 test('RUN_ID_RE: texto apto para nombres de fichero, nunca rutas ni espacios', () => {

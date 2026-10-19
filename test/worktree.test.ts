@@ -7,10 +7,10 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
-import { listWorktreeCandidates, removeWorktrees, selectForRemoval } from '../src/conversation-gc.js';
+import { listWorktreeCandidates, removeWorktrees, selectForRemoval } from '../src/resources/repo/gc.js';
 import { scrubEnv } from '../src/scrub-env.js';
 import { LEGACY_PLATFORM_ID } from '../src/paths.js';
-import { isUsableBranch, prepareCheckout, prepareConversationWorktree, prepareRunWorktree, removeCleanWorktree, unsavedWork, worktreeWork } from '../src/worktree.js';
+import { isUsableBranch, prepareCheckout, prepareConversationWorktree, prepareRunWorktree, removeCleanWorktree, unsavedWork, worktreeWork } from '../src/resources/repo/worktree.js';
 
 const DAY_MS = 24 * 60 * 60_000;
 // identidad y firma fuera: el test no depende de la config git de la máquina.

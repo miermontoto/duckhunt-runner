@@ -8,8 +8,8 @@
 // - claude corre en su PROPIO grupo de procesos (detached): cancelar, el timeout o parar el daemon
 //   matan también lo que lanzó la tool Bash (tests, servidores). por eso el daemon instala sus
 //   handlers de SIGINT/SIGTERM: ctrl-c ya no le llega al hijo por la terminal.
-// - kind=prompt usa un worktree POR CONVERSACIÓN que sobrevive entre segmentos (worktree.ts); lo
-//   recoge conversation-gc.ts en el loop de claim. los kinds de reglas heredados (servers anteriores a
+// - kind=prompt usa un worktree POR CONVERSACIÓN que sobrevive entre segmentos (resources/repo/worktree.ts); lo
+//   recoge resources/repo/gc.ts en el loop de claim. los kinds de reglas heredados (servers anteriores a
 //   t#465 P6, que ya manda toda conversación como prompt run) siguen con su worktree efímero.
 //   si el usuario abrió la conversación en el checkout (run.isolation, 0.6.0), corre en el checkout
 //   tal cual, sin worktree, y se turna con los demás runs de ese checkout (cwdLocks).
@@ -26,7 +26,7 @@
 //   proceso del siguiente turno de la misma fila. el latido mata claude en cuanto el run deja de ser
 //   suyo (cancelado, re-encolado tras detenerlo, dado por fallido, borrado → 404, reclamado por otro
 //   segmento), no solo con `cancel`: un proceso detenido no puede seguir 30 min con Bash.
-// - salud de los repos mapeados (repo-health.ts, t#463): el primer chequeo se ESPERA al arrancar (el
+// - salud de los repos mapeados (resources/repo/health.ts, t#463): el primer chequeo se ESPERA al arrancar (el
 //   primer claim ya la lleva) y luego se refresca en segundo plano sin frenar el claim. se imprime
 //   al cambiar y viaja en cada claim como `repoIssues` + `repoCandidates` (sin paths). si la
 //   respuesta del claim trae la cabecera de comandos pendientes, el daemon los pide, los aplica a SU
@@ -69,6 +69,10 @@
 //   de la máquina. también al reanudar: --model con --resume cambia el modelo de la sesión desde ese
 //   turno, y el reintento desde cero usa el mismo. el modelo que se reporta en /status es el que de
 //   verdad usó el bucle principal (claude.ts::reportedModel).
+// - recursos (t#495, M2): el cwd del run (y lo que se suelta al cerrar) sale del ciclo de vida de recursos
+//   (resources/lifecycle.ts) con las peticiones que se derivan del claim legacy (resources/legacy.ts): todo o
+//   nada, al revés al soltar, y los turnos exclusivos ordenados. el plan que ve claude es el de siempre
+//   (test/spawn-plan.test.ts lo fija byte a byte).
 
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
@@ -86,7 +90,6 @@ import {
   saveConfig,
   splitConfig,
   type LocalConfig,
-  type RepoConfig,
   type RunnerConfig,
   type RunnerCredential,
 } from './config.js';
@@ -106,17 +109,21 @@ import { consumeStreamLine, detectClaude, newStreamState, type ClaudeInfo } from
 import { buildClaudeArgs } from './claude-args.js';
 import { announcedCapabilities } from './announced-capabilities.js';
 import { mirroredDeny, READ_MIRRORED_TOOLS, settingsFilesFor, WRITE_TOOLS } from './user-permissions.js';
-import { claimRunId, EVENTS_DEFAULTS, parseClaim, PROMPT_PROFILE, RUN_ISOLATION, RUN_KIND, type ClaimedRun, type ClaimResponse } from './claim.js';
+import { claimRunId, EVENTS_DEFAULTS, parseClaim, PROMPT_PROFILE, RUN_KIND, type ClaimResponse } from './claim.js';
 import { EventUploader, type SeqEvent } from './event-uploader.js';
 import { clip, feedEventsFromStream, systemEvent, type FeedContext } from './feed.js';
 import { scrubEnv } from './scrub-env.js';
 import { clampReport, reportFor, type Attempt, type KillReason, type StatusReport } from './status-report.js';
-import { prepareCheckout, prepareConversationWorktree, prepareRunWorktree, removeRunWorktree, touchWorktree } from './worktree.js';
 import { readShellGuard, readShellLog, readShellNote } from './read-shell-guard.js';
 import { clearLegacyTmpConfigs, clearRunMcpConfigs, runConfigDeny, writeRunMcpConfig } from './run-mcp-config.js';
-import { chunk, CONVERSATION_GC_INTERVAL_MS, listWorktreeCandidates, removeWorktrees, selectForRemoval, type WorktreeCandidate } from './conversation-gc.js';
+import { chunk, CONVERSATION_GC_INTERVAL_MS, listWorktreeCandidates, removeWorktrees, selectForRemoval, type WorktreeCandidate } from './resources/repo/gc.js';
 import { KeyedMutex } from './keyed-mutex.js';
-import { describeFinding, REPO_HEALTH_INTERVAL_MS, repoChoices, repoFindings, repoIssues, scanRepos, type RepoChoice, type RepoIssue } from './repo-health.js';
+import { describeFinding, REPO_HEALTH_INTERVAL_MS, repoChoices, repoFindings, repoIssues, scanRepos, type RepoChoice, type RepoIssue } from './resources/repo/health.js';
+import { ProviderRegistry } from './resources/registry.js';
+import { holdLocks, materializeRun, type MaterializedRun } from './resources/lifecycle.js';
+import { legacyRequests, legacyResourceError, legacyScratchExclusive } from './resources/legacy.js';
+import { REPO_TYPE, repoProvider } from './resources/repo/provider.js';
+import { RELEASE, type ReleaseOutcome } from './resources/types.js';
 import { applyRepoCommand, parseRepoCommands, type RepoCommandResult } from './repo-commands.js';
 import { RunLease, signalGroup } from './run-lease.js';
 import { compareRunIds, isLegacyRunId, legacyWireRunId } from './run-id.js';
@@ -164,18 +171,12 @@ const RUN_STATUS_RUNNING = 'running';
 const HTTP_TOO_MANY = 429;
 const HTTP_SERVER_ERROR = 500;
 
-// cwd del run y lo que hay que hacer con él al terminar.
-interface Workdir {
-  workdir: string;
-  repoCfg: RepoConfig | null;
-  // worktree creado o reutilizado por el daemon (null = scratch o checkout directo).
-  worktree: string | null;
-  // conv-<id> de un prompt run: se conserva siempre.
-  conversation: boolean;
-  // nota para agent_run.workdir y el feed (sin paths absolutos).
-  note: string;
-  warnings: string[];
-}
+// cómo suelta sus recursos un run según su cierre.
+const RELEASE_BY_STATUS: Readonly<Record<StatusReport['status'], ReleaseOutcome>> = {
+  done: RELEASE.done,
+  failed: RELEASE.failed,
+  canceled: RELEASE.canceled,
+};
 
 export interface DaemonOptions {
   verboseLog?: boolean;
@@ -201,9 +202,12 @@ export class RunnerDaemon {
   private credentialUnsaved = false;
   // texto del fichero en la última recarga (undefined = aún sin leer).
   private configText: string | null | undefined;
-  // git sobre un mismo checkout (clave: path resuelto del checkout) y cwd compartidos (clave: cwd).
+  // git sobre un mismo checkout (clave: path resuelto del checkout) y turnos exclusivos de los recursos
+  // compartidos (clave: la del recurso, hoy el cwd resuelto).
   private readonly gitLocks = new KeyedMutex();
   private readonly cwdLocks = new KeyedMutex();
+  // proveedores de recursos de los runs (resources/registry.ts).
+  private readonly registry = new ProviderRegistry([repoProvider]);
   private stopping = false;
   private exitCode = 0;
   private wake: (() => void) | null = null;
@@ -660,46 +664,13 @@ export class RunnerDaemon {
     }
   }
 
-  // --- cwd del run: worktree de conversación, worktree por run, checkout o scratch ---
+  // --- recursos del run ---
 
-  private async prepareWorkdir(run: ClaimedRun, env: NodeJS.ProcessEnv): Promise<Workdir> {
-    const repoCfg = run.repo && Object.hasOwn(this.cfg.repos, run.repo) ? this.cfg.repos[run.repo]! : null;
-    const scratch = (note: string, warnings: string[] = []): Workdir => ({ workdir: scratchDir(this.platform), repoCfg: null, worktree: null, conversation: false, note, warnings });
-    if (!run.repo) return scratch('scratch · sin repo');
-    if (!repoCfg) return scratch('scratch · sin repo mapeado', [`repo ${run.repo} no mapeado en este runner: corriendo en scratch`]);
-    if (!fs.existsSync(repoCfg.path)) {
-      console.log(`[runner] run ${run.id}: el checkout ${repoCfg.path} no existe`);
-      return scratch('scratch · checkout no encontrado', [`el checkout de ${run.repo} no existe en este runner: corriendo en scratch`]);
-    }
-    if (run.kind === RUN_KIND.prompt && run.isolation === RUN_ISOLATION.checkout) {
-      const co = await this.gitLocks.run(path.resolve(repoCfg.path), () => prepareCheckout(repoCfg.path, env, this.platform));
-      return { ...co, repoCfg, worktree: null, conversation: false };
-    }
-    if (run.kind === RUN_KIND.prompt) {
-      // worktree salvo que el usuario eligiera el checkout: `worktree: false` y skip-permissions del
-      // repo son solo para los kinds de reglas heredados (un server anterior a t#465 P6).
-      const wt = await this.gitLocks.run(path.resolve(repoCfg.path), () => prepareConversationWorktree(repoCfg.path, run.id, run.branch, env, this.platform));
-      return { ...wt, repoCfg, worktree: wt.workdir, conversation: true };
-    }
-    if (repoCfg.worktree === false) return { workdir: repoCfg.path, repoCfg, worktree: null, conversation: false, note: 'checkout · sin worktree', warnings: [] };
-    const wt = await this.gitLocks.run(path.resolve(repoCfg.path), () => prepareRunWorktree(repoCfg.path, run.id, run.branch, env, this.platform));
-    return { ...wt, repoCfg, worktree: wt.workdir, conversation: false };
-  }
-
-  // runs que comparten un cwd no aislado se turnan: el checkout (un repo con `worktree: false` o una
-  // conversación abierta en el checkout) y el scratch en perfil edit (dos runs de reglas en scratch
-  // conviven: la auto-memory compartida es la gracia del cwd fijo). devuelve con qué soltar el turno: no-op si no hacía falta, o si el run
-  // murió esperándolo (entonces se suelta en cuanto llega).
-  private async holdCwd(run: ClaimedRun, prepared: Workdir, lease: RunLease, note: (text: string) => void): Promise<() => void> {
-    const shared = prepared.worktree === null && (prepared.repoCfg !== null || run.profile === PROMPT_PROFILE.edit);
-    if (!shared) return () => {};
-    const key = path.resolve(prepared.workdir);
-    if (this.cwdLocks.busy(key)) note('esperando turno: otro run trabaja en este mismo directorio');
-    const acquiring = this.cwdLocks.acquire(key);
-    const release = await Promise.race([acquiring, lease.killed.then(() => null)]);
-    if (release) return release;
-    void acquiring.then((r) => r());
-    return () => {};
+  // entrada de la config local de un recurso (null = sin mapear en esta máquina).
+  private refOf(type: string, key: string | null): unknown {
+    const maps: Readonly<Record<string, Readonly<Record<string, unknown>>>> = { [REPO_TYPE]: this.cfg.repos };
+    const map = maps[type];
+    return key !== null && map && Object.hasOwn(map, key) ? map[key] : null;
   }
 
   // latido del run desde el claim hasta el cierre: transporta el soft-cancel del server (y refresca
@@ -755,18 +726,19 @@ export class RunnerDaemon {
     const heartbeat = this.startHeartbeat(lease, claim.heartbeatMs, seg);
     const feed = claim.events?.enabled ? new EventUploader((events) => this.postEvents(run.id, events, seg), claim.events, tag) : null;
 
-    let prepared: Workdir;
+    let res: MaterializedRun;
     try {
-      prepared = await this.prepareWorkdir(run, env);
+      const plan = this.registry.plan(legacyRequests(run), (type, key) => this.refOf(type, key));
+      res = await materializeRun(plan, { platform: this.platform, runId: run.id, env, gitLocks: this.gitLocks }, { dir: () => scratchDir(this.platform), exclusive: legacyScratchExclusive(run) });
     } catch (err) {
       clearInterval(heartbeat);
       dropAwsDir();
       await feed?.close();
-      await this.postStatus(run.id, { status: 'failed', error: `no se pudo preparar el directorio del run: ${(err as Error).message}`, ...seg });
+      await this.postStatus(run.id, { status: 'failed', error: legacyResourceError(err), ...seg });
       return;
     }
     const ctx: FeedContext = {
-      cwd: prepared.workdir,
+      cwd: res.cwd.dir,
       home: os.homedir(),
       bodyMaxChars: claim.events?.bodyMaxChars ?? EVENTS_DEFAULTS.bodyMaxChars,
       toolArgMaxChars: claim.events?.toolArgMaxChars ?? EVENTS_DEFAULTS.toolArgMaxChars,
@@ -776,33 +748,29 @@ export class RunnerDaemon {
       console.log(`[runner] ${tag}: ${text}`);
       feed?.push(systemEvent(text, ctx));
     };
-    note(prepared.note);
-    [...claim.warnings, ...prepared.warnings, ...awsWarnings].forEach(note);
+    note(res.note);
+    [...claim.warnings, ...res.warnings, ...awsWarnings].forEach(note);
 
-    const releaseCwd = await this.holdCwd(run, prepared, lease, note);
+    const releaseLocks = await holdLocks(res.locks, this.cwdLocks, lease.killed, note);
     // mcp-config con el token per-run (run-mcp-config.ts: 0600 en un directorio 0700; se borra al terminar).
     let mcpFile: string | null = null;
     let report: StatusReport;
     try {
       mcpFile = writeRunMcpConfig(run.id, claim.mcp, this.platform);
-      report = await this.runAttempts(claim, lease, prepared, env, mcpFile, feed, ctx, note);
+      report = await this.runAttempts(claim, lease, res, mcpFile, feed, ctx, note);
     } catch (err) {
       report = { status: 'failed', error: (err as Error).message };
     } finally {
       if (mcpFile !== null) fs.rmSync(mcpFile, { force: true });
       dropAwsDir();
-      releaseCwd();
       clearInterval(heartbeat);
     }
+    // los recursos se sueltan (el worktree se marca o se borra) ANTES de reportar: ver cabecera. y con sus
+    // turnos aún tomados: un recurso exclusivo se suelta entero antes de que lo reciba el siguiente run.
+    await res.release(RELEASE_BY_STATUS[report.status]);
+    releaseLocks();
 
     await feed?.close();
-    const { worktree, repoCfg } = prepared;
-    if (worktree && prepared.conversation) {
-      touchWorktree(worktree);
-    } else if (worktree && repoCfg) {
-      if (report.status === 'done') await this.gitLocks.run(path.resolve(repoCfg.path), () => removeRunWorktree(repoCfg.path, worktree, env));
-      else console.log(`[runner] worktree conservado para autopsia: ${worktree}`);
-    }
     await this.postStatus(run.id, { ...report, ...seg });
     console.log(`[runner] ${tag} terminado (${report.status}${report.error ? `: ${report.error}` : ''})`);
   }
@@ -812,8 +780,7 @@ export class RunnerDaemon {
   private async runAttempts(
     claim: ClaimResponse,
     lease: RunLease,
-    prepared: Workdir,
-    env: NodeJS.ProcessEnv,
+    res: MaterializedRun,
     mcpFile: string,
     feed: EventUploader | null,
     ctx: FeedContext,
@@ -824,13 +791,13 @@ export class RunnerDaemon {
     // espeja su shell y su escritura; un run de reglas carga todos y espeja su escritura; edición, nada.
     const readPrompt = run.kind === RUN_KIND.prompt && run.profile === PROMPT_PROFILE.read;
     const deny = readPrompt
-      ? mirroredDeny(settingsFilesFor(prepared.workdir, true), READ_MIRRORED_TOOLS)
+      ? mirroredDeny(settingsFilesFor(res.cwd.dir, true), READ_MIRRORED_TOOLS)
       : run.kind !== RUN_KIND.prompt
-        ? mirroredDeny(settingsFilesFor(prepared.workdir, false), WRITE_TOOLS)
+        ? mirroredDeny(settingsFilesFor(res.cwd.dir, false), WRITE_TOOLS)
         : [];
     // shell de lectura solo en un checkout del que una lectura recursiva no pueda salir (el scratch no
     // es un checkout: no se revisa). una vez por segmento: el reintento desde cero usa el mismo cwd.
-    const shell = await readShellGuard(prepared.repoCfg ? prepared.workdir : null, claim.tools, deny, env);
+    const shell = await readShellGuard(res.cwd.checkout ? res.cwd.dir : null, claim.tools, deny, res.env);
     if (shell.dropShell) {
       console.warn(`[runner] run ${run.id}: shell de lectura fuera en este segmento: ${readShellLog(shell)}`);
       note(readShellNote(shell)!);
@@ -845,7 +812,7 @@ export class RunnerDaemon {
         // el que pide duckhunt para esta conversación; si no pide ninguno, el default de la máquina.
         model: run.model ?? this.cfg.defaults.model,
         configBudgetUsd: this.cfg.defaults.maxBudgetUsd,
-        skipPermissions: prepared.repoCfg?.dangerouslySkipPermissions === true,
+        skipPermissions: res.cwd.skipPermissions,
         payingWithApiKey: !!process.env.ANTHROPIC_API_KEY,
         mirroredDeny: deny,
         runConfigDeny: this.runConfigDeny,
@@ -854,12 +821,12 @@ export class RunnerDaemon {
       });
     // reanudar o no lo decide el server: manda sessionId solo cuando hay sesión que retomar.
     const resume = run.sessionId;
-    let attempt = await this.spawnClaude(claim, lease, args(claim.prompt, resume), prepared, env, feed, ctx);
+    let attempt = await this.spawnClaude(claim, lease, args(claim.prompt, resume), res, feed, ctx);
     let resumed: boolean | undefined = resume ? true : undefined;
     if (resume && attempt.killedBy === null && attempt.exitCode !== 0 && !attempt.stream.sawAssistant && claim.fallbackPrompt) {
       console.log(`[runner] run ${run.id}: la sesión ${resume} no se pudo reanudar`);
       note('la sesión anterior no se pudo reanudar en este runner: reintento desde cero');
-      attempt = await this.spawnClaude(claim, lease, args(claim.fallbackPrompt, null), prepared, env, feed, ctx);
+      attempt = await this.spawnClaude(claim, lease, args(claim.fallbackPrompt, null), res, feed, ctx);
       resumed = false;
     }
     return reportFor(attempt, resumed);
@@ -872,8 +839,7 @@ export class RunnerDaemon {
     claim: ClaimResponse,
     lease: RunLease,
     args: string[],
-    prepared: Workdir,
-    env: NodeJS.ProcessEnv,
+    res: MaterializedRun,
     feed: EventUploader | null,
     ctx: FeedContext,
   ): Promise<Attempt> {
@@ -897,7 +863,7 @@ export class RunnerDaemon {
 
       let child: ChildProcess;
       try {
-        child = spawn('claude', args, { cwd: prepared.workdir, env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+        child = spawn('claude', args, { cwd: res.cwd.dir, env: res.env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
       } catch (err) {
         if (logFile !== null) fs.closeSync(logFile);
         resolve({ exitCode: null, killedBy: null, stream, stderrTail: `no se pudo lanzar claude: ${(err as Error).message}` });
@@ -924,7 +890,7 @@ export class RunnerDaemon {
       });
 
       // progreso: tool calls del segmento (throttled) + la nota de workdir en el primer envío.
-      this.postProgress(runId, 0, seg, clip(prepared.note, WORKDIR_MAX_CHARS));
+      this.postProgress(runId, 0, seg, clip(res.note, WORKDIR_MAX_CHARS));
       let reportedToolCalls = 0;
       let lastProgressAt = Date.now();
       const progress = setInterval(() => {

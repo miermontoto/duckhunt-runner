@@ -1,7 +1,7 @@
 // subcomandos `duckhunt-runner repos ...`: gestionan el mapa repo→checkout local de la config sin
 // editar json a mano. el mapa es local A PROPÓSITO (el server nunca ve paths, contrato 42); al
 // server solo viajan las KEYS via el claim (presencia, sin paths). `list` y `add` enseñan la salud
-// de cada repo (repo-health.ts) y `discover` no mapea una key con varios checkouts distintos: antes
+// de cada repo (resources/repo/health.ts) y `discover` no mapea una key con varios checkouts distintos: antes
 // el último pisaba al primero en silencio (okt-api-parked le ganó a okt-api por orden alfabético).
 // --no-worktree y --dangerously-skip-permissions están deprecados (0.11.0, se retiran en una versión
 // posterior): ningún duckhunt actual manda trabajo que los aplique; `add` y `list` lo dicen.
@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { configPath, deprecatedRepoFlags, loadStoredConfig, REPO_FLAGS_DEPRECATED, saveConfig, type RepoConfig } from './config.js';
 import { REPO_KEY_RE, sameRepoKey } from './repo-key.js';
-import { describeFinding, inspectCheckouts, repoFindings, scanRepos, type CheckoutState } from './repo-health.js';
+import { describeFinding, inspectCheckouts, repoFindings, scanRepos, type CheckoutState } from './resources/repo/health.js';
 import { scrubEnv } from './scrub-env.js';
 
 const USAGE = `uso:
