@@ -48,7 +48,7 @@ export function runConfigDeny(dir: string): string[] {
 }
 
 /** escribe el mcp-config de un segmento (0600, en exclusiva) y devuelve su ruta. */
-export function writeRunMcpConfig(runId: number, mcp: ClaimResponse['mcp']): string {
+export function writeRunMcpConfig(runId: string, mcp: ClaimResponse['mcp']): string {
   const name = `${MCP_CONFIG_PREFIX}${runId}-${crypto.randomBytes(MCP_CONFIG_RANDOM_BYTES).toString('hex')}${MCP_CONFIG_SUFFIX}`;
   const file = path.join(runConfigDir(), name);
   const config = { mcpServers: { [mcp.serverName]: { type: 'http', url: mcp.url, headers: { Authorization: `Bearer ${mcp.token}` } } } };

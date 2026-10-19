@@ -33,7 +33,9 @@ export interface RunnerBlock {
 
 /** trabajo que el gc conservó en el worktree de una conversación: recuentos por run, nunca paths. */
 export interface KeptWorktree {
-  runId: number;
+  // id opaco (run-id.ts); al claim legacy viaja como número (daemon.ts). un server-state.json anterior lo
+  // guardó como número: `status` lo imprime igual.
+  runId: string;
   dirtyFiles: number;
   unpushedCommits: number;
 }

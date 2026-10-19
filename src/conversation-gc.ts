@@ -10,11 +10,15 @@
 // worktree_report (0.11.0, t#465 P12): de cada conversación que se conserva por guardar trabajo sale un
 // recuento (KeptWorktree: ficheros sin commitear y commits sin subir, nunca paths) que el daemon anuncia
 // en cada claim hasta la siguiente recogida; el hilo de esa conversación lo enseña con «pedir commit».
+// ids opacos (t#495, M1): el sufijo de conv-<id>/run-<id> es el id del run tal cual (run-id.ts::RUN_ID_RE);
+// los conv-<n> de siempre siguen casando. qué ids se le preguntan al server lo decide el daemon (el cable
+// legacy solo lleva numéricos).
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { CONVERSATION_WORKTREE_PREFIX, RUN_WORKTREE_PREFIX, describeWork, removeCleanWorktree, worktreeWork, worktreesDir } from './worktree.js';
 import type { KeptWorktree } from './server-state.js';
+import { RUN_ID_RE } from './run-id.js';
 
 // inactividad tras la que un worktree se puede borrar aunque el server lo dé por abierto
 // (AGENT_CONVERSATION_IDLE_TTL_MS del server).
@@ -28,18 +32,15 @@ export interface WorktreeCandidate {
   repoPath: string;
   dir: string;
   kind: 'conversation' | 'run';
-  runId: number;
+  runId: string;
   lastUsedAt: number;
 }
-
-const ID_SUFFIX_RE = /^\d+$/;
 
 function candidateOf(repoPath: string, name: string): WorktreeCandidate | null {
   const kind = name.startsWith(CONVERSATION_WORKTREE_PREFIX) ? 'conversation' : name.startsWith(RUN_WORKTREE_PREFIX) ? 'run' : null;
   if (!kind) return null;
-  const suffix = name.slice(kind === 'conversation' ? CONVERSATION_WORKTREE_PREFIX.length : RUN_WORKTREE_PREFIX.length);
-  const runId = ID_SUFFIX_RE.test(suffix) ? Number(suffix) : NaN;
-  if (!Number.isSafeInteger(runId) || runId <= 0) return null;
+  const runId = name.slice(kind === 'conversation' ? CONVERSATION_WORKTREE_PREFIX.length : RUN_WORKTREE_PREFIX.length);
+  if (!RUN_ID_RE.test(runId)) return null;
   const dir = path.join(worktreesDir(repoPath), name);
   return { repoPath, dir, kind, runId, lastUsedAt: fs.statSync(dir).mtimeMs };
 }
@@ -61,9 +62,9 @@ export function listWorktreeCandidates(repoPaths: string[]): WorktreeCandidate[]
  *  los runs en vuelo en este daemon (`inFlight`) nunca. */
 export function selectForRemoval(
   candidates: WorktreeCandidate[],
-  open: ReadonlySet<number>,
+  open: ReadonlySet<string>,
   now: number,
-  inFlight: ReadonlySet<number> = new Set(),
+  inFlight: ReadonlySet<string> = new Set(),
   ttlMs = CONVERSATION_IDLE_TTL_MS,
 ): WorktreeCandidate[] {
   return candidates.filter((c) => !inFlight.has(c.runId) && (now - c.lastUsedAt > ttlMs || (c.kind === 'conversation' && !open.has(c.runId))));

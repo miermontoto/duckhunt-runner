@@ -165,7 +165,7 @@ test('checkout con conversaciones dentro: cuentan los worktrees del daemon, juzg
   git(origin, 'checkout', '-q', 'main');
   const clone = path.join(root, 'clone');
   git(root, 'clone', '-q', origin, clone);
-  const wt = await prepareConversationWorktree(clone, 7, 'evil', env);
+  const wt = await prepareConversationWorktree(clone, '7', 'evil', env);
   // desde el worktree, `up` sube al checkout: sale.
   assert.deepEqual((await readShellGuard(wt.workdir, readKit.tools, [], env)).escaping.map((l) => l.path), ['up']);
   // desde el checkout, `up` cae en el propio checkout: dentro.
@@ -227,7 +227,7 @@ test('un directorio de .duckhunt/worktrees con contenido que ya no es un worktre
   const origin = repoWith('orphan-origin', {});
   const clone = path.join(root, 'orphan-clone');
   git(root, 'clone', '-q', origin, clone);
-  const wt = await prepareConversationWorktree(clone, 11, null, env);
+  const wt = await prepareConversationWorktree(clone, '11', null, env);
   fs.mkdirSync(path.join(clone, '.duckhunt', 'worktrees', 'conv-12'));
   assert.equal((await readShellGuard(clone, readKit.tools, [], env)).dropShell, false, 'vacío: nada que seguir');
   // alguien le borró el .git al worktree: lo que trajo su rama ya no sale en ningún índice.

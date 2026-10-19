@@ -58,6 +58,10 @@
 //   el gc anuncia en cada claim lo que conservó por guardar trabajo (worktree_report, recuentos; una
 //   conversación que vuelve a reclamarse deja de anunciarse en el acto, sin esperar al siguiente gc). al
 //   arrancar barre una vez los mcp-config que los daemons < 0.10.2 dejaban en el tmpdir.
+// - ids de run opacos (t#495, M1): por dentro todo id es texto (run-id.ts); el cable legacy sigue idéntico
+//   byte a byte. las rutas /runs/<id> salen con el mismo texto y los dos cuerpos que llevan ids
+//   (/conversations y keptWorktrees del claim) los pasan a número con legacyWireRunId, que lanza si le llega
+//   uno opaco: antes se filtran con isLegacyRunId (un worktree con id opaco solo lo recoge el ttl).
 // - modelo por run (0.12.0, t#465): anuncia `model` si el cli lista --model (announced-capabilities.ts)
 //   y pasa a claude el del claim; sin él, `defaults.model` de la config; sin ninguno, el default del cli.
 //   el claim manda sobre la config porque es la elección de la persona para esa conversación (su
@@ -118,6 +122,7 @@ import { KeyedMutex } from './keyed-mutex.js';
 import { describeFinding, REPO_HEALTH_INTERVAL_MS, repoChoices, repoFindings, repoIssues, scanRepos, type RepoChoice, type RepoIssue } from './repo-health.js';
 import { applyRepoCommand, parseRepoCommands, type RepoCommandResult } from './repo-commands.js';
 import { RunLease, signalGroup } from './run-lease.js';
+import { compareRunIds, isLegacyRunId, legacyWireRunId } from './run-id.js';
 import { runnerVersion } from './version.js';
 
 const execFileP = promisify(execFile);
@@ -419,7 +424,10 @@ export class RunnerDaemon {
         ...(this.claude.version ? { claudeVersion: this.claude.version.slice(0, CLAUDE_VERSION_MAX_CHARS) } : {}),
         ...(this.cfg.machineId ? { machine: { id: this.cfg.machineId } } : {}),
         ...(replacesClientId ? { replacesClientId } : {}),
-        ...(this.keptWorktrees ? { keptWorktrees: this.keptWorktrees } : {}),
+        // el cable legacy lleva ids numéricos: uno opaco no se anuncia (ese server no lo conocería).
+        ...(this.keptWorktrees
+          ? { keptWorktrees: this.keptWorktrees.filter((k) => isLegacyRunId(k.runId)).map((k) => ({ ...k, runId: legacyWireRunId(k.runId) })) }
+          : {}),
       });
     } catch (err) {
       if (err instanceof CredentialRejectedError) this.stopUnpaired(err);
@@ -599,12 +607,14 @@ export class RunnerDaemon {
   // --- gc de worktrees (en el loop de claim, throttled) ---
 
   // conversaciones abiertas según el server. si no contesta (o es anterior a t#378), todas se dan
-  // por abiertas: entonces solo actúa el ttl de inactividad, que nunca pierde trabajo.
-  private async openConversations(runIds: number[]): Promise<Set<number>> {
-    const open = new Set<number>();
+  // por abiertas: entonces solo actúa el ttl de inactividad, que nunca pierde trabajo. el cable legacy
+  // solo lleva ids numéricos: un worktree con id opaco no se pregunta y cuenta como abierto (solo el ttl).
+  private async openConversations(runIds: string[]): Promise<Set<string>> {
+    const open = new Set(runIds.filter((id) => !isLegacyRunId(id)));
+    if (open.size > 0) console.warn(`[runner] gc: ${open.size} worktree(s) con id no numérico; solo se les aplica el ttl`);
     // i/o secuencial: pocas llamadas, en orden.
-    for (const ids of chunk(runIds)) {
-      const res = await this.api('/conversations', { runIds: ids }).catch((err: Error) => {
+    for (const ids of chunk(runIds.filter(isLegacyRunId))) {
+      const res = await this.api('/conversations', { runIds: ids.map(legacyWireRunId) }).catch((err: Error) => {
         console.error(`[runner] gc: /conversations inaccesible: ${err.message}`);
         return null;
       });
@@ -614,7 +624,7 @@ export class RunnerDaemon {
         ids.forEach((id) => open.add(id));
         continue;
       }
-      body.open.filter((id): id is number => Number.isSafeInteger(id)).forEach((id) => open.add(id));
+      body.open.filter((id): id is number => Number.isSafeInteger(id)).forEach((id) => open.add(String(id)));
     }
     return open;
   }
@@ -642,7 +652,7 @@ export class RunnerDaemon {
       );
       const removed = collected.reduce((n, c) => n + c.removed, 0);
       // lo que se anuncia al server: recuentos por conversación, nunca paths (worktree_report).
-      this.keptWorktrees = collected.flatMap((c) => c.kept).sort((a, b) => a.runId - b.runId);
+      this.keptWorktrees = collected.flatMap((c) => c.kept).sort((a, b) => compareRunIds(a.runId, b.runId));
       if (removed > 0) console.log(`[runner] gc: ${removed} worktree(s) recogido(s)`);
     } catch (err) {
       console.error(`[runner] gc de worktrees falló: ${(err as Error).message}`);
@@ -913,12 +923,7 @@ export class RunnerDaemon {
       });
 
       // progreso: tool calls del segmento (throttled) + la nota de workdir en el primer envío.
-      const postProgress = (toolCalls: number, workdir?: string): void => {
-        void this.api(`/runs/${runId}/progress`, { toolCalls, ...(workdir ? { workdir } : {}), ...seg }).catch((err) =>
-          console.error(`[runner] progress falló: ${(err as Error).message}`),
-        );
-      };
-      postProgress(0, clip(prepared.note, WORKDIR_MAX_CHARS));
+      this.postProgress(runId, 0, seg, clip(prepared.note, WORKDIR_MAX_CHARS));
       let reportedToolCalls = 0;
       let lastProgressAt = Date.now();
       const progress = setInterval(() => {
@@ -926,7 +931,7 @@ export class RunnerDaemon {
         if (stream.toolCalls === reportedToolCalls || now - lastProgressAt < PROGRESS_MIN_INTERVAL_MS) return;
         reportedToolCalls = stream.toolCalls;
         lastProgressAt = now;
-        postProgress(reportedToolCalls);
+        this.postProgress(runId, reportedToolCalls, seg);
       }, PROGRESS_TICK_MS);
 
       const timeout = setTimeout(() => {
@@ -956,13 +961,20 @@ export class RunnerDaemon {
     });
   }
 
-  private async postEvents(runId: number, events: SeqEvent[], seg: { segment?: number }): Promise<number> {
+  // progreso del segmento: fuego y olvido (el siguiente envío lo corrige).
+  private postProgress(runId: string, toolCalls: number, seg: { segment?: number }, workdir?: string): void {
+    void this.api(`/runs/${runId}/progress`, { toolCalls, ...(workdir ? { workdir } : {}), ...seg }).catch((err) =>
+      console.error(`[runner] progress falló: ${(err as Error).message}`),
+    );
+  }
+
+  private async postEvents(runId: string, events: SeqEvent[], seg: { segment?: number }): Promise<number> {
     const res = await this.api(`/runs/${runId}/events`, { events, ...seg });
     return res.status;
   }
 
   // cierre con reintento acotado: es lo único del run que el server no puede reconstruir.
-  private async postStatus(runId: number, report: StatusReport): Promise<void> {
+  private async postStatus(runId: string, report: StatusReport): Promise<void> {
     const body = clampReport(report);
     // i/o secuencial con backoff exponencial.
     for (let attempt = 1; attempt <= STATUS_POST_ATTEMPTS; attempt++) {

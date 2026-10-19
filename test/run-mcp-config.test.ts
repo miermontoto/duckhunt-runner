@@ -32,7 +32,7 @@ after(() => {
 });
 
 test('el mcp-config va a <runnerHome>/run-config: fichero 0600 en un directorio 0700, con el token del run', () => {
-  const file = writeRunMcpConfig(88, mcp);
+  const file = writeRunMcpConfig('88', mcp);
   const dir = path.join(home, 'run-config');
   assert.equal(path.dirname(file), dir);
   assert.match(path.basename(file), /^mcp-88-[0-9a-f]{8}\.json$/);
@@ -41,7 +41,7 @@ test('el mcp-config va a <runnerHome>/run-config: fichero 0600 en un directorio 
   assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), {
     mcpServers: { duckhunt: { type: 'http', url: mcp.url, headers: { Authorization: 'Bearer dho_secret' } } },
   });
-  assert.notEqual(writeRunMcpConfig(88, mcp), file, 'cada segmento, su fichero');
+  assert.notEqual(writeRunMcpConfig('88', mcp), file, 'cada segmento, su fichero');
 });
 
 test('un directorio que ya existía abierto se cierra a 0700', () => {
@@ -53,7 +53,7 @@ test('un directorio que ya existía abierto se cierra a 0700', () => {
 
 test('al arrancar se borran los mcp-config que dejó un daemon muerto, y nada más', () => {
   const dir = runConfigDir();
-  writeRunMcpConfig(5, mcp);
+  writeRunMcpConfig('5', mcp);
   fs.writeFileSync(path.join(dir, 'notas.txt'), 'del usuario');
   assert.ok(clearRunMcpConfigs() >= 1);
   assert.deepEqual(fs.readdirSync(dir), ['notas.txt']);

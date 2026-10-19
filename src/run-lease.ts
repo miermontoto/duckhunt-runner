@@ -28,7 +28,7 @@ export class RunLease {
   private child: ChildProcess | null = null;
   private killChild: ((reason: KillReason) => void) | null = null;
 
-  constructor(readonly runId: number) {
+  constructor(readonly runId: string) {
     this.killed = new Promise((resolve) => (this.resolveKilled = resolve));
   }
 
