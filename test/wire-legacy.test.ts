@@ -137,3 +137,12 @@ test('un id opaco no llega al cable legacy: ni se pregunta en /conversations ni 
   assert.deepEqual([...(await d.openConversations(['l-a', 'l-b']))].sort(), ['l-a', 'l-b']);
   assert.equal(calls.length, 2);
 });
+
+test('la clave aws `default` no se anuncia como cuenta: el cable legacy solo lleva ids de cuenta (t#495, M2)', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  fs.writeFileSync(configPath(), JSON.stringify({ ...cfg, aws: { ...cfg.aws, default: { profile: 'personal' } } }), { mode: 0o600 });
+  const calls = capture();
+  const d = await daemon();
+  await d.claim();
+  assert.match(calls[0]!, /"awsAccounts":\["123456789012"\],/);
+});

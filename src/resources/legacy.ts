@@ -1,9 +1,11 @@
 // peticiones de recursos de un claim legacy (contrato 42, t#495 M2): ese claim no trae grants, así que se derivan
 // de sus campos para que el mismo ciclo de vida sirva a los claims de hoy y a los toolset_v1 de mañana. el repo del
-// run, con su rama y su aislamiento (conversación, checkout o el worktree de un kind de reglas). el acceso es
-// informativo hasta M5 (toolset_v1): quien acota de verdad sigue siendo el kit del server.
+// run, con su rama y su aislamiento (conversación, checkout o el worktree de un kind de reglas), y su aws: la cuenta
+// (null si el claim solo trae región) con su región. el acceso es informativo hasta M5 (toolset_v1): quien acota
+// de verdad sigue siendo el kit del server. un claim legacy nunca aísla la aws: sin bloque aws, el env del usuario.
 
 import { PROMPT_PROFILE, RUN_ISOLATION, RUN_KIND, type ClaimedRun } from '../claim.js';
+import { AWS_PARAM, AWS_TYPE } from './aws.js';
 import { REPO_PARAM, REPO_TYPE, REPO_WORKTREE } from './repo/provider.js';
 import { ACCESS, ResourceUnavailableError, type ResourceRequest } from './types.js';
 
@@ -20,7 +22,10 @@ function repoWorktree(run: ClaimedRun): string {
 /** recursos que pide un run legacy. */
 export function legacyRequests(run: ClaimedRun): ResourceRequest[] {
   const access = run.profile === PROMPT_PROFILE.edit ? ACCESS.full : ACCESS.read;
-  return run.repo ? [{ type: REPO_TYPE, key: run.repo, access, params: { [REPO_PARAM.branch]: run.branch, [REPO_PARAM.worktree]: repoWorktree(run) } }] : [];
+  return [
+    ...(run.repo ? [{ type: REPO_TYPE, key: run.repo, access, params: { [REPO_PARAM.branch]: run.branch, [REPO_PARAM.worktree]: repoWorktree(run) } }] : []),
+    ...(run.aws ? [{ type: AWS_TYPE, key: run.aws.accountId, access: ACCESS.read, params: { [AWS_PARAM.region]: run.aws.region } }] : []),
+  ];
 }
 
 /** un run legacy en el scratch se turna con los demás si escribe en él (perfil edit): la auto-memory compartida

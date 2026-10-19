@@ -63,7 +63,7 @@ export function logsDir(platform: string): string {
   return ensureDir(path.join(platformHome(platform), LOGS_SUBDIR));
 }
 
-/** directorio 0700 de los mcp-config de los runs (run-mcp-config.ts) y de su aws vacía (aws-env.ts). hermano
+/** directorio 0700 de los mcp-config de los runs (run-mcp-config.ts) y de su aws vacía (resources/aws.ts). hermano
  *  del scratch: fuera de todo cwd de un run. un directorio que ya existía con otros permisos se cierra. */
 export function runConfigDir(platform: string): string {
   const dir = path.join(platformHome(platform), RUN_CONFIG_SUBDIR);
