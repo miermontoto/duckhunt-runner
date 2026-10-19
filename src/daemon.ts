@@ -759,6 +759,7 @@ export class RunnerDaemon {
       home: os.homedir(),
       bodyMaxChars: claim.events?.bodyMaxChars ?? EVENTS_DEFAULTS.bodyMaxChars,
       toolArgMaxChars: claim.events?.toolArgMaxChars ?? EVENTS_DEFAULTS.toolArgMaxChars,
+      platformServer: claim.mcp.serverName,
     };
     const note = (text: string): void => {
       console.log(`[runner] ${tag}: ${text}`);

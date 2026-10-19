@@ -6,6 +6,11 @@
 // ruta absoluta (el worktree pasa a `.`, el home a `~`, un fichero fuera del worktree a `…/nombre`).
 // todo cuerpo pasa por redactar rutas → enmascarar secretos → recortar, en ese orden (recortar antes
 // de enmascarar podría dejar medio secreto sin reconocer).
+// valores tecleados (t#495): de una tool que NO es del mcp de la plataforma, lo que el agente escribe o
+// ejecuta en una página (`value` de un fill, `expression` de un evaluate…) sale solo como su longitud. las
+// tools de la plataforma no se redactan: sus argumentos ya le llegan a ella con la llamada misma, así que
+// ocultarlos del feed no protege nada. y de toda url solo salen origen y ruta: query y fragmento (tokens,
+// ids de sesión) nunca.
 
 import path from 'node:path';
 import type { StreamContent, StreamLine } from './claude.js';
@@ -30,6 +35,9 @@ export interface FeedContext {
   home: string;
   bodyMaxChars: number;
   toolArgMaxChars: number;
+  // nombre del servidor mcp de la plataforma (mcp.serverName del claim): sus tools no se redactan.
+  // ausente = toda tool se redacta.
+  platformServer?: string;
 }
 
 // tope del nombre de la tool (AGENT_RUN_EVENT_TOOL_MAX_CHARS del server).
@@ -49,6 +57,16 @@ const REF_PREFIX_BY_KEY: ReadonlyMap<string, string> = new Map([
   ['runId', 'r#'],
   ['run_id', 'r#'],
 ]);
+// valores que el agente teclea o ejecuta en una página: de una tool ajena a la plataforma, solo su longitud.
+const REDACTED_ARG_KEYS: ReadonlySet<string> = new Set(['value', 'values', 'expression', 'promptText']);
+// argumentos que son urls: solo origen + ruta (displayUrl).
+const URL_ARG_KEYS: ReadonlySet<string> = new Set(['url']);
+// marca de una url que llevaba query o fragmento.
+const URL_TAIL_MARK = `?${ELLIPSIS}`;
+// esquemas cuya url se muestra como origen + ruta; del resto (data:, file:, javascript:…) solo el esquema.
+const WEB_SCHEMES: ReadonlySet<string> = new Set(['http:', 'https:']);
+const MCP_PREFIX = 'mcp__';
+const MCP_SEPARATOR = '__';
 // campos de texto largo (cuerpos de notas, descripciones…) que no aportan a una línea de resumen.
 const LONG_TEXT_KEYS = new Set(['body', 'text', 'content', 'description', 'note', 'summary', 'markdown', 'message', 'prompt', 'data', 'context', 'answer', 'instruction']);
 // tools cuyo argumento principal es una ruta.
@@ -85,6 +103,27 @@ export function redactPaths(text: string, ctx: Pick<FeedContext, 'cwd' | 'home'>
 
 const sanitize = (text: string, ctx: FeedContext, max: number): string => clip(maskSecrets(redactPaths(text, ctx)), max);
 
+/** url para el feed: origen + ruta, con `?…` si llevaba query o fragmento; de un esquema no web, solo el esquema. lo que no parsea sale tal cual (y se enmascara igual). */
+export function displayUrl(raw: string): string {
+  try {
+    const u = new URL(raw);
+    if (!WEB_SCHEMES.has(u.protocol)) return `${u.protocol}${ELLIPSIS}`;
+    return `${u.origin}${u.pathname}${u.search || u.hash ? URL_TAIL_MARK : ''}`;
+  } catch {
+    return raw;
+  }
+}
+
+// una tool del propio mcp de la plataforma (mcp__<server>__<tool>).
+const isPlatformTool = (name: string, ctx: FeedContext): boolean =>
+  ctx.platformServer !== undefined && name.startsWith(`${MCP_PREFIX}${ctx.platformServer}${MCP_SEPARATOR}`);
+
+// valor de un argumento para el resumen: tecleado de una tool ajena → ‹longitud›; url → origen + ruta.
+function argValue(key: string, value: string, redact: boolean): string {
+  if (redact && REDACTED_ARG_KEYS.has(key)) return `‹${value.length}›`;
+  return URL_ARG_KEYS.has(key) ? displayUrl(value) : value;
+}
+
 // ruta para mostrar: relativa al worktree si cae dentro; si no, solo el nombre del fichero.
 function displayPath(p: string, ctx: FeedContext): string {
   const abs = path.resolve(ctx.cwd, p);
@@ -102,15 +141,15 @@ function lineRange(args: Args): string {
   return limit === null ? `:${start}-` : `:${start}-${start + limit - 1}`;
 }
 
-// resumen genérico: refs primero (t#318), luego campos escalares cortos `clave=valor`.
-function summarizeArgs(args: Args): string {
+// resumen genérico: refs primero (t#318), luego campos escalares cortos `clave=valor` (redactados si `redact`).
+function summarizeArgs(args: Args, redact: boolean): string {
   const refs = Object.entries(args).flatMap(([k, v]) => {
     const prefix = REF_PREFIX_BY_KEY.get(k);
     return prefix && (typeof v === 'number' || typeof v === 'string') && String(v) ? [`${prefix}${v}`] : [];
   });
   const fields = Object.entries(args)
     .filter(([k, v]) => !REF_PREFIX_BY_KEY.has(k) && !LONG_TEXT_KEYS.has(k) && ['string', 'number', 'boolean'].includes(typeof v))
-    .map(([k, v]) => [k, oneLine(String(v))] as const)
+    .map(([k, v]) => [k, oneLine(argValue(k, String(v), redact))] as const)
     .filter(([, v]) => v.length > 0)
     .slice(0, ARG_FIELDS_MAX)
     .map(([k, v]) => `${k}=${clip(v, ARG_VALUE_MAX_CHARS)}`);
@@ -135,11 +174,14 @@ export function summarizeToolUse(name: string, input: unknown, ctx: FeedContext)
       const lines = (str('command') ?? '').split('\n').map((l) => l.trim()).filter(Boolean);
       return lines.length > 1 ? `${lines[0]} ${ELLIPSIS}` : lines[0] ?? '';
     }
-    if (name === 'WebFetch') return str('url') ?? '';
+    if (name === 'WebFetch') {
+      const url = str('url');
+      return url ? displayUrl(url) : '';
+    }
     if (name === 'WebSearch') return str('query') ?? '';
     if (name === 'Task' || name === 'Agent') return str('description') ?? '';
     if (name === 'TodoWrite') return Array.isArray(args.todos) ? `${args.todos.length} tareas` : '';
-    return summarizeArgs(args);
+    return summarizeArgs(args, !isPlatformTool(name, ctx));
   })();
   return sanitize(oneLine(raw), ctx, ctx.toolArgMaxChars);
 }

@@ -1,9 +1,10 @@
-// feed de progreso: qué sale del stream-json hacia el server y qué no (resultados, rutas, secretos).
+// feed de progreso: qué sale del stream-json hacia el server y qué no (resultados, rutas, secretos,
+// lo tecleado en tools ajenas a la plataforma y query/fragmento de las urls).
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { StreamContent, StreamLine } from '../src/claude.js';
-import { clip, feedEventsFromStream, redactPaths, summarizeToolUse, systemEvent, type FeedContext } from '../src/feed.js';
+import { clip, displayUrl, feedEventsFromStream, redactPaths, summarizeToolUse, systemEvent, type FeedContext } from '../src/feed.js';
 import { maskSecrets, SECRET_MASK } from '../src/secret-mask.js';
 
 const ctx: FeedContext = { cwd: '/home/u/dev/app/.duckhunt/worktrees/conv-88', home: '/home/u', bodyMaxChars: 4000, toolArgMaxChars: 200 };
@@ -57,6 +58,29 @@ test('tools mcp: refs primero y campos cortos, sin textos largos', () => {
   const body = summarizeToolUse('mcp__duckhunt__duckhunt-note-add', { targetId: 318, kind: 'progress', body: 'nota larguísima', author: 'claude' }, ctx);
   assert.equal(body, 't#318 kind=progress author=claude');
   assert.equal(summarizeToolUse('mcp__duckhunt__duckhunt-entry-get', { entryId: 42 }, ctx), 'e#42');
+});
+
+test('tecleado de tools ajenas a la plataforma: solo su longitud; las de la plataforma, tal cual (t#495)', () => {
+  const run: FeedContext = { ...ctx, platformServer: 'duckhunt' };
+  const fill = summarizeToolUse('mcp__res_browser_jira__fill', { selector: '#password', value: 'hunter2' }, run);
+  assert.equal(fill, 'selector=#password value=‹7›');
+  assert.ok(!fill.includes('hunter2'));
+  assert.equal(summarizeToolUse('mcp__res_browser_jira__evaluate', { expression: 'document.cookie' }, run), 'expression=‹15›');
+  assert.equal(summarizeToolUse('mcp__res_browser_jira__handle_dialog', { action: 'accept', promptText: 'secreto' }, run), 'action=accept promptText=‹7›');
+  // la plataforma ya recibe sus propios argumentos con la llamada: ocultarlos no protege nada.
+  assert.equal(summarizeToolUse('mcp__duckhunt__duckhunt-set-custom-field', { targetId: 5, value: 'Alta' }, run), 't#5 value=Alta');
+  // sin servidor de la plataforma conocido, todo se redacta.
+  assert.equal(summarizeToolUse('mcp__duckhunt__duckhunt-set-custom-field', { targetId: 5, value: 'Alta' }, ctx), 't#5 value=‹4›');
+});
+
+test('urls: solo origen y ruta, nunca query ni fragmento; de esquemas no web, solo el esquema (t#495)', () => {
+  assert.equal(displayUrl('https://acme.atlassian.net/browse/OKT-1?token=abc#x'), 'https://acme.atlassian.net/browse/OKT-1?…');
+  assert.equal(displayUrl('http://localhost:5173/app'), 'http://localhost:5173/app');
+  assert.equal(displayUrl('data:text/html,<b>secreto</b>'), 'data:…');
+  assert.equal(displayUrl('file:///home/u/.ssh/id_rsa'), 'file:…');
+  assert.equal(displayUrl('no es una url'), 'no es una url');
+  assert.equal(summarizeToolUse('WebFetch', { url: 'https://api.example.com/v1/items?api_key=s3cr3t', prompt: 'x' }, ctx), 'https://api.example.com/v1/items?…');
+  assert.equal(summarizeToolUse('mcp__res_browser_jira__navigate', { url: 'https://acme.atlassian.net/login?next=/x' }, ctx), 'url=https://acme.atlassian.net/login?…');
 });
 
 test('secretos enmascarados antes de recortar', () => {
