@@ -23,7 +23,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { RepoConfig } from './config.js';
 import { repoKeyFromRemote, sameRepoKey } from './repo-key.js';
-import { gitMaybe, worktreesDir } from './worktree.js';
+import { gitMaybe } from './worktree.js';
+import { LEGACY_PLATFORM_ID, worktreesDir } from './paths.js';
 
 // cadencia del chequeo (y el primero, al arrancar).
 export const REPO_HEALTH_INTERVAL_MS = 10 * 60_000;
@@ -95,8 +96,9 @@ const finding = (repo: string | null, kind: RepoIssueKind, detail: string, count
   detail,
 });
 
+// solo el espacio de la plataforma legacy (t#495 M1): con varias plataformas (M6) se recorrerán todos.
 function daemonWorktrees(dir: string): string[] {
-  const root = worktreesDir(dir);
+  const root = worktreesDir(dir, LEGACY_PLATFORM_ID);
   if (!fs.existsSync(root)) return [];
   try {
     return fs
@@ -150,7 +152,7 @@ function siblingDirs(parents: string[], mappedReals: ReadonlySet<string>): strin
       .readdirSync(parent, { withFileTypes: true })
       .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
       .map((e) => path.join(parent, e.name))
-      .filter((dir) => (fs.existsSync(path.join(dir, '.git')) || fs.existsSync(worktreesDir(dir))) && !mappedReals.has(realOrSelf(dir))),
+      .filter((dir) => (fs.existsSync(path.join(dir, '.git')) || fs.existsSync(worktreesDir(dir, LEGACY_PLATFORM_ID))) && !mappedReals.has(realOrSelf(dir))),
   );
 }
 
@@ -209,7 +211,7 @@ export function repoFindings({ repos, states, siblings }: RepoScan): RepoFinding
     const orphans = unregistered(s);
     if (orphans.length === 0) return [];
     const owner = keys.find((k) => s.key !== null && sameRepoKey(s.key, k)) ?? keys[0]!;
-    return [finding(owner, REPO_ISSUE.orphanWorktrees, `${orphans.length} en ${worktreesDir(s.dir)} que git ya no registra`, orphans.length)];
+    return [finding(owner, REPO_ISSUE.orphanWorktrees, `${orphans.length} en ${worktreesDir(s.dir, LEGACY_PLATFORM_ID)} que git ya no registra`, orphans.length)];
   });
   // el mismo checkout bajo varias keys: como mucho una casa con su origin, las demás ya son mismatch.
   const shared = mapped.flatMap(([repo, rc]) => {
@@ -221,7 +223,7 @@ export function repoFindings({ repos, states, siblings }: RepoScan): RepoFinding
     .filter((s) => s.worktrees.length > 0)
     .map((s) => {
       const owner = s.key === null ? null : (mapped.find(([repo]) => sameRepoKey(repo, s.key!))?.[0] ?? null);
-      return finding(owner, REPO_ISSUE.orphanWorktrees, `${s.worktrees.length} en ${worktreesDir(s.dir)}: ese checkout ya no está mapeado y el gc no los recoge`, s.worktrees.length);
+      return finding(owner, REPO_ISSUE.orphanWorktrees, `${s.worktrees.length} en ${worktreesDir(s.dir, LEGACY_PLATFORM_ID)}: ese checkout ya no está mapeado y el gc no los recoge`, s.worktrees.length);
     });
   return [...perRepo, ...orphaned, ...shared, ...stranded];
 }

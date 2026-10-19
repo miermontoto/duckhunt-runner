@@ -4,6 +4,8 @@
 // sin repo, donde claude code acumula memoria), los logs opcionales, el lock del daemon y (0.10.2)
 // los mcp-config de los runs en run-config/ (0700, run-mcp-config.ts). DUCKHUNT_RUNNER_CONFIG y
 // DUCKHUNT_RUNNER_HOME los desvían (otra cuenta, otro server, pruebas e2e sin tocar la config real).
+// desde t#495 (M1) las rutas de cada plataforma (scratch, logs, run-config, server-state, worktrees) salen
+// de paths.ts; aquí quedan las de la máquina: el fichero de config y runnerHome.
 // escritura (0.10.1): nadie reescribe el fichero con su copia en memoria. saveConfig relee el fichero,
 // cambia SOLO las claves del que escribe y lo guarda atómico (tmp + fsync + rename, 600; en sitio si
 // el directorio no lo permite): `login` la credencial, la cli y los comandos de repos de duckhunt sus
@@ -23,9 +25,6 @@ import path from 'node:path';
 
 // permisos del fichero de config: lleva el refresh token.
 const CONFIG_FILE_MODE = 0o600;
-// permisos del directorio de los mcp-config de los runs: llevan el token per-run.
-const RUN_CONFIG_DIR_MODE = 0o700;
-const RUN_CONFIG_SUBDIR = 'run-config';
 // errores del tmp + rename con los que la escritura cae a en sitio (writeAtomic).
 const IN_PLACE_FALLBACK_CODES: ReadonlySet<string> = new Set(['EACCES', 'EPERM', 'EBUSY', 'EXDEV']);
 
@@ -118,32 +117,9 @@ export function configPath(): string {
   return process.env.DUCKHUNT_RUNNER_CONFIG ?? path.join(os.homedir(), '.duckhunt-runner.json');
 }
 
-/** directorio de estado del daemon (scratch, logs, lock y mcp-configs de los runs). */
+/** directorio de estado del daemon (el lock y el estado de cada plataforma: paths.ts). */
 export function runnerHome(): string {
   return process.env.DUCKHUNT_RUNNER_HOME ?? path.join(os.homedir(), '.duckhunt-runner');
-}
-
-/** cwd FIJO de los runs sin repo: la auto-memory de claude code se indexa por ruta, así el
- *  conocimiento de infra (alarmas sin código) acumula entre runs. */
-export function scratchDir(): string {
-  const dir = path.join(runnerHome(), 'scratch');
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
-}
-
-export function logsDir(): string {
-  const dir = path.join(runnerHome(), 'logs');
-  fs.mkdirSync(dir, { recursive: true });
-  return dir;
-}
-
-/** directorio 0700 de los mcp-config de cada run (run-mcp-config.ts). hermano del scratch: fuera de
- *  todo cwd de un run. un directorio que ya existía con otros permisos se cierra. */
-export function runConfigDir(): string {
-  const dir = path.join(runnerHome(), RUN_CONFIG_SUBDIR);
-  fs.mkdirSync(dir, { recursive: true, mode: RUN_CONFIG_DIR_MODE });
-  fs.chmodSync(dir, RUN_CONFIG_DIR_MODE);
-  return dir;
 }
 
 /** texto del fichero de config, o null si no existe. el daemon lo compara para recargar solo si cambió. */

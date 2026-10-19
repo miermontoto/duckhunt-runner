@@ -1,4 +1,5 @@
-// worktrees git donde corre `claude`, bajo <checkout>/.duckhunt/worktrees/:
+// worktrees git donde corre `claude`, bajo el espacio de su plataforma en el checkout (paths.ts::worktreesDir:
+// <checkout>/.duckhunt/worktrees/ la legacy, <checkout>/.runner/worktrees/<id>/ el resto, t#495 M1):
 // - run-<id>: runs de reglas (investigar). detached sobre la rama del run (local u origin) o HEAD,
 //   sin fetch; el daemon lo borra en done y lo conserva en failed para autopsia.
 // - conv-<id>: prompt runs (t#378), uno POR CONVERSACIÓN. detached sobre origin/<rama> tras un
@@ -7,7 +8,8 @@
 //   edite el perfil edit sobrevive a una pregunta o a un seguimiento. lo recoge conversation-gc.ts.
 // - un prompt run con isolation=checkout no tiene worktree: corre en el checkout tal cual y aquí solo
 //   se describe (prepareCheckout) su rama, commit y cambios para la nota.
-// el directorio del daemon (.duckhunt/) va a .git/info/exclude del checkout (local, nunca se commitea):
+// el directorio del daemon (.duckhunt/, o .runner/ para otras plataformas) va a .git/info/exclude del
+// checkout (local, nunca se commitea):
 // en un repo que no lo ignora, sus worktrees salían como cambios sin commitear del usuario y un agente
 // en el checkout los arrastraría con `git add -A`.
 // toda rama que viene del server se valida (cordura del claim + `git check-ref-format --branch`, que
@@ -23,13 +25,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { isValidBranchName } from './claim.js';
+import { checkoutExcludePattern, worktreesDir } from './paths.js';
 
 const execFileP = promisify(execFile);
 
-const DAEMON_DIR = '.duckhunt';
-const WORKTREES_SUBDIR = path.join(DAEMON_DIR, 'worktrees');
-// patrón de info/exclude anclado a la raíz del checkout.
-const DAEMON_DIR_EXCLUDE = `/${DAEMON_DIR}/`;
 export const CONVERSATION_WORKTREE_PREFIX = 'conv-';
 export const RUN_WORKTREE_PREFIX = 'run-';
 // git local (rev-parse, worktree add, status) y de red (fetch, que puede colgarse en un prompt de ssh).
@@ -58,11 +57,6 @@ export const gitMaybe = (cwd: string, args: string[], env: NodeJS.ProcessEnv): P
     (out) => out || null,
     () => null,
   );
-
-/** directorio de los worktrees del daemon dentro de un checkout. */
-export function worktreesDir(repoPath: string): string {
-  return path.join(repoPath, WORKTREES_SUBDIR);
-}
 
 /** sha del commit al que apunta una ref, o null si no existe. */
 export function resolveCommit(repoPath: string, ref: string, env: NodeJS.ProcessEnv): Promise<string | null> {
@@ -145,25 +139,27 @@ async function reuseWorktree(repoPath: string, dir: string, env: NodeJS.ProcessE
   // contenido, no se toca: podría ser trabajo del usuario.
   await pruneWorktrees(repoPath, env);
   if (fs.existsSync(dir) && fs.readdirSync(dir).length > 0) {
-    throw new Error(`${path.join(WORKTREES_SUBDIR, path.basename(dir))} existe pero no es un worktree git válido: revísalo y bórralo a mano`);
+    throw new Error(`${path.relative(repoPath, dir)} existe pero no es un worktree git válido: revísalo y bórralo a mano`);
   }
   fs.rmSync(dir, { recursive: true, force: true });
   return null;
 }
 
-// añade el directorio del daemon a info/exclude del checkout si falta. sin git (checkout raro) no hace nada.
-async function excludeDaemonDir(repoPath: string, env: NodeJS.ProcessEnv): Promise<void> {
+// añade el directorio del daemon de la plataforma a info/exclude del checkout si falta. sin git (checkout
+// raro) no hace nada.
+async function excludeDaemonDir(repoPath: string, env: NodeJS.ProcessEnv, platform: string): Promise<void> {
   const common = await gitMaybe(repoPath, ['rev-parse', '--git-common-dir'], env);
   if (common === null) return;
   const file = path.join(path.resolve(repoPath, common), 'info', 'exclude');
+  const pattern = checkoutExcludePattern(platform);
   const current = fs.existsSync(file) ? fs.readFileSync(file, 'utf-8') : '';
-  if (current.split('\n').includes(DAEMON_DIR_EXCLUDE)) return;
+  if (current.split('\n').includes(pattern)) return;
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.appendFileSync(file, `${current && !current.endsWith('\n') ? '\n' : ''}${DAEMON_DIR_EXCLUDE}\n`);
+  fs.appendFileSync(file, `${current && !current.endsWith('\n') ? '\n' : ''}${pattern}\n`);
 }
 
-async function addDetached(repoPath: string, dir: string, sha: string, env: NodeJS.ProcessEnv): Promise<void> {
-  await excludeDaemonDir(repoPath, env);
+async function addDetached(repoPath: string, dir: string, sha: string, env: NodeJS.ProcessEnv, platform: string): Promise<void> {
+  await excludeDaemonDir(repoPath, env, platform);
   fs.mkdirSync(path.dirname(dir), { recursive: true });
   await git(repoPath, ['worktree', 'add', '--quiet', '--detach', '--end-of-options', dir, sha], env);
 }
@@ -190,9 +186,15 @@ async function defaultBase(repoPath: string, env: NodeJS.ProcessEnv): Promise<Ba
  * worktree de una conversación (prompt run): reutiliza conv-<id> si ya existe; si no, lo crea
  * detached sobre origin/<rama> (fetch antes), la rama local, o la base por defecto si la rama es nueva.
  */
-export async function prepareConversationWorktree(repoPath: string, runId: string, branch: string | null, env: NodeJS.ProcessEnv): Promise<PreparedWorktree> {
+export async function prepareConversationWorktree(
+  repoPath: string,
+  runId: string,
+  branch: string | null,
+  env: NodeJS.ProcessEnv,
+  platform: string,
+): Promise<PreparedWorktree> {
   const name = `${CONVERSATION_WORKTREE_PREFIX}${runId}`;
-  const dir = path.join(worktreesDir(repoPath), name);
+  const dir = path.join(worktreesDir(repoPath, platform), name);
   const reused = await reuseWorktree(repoPath, dir, env);
   if (reused !== null) return { workdir: dir, note: reused, warnings: [] };
 
@@ -209,7 +211,7 @@ export async function prepareConversationWorktree(repoPath: string, runId: strin
     if (local) return { sha: local, label: branch, warnings: [`${branch} no existe en ${REMOTE}: worktree sobre la rama local`], newBranch: null };
     return { ...(await defaultBase(repoPath, env)), newBranch: branch };
   })();
-  await addDetached(repoPath, dir, base.sha, env);
+  await addDetached(repoPath, dir, base.sha, env, platform);
   const at = `${base.label}@${base.sha.slice(0, SHORT_SHA_CHARS)}`;
   return {
     workdir: dir,
@@ -222,15 +224,21 @@ export async function prepareConversationWorktree(repoPath: string, runId: strin
  * cwd de un prompt run en el checkout tal cual: sin worktree ni fetch. esconde el directorio del daemon
  * y describe la nota `checkout · <rama>@<sha> (n cambios sin commitear)`.
  */
-export async function prepareCheckout(repoPath: string, env: NodeJS.ProcessEnv): Promise<PreparedWorktree> {
-  await excludeDaemonDir(repoPath, env);
+export async function prepareCheckout(repoPath: string, env: NodeJS.ProcessEnv, platform: string): Promise<PreparedWorktree> {
+  await excludeDaemonDir(repoPath, env, platform);
   return { workdir: repoPath, note: `checkout · ${await describeHead(repoPath, env)}`, warnings: [] };
 }
 
 /** worktree efímero de un run de reglas: detached sobre la rama (local u origin) o HEAD, sin fetch. */
-export async function prepareRunWorktree(repoPath: string, runId: string, branch: string | null, env: NodeJS.ProcessEnv): Promise<PreparedWorktree> {
+export async function prepareRunWorktree(
+  repoPath: string,
+  runId: string,
+  branch: string | null,
+  env: NodeJS.ProcessEnv,
+  platform: string,
+): Promise<PreparedWorktree> {
   const name = `${RUN_WORKTREE_PREFIX}${runId}`;
-  const dir = path.join(worktreesDir(repoPath), name);
+  const dir = path.join(worktreesDir(repoPath, platform), name);
   // el mismo run re-encolado (respuesta a su pregunta) tras un segmento fallido: su worktree sigue ahí.
   const reused = await reuseWorktree(repoPath, dir, env);
   if (reused !== null) return { workdir: dir, note: reused, warnings: [] };
@@ -239,7 +247,7 @@ export async function prepareRunWorktree(repoPath: string, runId: string, branch
   // i/o secuencial con early-exit: la primera ref que exista gana.
   const found = await candidates.reduce<Promise<string | null>>(async (acc, ref) => (await acc) ?? resolveCommit(repoPath, ref, env), Promise.resolve(null));
   const sha = found ?? (await checkoutHead(repoPath, env));
-  await addDetached(repoPath, dir, sha, env);
+  await addDetached(repoPath, dir, sha, env, platform);
   const warnings = branch !== null && !found ? [`branch ${branch} no existe localmente: worktree sobre HEAD`] : [];
   return { workdir: dir, note: `${found ? branch : 'HEAD'}@${sha.slice(0, SHORT_SHA_CHARS)}`, warnings };
 }

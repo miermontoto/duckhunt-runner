@@ -9,6 +9,7 @@ import path from 'node:path';
 import { after, before, test } from 'node:test';
 import { listWorktreeCandidates, removeWorktrees, selectForRemoval } from '../src/conversation-gc.js';
 import { scrubEnv } from '../src/scrub-env.js';
+import { LEGACY_PLATFORM_ID } from '../src/paths.js';
 import { isUsableBranch, prepareCheckout, prepareConversationWorktree, prepareRunWorktree, removeCleanWorktree, unsavedWork, worktreeWork } from '../src/worktree.js';
 
 const DAY_MS = 24 * 60 * 60_000;
@@ -58,26 +59,26 @@ test('ramas: decide check-ref-format (ñ, + y # valen; -x, x.lock y a..b no)', a
 });
 
 test('conversación sobre origin/<rama>, rama nueva sobre origin/HEAD y reutilización', async () => {
-  const feat = await prepareConversationWorktree(clone, '1', 'feat/x', env);
+  const feat = await prepareConversationWorktree(clone, '1', 'feat/x', env, LEGACY_PLATFORM_ID);
   assert.equal(git(feat.workdir, 'rev-parse', 'HEAD'), featSha);
   assert.equal(feat.note, `origin/feat/x@${featSha.slice(0, 7)}`);
   assert.ok(!feat.note.includes(root));
   // el nombre del directorio (conv-<id>) no viaja: en la ui se leía como id del run.
   assert.ok(!/^(?:conv|run)-\d/.test(feat.note));
 
-  const fresh = await prepareConversationWorktree(clone, '2', 'feat/nueva', env);
+  const fresh = await prepareConversationWorktree(clone, '2', 'feat/nueva', env, LEGACY_PLATFORM_ID);
   assert.equal(git(fresh.workdir, 'rev-parse', 'HEAD'), mainSha);
   assert.match(fresh.note, /^feat\/nueva \(rama nueva\) sobre origin\/main@/);
 
   // segundo segmento: mismo directorio, con lo que el perfil edit dejó dentro.
   fs.writeFileSync(path.join(feat.workdir, 'wip.txt'), 'x');
-  const again = await prepareConversationWorktree(clone, '1', 'feat/x', env);
+  const again = await prepareConversationWorktree(clone, '1', 'feat/x', env, LEGACY_PLATFORM_ID);
   assert.equal(again.workdir, feat.workdir);
   assert.match(again.note, /^HEAD@\w+ \(1 cambios sin commitear\)$/);
   assert.equal(await unsavedWork(feat.workdir, env), '1 cambios sin commitear');
 
   // una rama que git no acepta no tumba el run: base por defecto con aviso.
-  const bad = await prepareConversationWorktree(clone, '3', 'bad.lock', env);
+  const bad = await prepareConversationWorktree(clone, '3', 'bad.lock', env, LEGACY_PLATFORM_ID);
   assert.equal(git(bad.workdir, 'rev-parse', 'HEAD'), mainSha);
   assert.match(bad.warnings[0] ?? '', /"bad\.lock" no válida para git/);
   await removeCleanWorktree(clone, bad.workdir, env);
@@ -86,25 +87,25 @@ test('conversación sobre origin/<rama>, rama nueva sobre origin/HEAD y reutiliz
 test('checkout: cwd = el checkout, la nota describe rama y cambios, y los worktrees del daemon no cuentan', async () => {
   // la conversación del test anterior dejó .duckhunt/worktrees/ dentro del checkout.
   assert.ok(fs.existsSync(path.join(clone, '.duckhunt')));
-  const co = await prepareCheckout(clone, env);
+  const co = await prepareCheckout(clone, env, LEGACY_PLATFORM_ID);
   assert.equal(co.workdir, clone);
   assert.equal(co.note, `checkout · main@${mainSha.slice(0, 7)}`);
   assert.equal(git(clone, 'status', '--porcelain'), '', '.duckhunt/ queda en info/exclude');
-  await prepareCheckout(clone, env);
+  await prepareCheckout(clone, env, LEGACY_PLATFORM_ID);
   const exclude = fs.readFileSync(path.join(clone, '.git', 'info', 'exclude'), 'utf-8');
   assert.equal(exclude.split('\n').filter((l) => l === '/.duckhunt/').length, 1, 'idempotente');
 
   fs.writeFileSync(path.join(clone, 'wip-checkout.txt'), 'x');
-  const dirty = await prepareCheckout(clone, env);
+  const dirty = await prepareCheckout(clone, env, LEGACY_PLATFORM_ID);
   fs.rmSync(path.join(clone, 'wip-checkout.txt'));
   assert.match(dirty.note, /^checkout · main@\w+ \(1 cambios sin commitear\)$/);
   assert.ok(!dirty.note.includes(root));
 });
 
 test('run de reglas: rama local u origin, si no HEAD', async () => {
-  const run = await prepareRunWorktree(clone, '10', 'feat/x', env);
+  const run = await prepareRunWorktree(clone, '10', 'feat/x', env, LEGACY_PLATFORM_ID);
   assert.equal(git(run.workdir, 'rev-parse', 'HEAD'), featSha);
-  const missing = await prepareRunWorktree(clone, '11', 'no-existe', env);
+  const missing = await prepareRunWorktree(clone, '11', 'no-existe', env, LEGACY_PLATFORM_ID);
   assert.deepEqual(missing.warnings, ['branch no-existe no existe localmente: worktree sobre HEAD']);
 });
 
@@ -112,7 +113,7 @@ test('run de reglas: un .git a medias no es "HEAD vacío" y el error no lleva el
   // lo que dejó mover un checkout: .git sin HEAD ni config, git ya no lo reconoce.
   const gutted = path.join(root, 'gutted');
   fs.mkdirSync(path.join(gutted, '.git', 'refs'), { recursive: true });
-  await assert.rejects(prepareRunWorktree(gutted, '30', null, env), (err: Error) => {
+  await assert.rejects(prepareRunWorktree(gutted, '30', null, env, LEGACY_PLATFORM_ID), (err: Error) => {
     assert.match(err.message, /^el checkout no es un repositorio git usable \(not a git repository/);
     assert.ok(!err.message.includes(root));
     return true;
@@ -120,21 +121,21 @@ test('run de reglas: un .git a medias no es "HEAD vacío" y el error no lleva el
   const empty = path.join(root, 'empty');
   fs.mkdirSync(empty);
   git(empty, 'init', '-q');
-  await assert.rejects(prepareRunWorktree(empty, '31', null, env), /HEAD vacío/);
+  await assert.rejects(prepareRunWorktree(empty, '31', null, env, LEGACY_PLATFORM_ID), /HEAD vacío/);
 });
 
 test('gc: borra cerradas y limpias, conserva cambios sin commitear y commits huérfanos', async () => {
-  const committed = await prepareConversationWorktree(clone, '4', null, env);
+  const committed = await prepareConversationWorktree(clone, '4', null, env, LEGACY_PLATFORM_ID);
   git(committed.workdir, 'commit', '-q', '--allow-empty', '-m', 'solo aquí');
   git(committed.workdir, 'commit', '-q', '--allow-empty', '-m', 'y otro');
   fs.writeFileSync(path.join(committed.workdir, 'a-medias.txt'), 'x');
   fs.writeFileSync(path.join(committed.workdir, 'otro.txt'), 'y');
-  const clean = await prepareConversationWorktree(clone, '5', null, env);
-  const openOld = await prepareConversationWorktree(clone, '6', null, env);
+  const clean = await prepareConversationWorktree(clone, '5', null, env, LEGACY_PLATFORM_ID);
+  const openOld = await prepareConversationWorktree(clone, '6', null, env, LEGACY_PLATFORM_ID);
   const old = new Date(Date.now() - 8 * DAY_MS);
   fs.utimesSync(openOld.workdir, old, old);
 
-  const candidates = listWorktreeCandidates([clone, clone]);
+  const candidates = listWorktreeCandidates([clone, clone], LEGACY_PLATFORM_ID);
   assert.deepEqual(
     candidates.map((c) => `${c.kind}:${c.runId}`).sort(),
     ['conversation:1', 'conversation:2', 'conversation:4', 'conversation:5', 'conversation:6', 'run:10', 'run:11'],
@@ -163,9 +164,9 @@ test('gc: borra cerradas y limpias, conserva cambios sin commitear y commits hu�
 });
 
 test('conv-<id> borrado a mano sin git worktree remove: el siguiente segmento lo recrea', async () => {
-  const conv = await prepareConversationWorktree(clone, '20', null, env);
+  const conv = await prepareConversationWorktree(clone, '20', null, env, LEGACY_PLATFORM_ID);
   fs.rmSync(conv.workdir, { recursive: true, force: true });
-  const again = await prepareConversationWorktree(clone, '20', null, env);
+  const again = await prepareConversationWorktree(clone, '20', null, env, LEGACY_PLATFORM_ID);
   assert.equal(again.workdir, conv.workdir);
   assert.equal(git(again.workdir, 'rev-parse', 'HEAD'), mainSha);
 });

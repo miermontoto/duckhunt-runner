@@ -8,6 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
 import { clearRunAwsConfigs, runAwsEnv, writeEmptyAwsConfig } from '../src/aws-env.js';
+import { LEGACY_PLATFORM_ID } from '../src/paths.js';
 
 const ACCOUNT = '123456789012';
 const OTHER = '999999999999';
@@ -46,7 +47,7 @@ test('cuenta mapeada: su perfil y su región; nada se crea', () => {
 });
 
 test('cuenta sin mapear: falla cerrado, sin perfil, claves, contenedor ni metadata, con ficheros vacíos', () => {
-  const dir = writeEmptyAwsConfig('42');
+  const dir = writeEmptyAwsConfig('42', LEGACY_PLATFORM_ID);
   const { env, unmapped } = runAwsEnv(USER_ENV, { accountId: OTHER, region: 'eu-west-1' }, MAP, () => dir);
   assert.equal(unmapped, OTHER);
   ['AWS_PROFILE', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN', 'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI'].forEach((k) =>
@@ -71,7 +72,7 @@ test('sin cuenta (o sin aws): el env del usuario tal cual, con la región si vie
 });
 
 test('al arrancar se borran los directorios de aws vacía que dejó un daemon muerto', () => {
-  writeEmptyAwsConfig('7');
-  assert.ok(clearRunAwsConfigs() >= 1);
+  writeEmptyAwsConfig('7', LEGACY_PLATFORM_ID);
+  assert.ok(clearRunAwsConfigs(LEGACY_PLATFORM_ID) >= 1);
   assert.equal(fs.readdirSync(path.join(home, 'run-config')).filter((n) => n.startsWith('aws-')).length, 0);
 });

@@ -11,7 +11,7 @@ import { after, before, test } from 'node:test';
 import { buildClaudeArgs } from '../src/claude-args.js';
 import { parseClaim } from '../src/claim.js';
 import { OPTIONAL_FLAGS } from '../src/claude.js';
-import { runConfigDir } from '../src/config.js';
+import { LEGACY_PLATFORM_ID, runConfigDir } from '../src/paths.js';
 import { clearLegacyTmpConfigs, clearRunMcpConfigs, readDenyRule, runConfigDeny, writeRunMcpConfig } from '../src/run-mcp-config.js';
 
 const MODE_BITS = 0o777;
@@ -32,7 +32,7 @@ after(() => {
 });
 
 test('el mcp-config va a <runnerHome>/run-config: fichero 0600 en un directorio 0700, con el token del run', () => {
-  const file = writeRunMcpConfig('88', mcp);
+  const file = writeRunMcpConfig('88', mcp, LEGACY_PLATFORM_ID);
   const dir = path.join(home, 'run-config');
   assert.equal(path.dirname(file), dir);
   assert.match(path.basename(file), /^mcp-88-[0-9a-f]{8}\.json$/);
@@ -41,27 +41,27 @@ test('el mcp-config va a <runnerHome>/run-config: fichero 0600 en un directorio 
   assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), {
     mcpServers: { duckhunt: { type: 'http', url: mcp.url, headers: { Authorization: 'Bearer dho_secret' } } },
   });
-  assert.notEqual(writeRunMcpConfig('88', mcp), file, 'cada segmento, su fichero');
+  assert.notEqual(writeRunMcpConfig('88', mcp, LEGACY_PLATFORM_ID), file, 'cada segmento, su fichero');
 });
 
 test('un directorio que ya existía abierto se cierra a 0700', () => {
   const dir = path.join(home, 'run-config');
   fs.chmodSync(dir, 0o755);
-  assert.equal(runConfigDir(), dir);
+  assert.equal(runConfigDir(LEGACY_PLATFORM_ID), dir);
   assert.equal(fs.statSync(dir).mode & MODE_BITS, 0o700);
 });
 
 test('al arrancar se borran los mcp-config que dejó un daemon muerto, y nada más', () => {
-  const dir = runConfigDir();
-  writeRunMcpConfig('5', mcp);
+  const dir = runConfigDir(LEGACY_PLATFORM_ID);
+  writeRunMcpConfig('5', mcp, LEGACY_PLATFORM_ID);
   fs.writeFileSync(path.join(dir, 'notas.txt'), 'del usuario');
-  assert.ok(clearRunMcpConfigs() >= 1);
+  assert.ok(clearRunMcpConfigs(LEGACY_PLATFORM_ID) >= 1);
   assert.deepEqual(fs.readdirSync(dir), ['notas.txt']);
-  assert.equal(clearRunMcpConfigs(), 0);
+  assert.equal(clearRunMcpConfigs(LEGACY_PLATFORM_ID), 0);
 });
 
 test('deny de Read del directorio por su ruta y su realpath; una ruta que no cabe en una regla no arranca', () => {
-  const dir = runConfigDir();
+  const dir = runConfigDir(LEGACY_PLATFORM_ID);
   assert.deepEqual(runConfigDeny(dir), [`Read(/${dir}/**)`]);
   assert.ok(runConfigDeny(dir)[0]!.startsWith('Read(//'), 'ruta absoluta del sistema, no relativa al proyecto');
   // un estado del runner enlazado (dotfiles): las dos rutas.
@@ -77,7 +77,7 @@ test('deny de Read del directorio por su ruta y su realpath; una ruta que no cab
 });
 
 test('el deny del directorio va en TODO argv (lectura, edición, reglas, skip-permissions, claims del server); sin él no se lanza', () => {
-  const deny = runConfigDeny(runConfigDir());
+  const deny = runConfigDeny(runConfigDir(LEGACY_PLATFORM_ID));
   const fixtures = ['claims', 'claim-kits'].flatMap((dir) => {
     const url = new URL(`../../test/fixtures/${dir}/`, import.meta.url);
     return fs
@@ -92,7 +92,7 @@ test('el deny del directorio va en TODO argv (lectura, edición, reglas, skip-pe
     const args = buildClaudeArgs({
       claim,
       prompt: 'p',
-      mcpConfigFile: path.join(runConfigDir(), 'mcp-1-abcd.json'),
+      mcpConfigFile: path.join(runConfigDir(LEGACY_PLATFORM_ID), 'mcp-1-abcd.json'),
       supported: new Set(OPTIONAL_FLAGS),
       resumeSessionId: null,
       skipPermissions,

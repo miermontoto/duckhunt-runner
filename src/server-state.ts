@@ -1,7 +1,8 @@
 // lo último que duckhunt le dijo a este daemon de su máquina (0.11.0, t#465 P12): el bloque `runner` del
 // claim (el nombre que le puso la persona, su pausa, qué acepta y su tope de slots), el motivo de la
 // cabecera x-duckhunt-runner-state (en pausa, sin slot, actualizar) y los worktrees que su gc conservó con
-// trabajo (recuentos). el daemon lo escribe en <runnerHome>/server-state.json (0600, atómico) cuando
+// trabajo (recuentos). el daemon lo escribe en el server-state.json de su plataforma (paths.ts; la legacy en
+// <runnerHome>/server-state.json, como siempre) (0600, atómico) cuando
 // cambia y, si no, como mucho cada SERVER_STATE_TOUCH_MS, y `status` lo lee con su edad.
 // decisiones:
 // - `status` no habla con el server: refrescar la credencial desde otro proceso rotaría el refresh token
@@ -13,9 +14,8 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { runnerHome } from './config.js';
+import { serverStatePath } from './paths.js';
 
-const SERVER_STATE_FILE = 'server-state.json';
 const SERVER_STATE_MODE = 0o600;
 // sin cambios, se reescribe como mucho con esta cadencia (solo para que `status` sepa la edad).
 export const SERVER_STATE_TOUCH_MS = 60_000;
@@ -65,16 +65,12 @@ export function parseRunnerBlock(raw: unknown): RunnerBlock | null {
   return { id, name: typeof r.name === 'string' ? r.name : null, paused: r.paused, accepts: r.accepts, maxSlots: intOrNull(r.maxSlots) };
 }
 
-/** fichero del estado del server. */
-export function serverStatePath(): string {
-  return path.join(runnerHome(), SERVER_STATE_FILE);
-}
-
-/** lo guardado, o null si no hay (o ilegible: se dice en el log). */
-export function readServerState(): ServerState | null {
+/** lo guardado para la plataforma, o null si no hay (o ilegible: se dice en el log). */
+export function readServerState(platform: string): ServerState | null {
+  const file = serverStatePath(platform);
   let text: string;
   try {
-    text = fs.readFileSync(serverStatePath(), 'utf-8');
+    text = fs.readFileSync(file, 'utf-8');
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw err;
@@ -83,23 +79,23 @@ export function readServerState(): ServerState | null {
     const v = JSON.parse(text) as unknown;
     return isObj(v) && typeof v.at === 'number' && typeof v.clientId === 'string' ? (v as unknown as ServerState) : null;
   } catch (err) {
-    console.error(`[runner] ${serverStatePath()} ilegible: ${(err as Error).message}`);
+    console.error(`[runner] ${file} ilegible: ${(err as Error).message}`);
     return null;
   }
 }
 
-/** escribe el estado (tmp + rename, 0600). */
-export function writeServerState(state: ServerState): void {
-  const file = serverStatePath();
+/** escribe el estado de la plataforma (tmp + rename, 0600). */
+export function writeServerState(state: ServerState, platform: string): void {
+  const file = serverStatePath(platform);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, `${JSON.stringify(state)}\n`, { mode: SERVER_STATE_MODE });
   fs.renameSync(tmp, file);
 }
 
-/** borra el estado (logout). */
-export function clearServerState(): void {
-  fs.rmSync(serverStatePath(), { force: true });
+/** borra el estado de la plataforma (logout). */
+export function clearServerState(platform: string): void {
+  fs.rmSync(serverStatePath(platform), { force: true });
 }
 
 /** ¿hay que reescribirlo? cambió algo que `status` imprime, o lo guardado ya tiene SERVER_STATE_TOUCH_MS. */

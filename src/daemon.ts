@@ -80,13 +80,10 @@ import { CredentialRejectedError, refreshAccess } from './oauth.js';
 import { AccessTokenSource } from './access-token.js';
 import {
   concurrency,
-  logsDir,
   mergeEntries,
   parseConfig,
   readConfigText,
-  runConfigDir,
   saveConfig,
-  scratchDir,
   splitConfig,
   type LocalConfig,
   type RepoConfig,
@@ -123,6 +120,7 @@ import { describeFinding, REPO_HEALTH_INTERVAL_MS, repoChoices, repoFindings, re
 import { applyRepoCommand, parseRepoCommands, type RepoCommandResult } from './repo-commands.js';
 import { RunLease, signalGroup } from './run-lease.js';
 import { compareRunIds, isLegacyRunId, legacyWireRunId } from './run-id.js';
+import { allRunConfigDirs, LEGACY_PLATFORM_ID, logsDir, scratchDir } from './paths.js';
 import { runnerVersion } from './version.js';
 
 const execFileP = promisify(execFile);
@@ -187,6 +185,8 @@ const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms
 const isTransient = (status: number): boolean => status === HTTP_TIMEOUT || status === HTTP_TOO_MANY || status >= HTTP_SERVER_ERROR;
 
 export class RunnerDaemon {
+  // plataforma de este daemon (paths.ts): la legacy, con las rutas de siempre, hasta que haya varias (M6).
+  private readonly platform = LEGACY_PLATFORM_ID;
   private readonly auth: AccessTokenSource;
   private claude: ClaudeInfo = { version: null, supported: new Set() };
   private hasAws = false;
@@ -288,9 +288,10 @@ export class RunnerDaemon {
       () => true,
       () => false,
     );
-    // lanza si la ruta no cabe en una regla de permisos: sin ese deny el daemon no arranca.
-    this.runConfigDeny = runConfigDeny(runConfigDir());
-    const stale = clearRunMcpConfigs() + clearRunAwsConfigs();
+    // lanza si la ruta no cabe en una regla de permisos: sin ese deny el daemon no arranca. cubre el
+    // run-config de cada plataforma con estado en disco (hoy solo el de la legacy).
+    this.runConfigDeny = allRunConfigDirs().flatMap(runConfigDeny);
+    const stale = clearRunMcpConfigs(this.platform) + clearRunAwsConfigs(this.platform);
     if (stale > 0) console.log(`[runner] ${stale} config(s) de runs anteriores borrada(s)`);
     const legacy = clearLegacyTmpConfigs();
     if (legacy > 0) console.log(`[runner] ${legacy} mcp-config(s) de daemons < 0.10.2 borrado(s) del tmpdir`);
@@ -351,7 +352,7 @@ export class RunnerDaemon {
     const next: ServerState = { at: Date.now(), baseUrl: this.credential.baseUrl, clientId: this.credential.clientId, state, runner, kept: this.keptWorktrees };
     if (!serverStateChanged(this.serverState, next)) return;
     try {
-      writeServerState(next);
+      writeServerState(next, this.platform);
       this.serverState = next;
     } catch (err) {
       console.error(`[runner] no se pudo guardar el estado del server: ${(err as Error).message}`);
@@ -633,7 +634,7 @@ export class RunnerDaemon {
     if (Date.now() - this.lastGcAt < CONVERSATION_GC_INTERVAL_MS) return;
     this.lastGcAt = Date.now();
     try {
-      const candidates = listWorktreeCandidates(Object.values(this.cfg.repos).map((r) => r.path));
+      const candidates = listWorktreeCandidates(Object.values(this.cfg.repos).map((r) => r.path), this.platform);
       if (candidates.length === 0) {
         this.keptWorktrees = [];
         return;
@@ -663,7 +664,7 @@ export class RunnerDaemon {
 
   private async prepareWorkdir(run: ClaimedRun, env: NodeJS.ProcessEnv): Promise<Workdir> {
     const repoCfg = run.repo && Object.hasOwn(this.cfg.repos, run.repo) ? this.cfg.repos[run.repo]! : null;
-    const scratch = (note: string, warnings: string[] = []): Workdir => ({ workdir: scratchDir(), repoCfg: null, worktree: null, conversation: false, note, warnings });
+    const scratch = (note: string, warnings: string[] = []): Workdir => ({ workdir: scratchDir(this.platform), repoCfg: null, worktree: null, conversation: false, note, warnings });
     if (!run.repo) return scratch('scratch · sin repo');
     if (!repoCfg) return scratch('scratch · sin repo mapeado', [`repo ${run.repo} no mapeado en este runner: corriendo en scratch`]);
     if (!fs.existsSync(repoCfg.path)) {
@@ -671,17 +672,17 @@ export class RunnerDaemon {
       return scratch('scratch · checkout no encontrado', [`el checkout de ${run.repo} no existe en este runner: corriendo en scratch`]);
     }
     if (run.kind === RUN_KIND.prompt && run.isolation === RUN_ISOLATION.checkout) {
-      const co = await this.gitLocks.run(path.resolve(repoCfg.path), () => prepareCheckout(repoCfg.path, env));
+      const co = await this.gitLocks.run(path.resolve(repoCfg.path), () => prepareCheckout(repoCfg.path, env, this.platform));
       return { ...co, repoCfg, worktree: null, conversation: false };
     }
     if (run.kind === RUN_KIND.prompt) {
       // worktree salvo que el usuario eligiera el checkout: `worktree: false` y skip-permissions del
       // repo son solo para los kinds de reglas heredados (un server anterior a t#465 P6).
-      const wt = await this.gitLocks.run(path.resolve(repoCfg.path), () => prepareConversationWorktree(repoCfg.path, run.id, run.branch, env));
+      const wt = await this.gitLocks.run(path.resolve(repoCfg.path), () => prepareConversationWorktree(repoCfg.path, run.id, run.branch, env, this.platform));
       return { ...wt, repoCfg, worktree: wt.workdir, conversation: true };
     }
     if (repoCfg.worktree === false) return { workdir: repoCfg.path, repoCfg, worktree: null, conversation: false, note: 'checkout · sin worktree', warnings: [] };
-    const wt = await this.gitLocks.run(path.resolve(repoCfg.path), () => prepareRunWorktree(repoCfg.path, run.id, run.branch, env));
+    const wt = await this.gitLocks.run(path.resolve(repoCfg.path), () => prepareRunWorktree(repoCfg.path, run.id, run.branch, env, this.platform));
     return { ...wt, repoCfg, worktree: wt.workdir, conversation: false };
   }
 
@@ -744,7 +745,7 @@ export class RunnerDaemon {
     const dropAwsDir = (): void => {
       if (awsDir !== null) fs.rmSync(awsDir, { recursive: true, force: true });
     };
-    const aws = runAwsEnv({ ...scrubEnv(process.env), AWS_PAGER: '' }, run.aws, this.cfg.aws, () => (awsDir = writeEmptyAwsConfig(run.id)));
+    const aws = runAwsEnv({ ...scrubEnv(process.env), AWS_PAGER: '' }, run.aws, this.cfg.aws, () => (awsDir = writeEmptyAwsConfig(run.id, this.platform)));
     const env = aws.env;
     const awsWarnings = aws.unmapped
       ? [`cuenta aws ${aws.unmapped} sin mapear en esta máquina: la aws cli corre sin credenciales (\`duckhunt-runner aws add ${aws.unmapped} <perfil>\`)`]
@@ -783,7 +784,7 @@ export class RunnerDaemon {
     let mcpFile: string | null = null;
     let report: StatusReport;
     try {
-      mcpFile = writeRunMcpConfig(run.id, claim.mcp);
+      mcpFile = writeRunMcpConfig(run.id, claim.mcp, this.platform);
       report = await this.runAttempts(claim, lease, prepared, env, mcpFile, feed, ctx, note);
     } catch (err) {
       report = { status: 'failed', error: (err as Error).message };
@@ -888,7 +889,7 @@ export class RunnerDaemon {
       let logFile: number | null = null;
       if (this.opts.verboseLog) {
         try {
-          logFile = fs.openSync(path.join(logsDir(), `${runId}.jsonl`), 'a');
+          logFile = fs.openSync(path.join(logsDir(this.platform), `${runId}.jsonl`), 'a');
         } catch (err) {
           console.error(`[runner] no se pudo abrir el log del run: ${(err as Error).message}`);
         }
