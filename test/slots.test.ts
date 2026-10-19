@@ -50,7 +50,7 @@ test('una sección que falla libera el turno', async () => {
 test('un run muerto mientras espera suelta el turno en cuanto le llega', async () => {
   const mutex = new KeyedMutex();
   const holder = await mutex.acquire('scratch');
-  const lease = new RunLease(7);
+  const lease = new RunLease('7');
   // el patrón del daemon (holdCwd): carrera entre el turno y la muerte del run.
   const acquiring = mutex.acquire('scratch');
   const waiting = Promise.race([acquiring, lease.killed.then(() => null)]);
@@ -65,7 +65,7 @@ test('un run muerto mientras espera suelta el turno en cuanto le llega', async (
 });
 
 test('lease: kill antes de lanzar claude se aplica al registrarlo; solo cuenta el primero', () => {
-  const lease = new RunLease(9);
+  const lease = new RunLease('9');
   lease.kill('shutdown');
   lease.kill('cancel');
   assert.equal(lease.killedBy, 'shutdown');

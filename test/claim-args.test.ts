@@ -89,7 +89,7 @@ test('parseClaim rechaza lo que acabaría en argv o en paths', () => {
   assert.throws(() => parseClaim(rawClaim({ profile: null })), /perfil/);
   assert.throws(() => parseClaim(rawClaim({}, { permissionMode: 'bypassPermissions' })), /permission mode/);
   assert.throws(() => parseClaim(rawClaim({}, { tools: { allowed: ['--dangerously-skip-permissions'], disallowed: [] } })), /tools\.allowed/);
-  assert.equal(claimRunId(rawClaim({ branch: '--x' })), 88);
+  assert.equal(claimRunId(rawClaim({ branch: '--x' })), '88');
   // server anterior a t#378: sin events y con topes numéricos.
   const legacy = parseClaim(rawClaim({ kind: 'investigate', profile: undefined }, { events: undefined, maxTurns: 40, maxBudgetUsd: 20 }));
   assert.equal(legacy.events, null);

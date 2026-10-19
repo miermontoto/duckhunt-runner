@@ -190,7 +190,7 @@ async function defaultBase(repoPath: string, env: NodeJS.ProcessEnv): Promise<Ba
  * worktree de una conversación (prompt run): reutiliza conv-<id> si ya existe; si no, lo crea
  * detached sobre origin/<rama> (fetch antes), la rama local, o la base por defecto si la rama es nueva.
  */
-export async function prepareConversationWorktree(repoPath: string, runId: number, branch: string | null, env: NodeJS.ProcessEnv): Promise<PreparedWorktree> {
+export async function prepareConversationWorktree(repoPath: string, runId: string, branch: string | null, env: NodeJS.ProcessEnv): Promise<PreparedWorktree> {
   const name = `${CONVERSATION_WORKTREE_PREFIX}${runId}`;
   const dir = path.join(worktreesDir(repoPath), name);
   const reused = await reuseWorktree(repoPath, dir, env);
@@ -228,7 +228,7 @@ export async function prepareCheckout(repoPath: string, env: NodeJS.ProcessEnv):
 }
 
 /** worktree efímero de un run de reglas: detached sobre la rama (local u origin) o HEAD, sin fetch. */
-export async function prepareRunWorktree(repoPath: string, runId: number, branch: string | null, env: NodeJS.ProcessEnv): Promise<PreparedWorktree> {
+export async function prepareRunWorktree(repoPath: string, runId: string, branch: string | null, env: NodeJS.ProcessEnv): Promise<PreparedWorktree> {
   const name = `${RUN_WORKTREE_PREFIX}${runId}`;
   const dir = path.join(worktreesDir(repoPath), name);
   // el mismo run re-encolado (respuesta a su pregunta) tras un segmento fallido: su worktree sigue ahí.

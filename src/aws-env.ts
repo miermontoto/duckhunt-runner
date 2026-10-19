@@ -74,7 +74,7 @@ export function runAwsEnv(base: NodeJS.ProcessEnv, aws: RunAws, map: Record<stri
 }
 
 /** crea el directorio de un run con la config y las credenciales de aws vacías (0700 / 0600). devuelve su ruta. */
-export function writeEmptyAwsConfig(runId: number): string {
+export function writeEmptyAwsConfig(runId: string): string {
   const dir = path.join(runConfigDir(), `${AWS_EMPTY_PREFIX}${runId}-${crypto.randomBytes(AWS_EMPTY_RANDOM_BYTES).toString('hex')}`);
   fs.mkdirSync(dir, { mode: AWS_EMPTY_DIR_MODE });
   [AWS_CONFIG, AWS_CREDENTIALS].forEach((name) => fs.writeFileSync(path.join(dir, name), '', { mode: AWS_EMPTY_FILE_MODE, flag: 'wx' }));

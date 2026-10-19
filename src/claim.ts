@@ -18,6 +18,8 @@
 //   `aws s3 rm … --exclude list-x`) y sus lecturas que escriben un fichero local, negadas siempre.
 //   un bug o una deriva del server nunca le da a una lectura una shell que ejecute o escriba.
 // - `run.segment` es la identidad del proceso: viaja de vuelta en heartbeat/progress/events/status.
+// - `run.id` (t#495, M1) es texto opaco por dentro (run-id.ts): del cable legacy solo vale un entero positivo,
+//   que se guarda como String(id); la vuelta a número para el cable vive en run-id.ts::legacyWireRunId.
 // - `run.seed` (t#465 P6) dice si la conversación nació de una plantilla de investigación: con
 //   seed_budget (0.11.0) su presupuesto se aplica aunque viaje como prompt run (claude-args.ts). el bloque
 //   `runner` de un server >= t#465 P12 no es del run: lo lee server-state.ts, y parseClaim lo ignora.
@@ -27,6 +29,8 @@
 //   solo pasa un alias o un id de modelo (MODEL_RE, el AGENT_MODEL_ID_RE del server); cualquier otra
 //   cosa se ignora con un aviso y el run sigue con el modelo de la máquina: un modelo raro no merece
 //   tumbar el claim, y un `-x` nunca llega al cli como flag.
+
+import { runIdFromLegacy } from './run-id.js';
 
 // capacidades que el daemon anuncia en el claim. el server entrega kind=prompt solo a quien
 // anuncia `prompt`, pide el feed de progreso solo a quien anuncia `events` y deja abrir una
@@ -203,7 +207,8 @@ const TOOL_ID_RE = /^[A-Za-z_][^,\n\r]{0,199}$/;
 const MCP_SERVER_NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
 export interface ClaimedRun {
-  id: number;
+  // opaco (run-id.ts): hoy el String() del entero positivo del cable legacy.
+  id: string;
   // investigate | resume | prompt (un kind desconocido se trata como run de reglas).
   kind: string;
   entryId: number;
@@ -264,9 +269,9 @@ const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 const posInt = (v: unknown): number | null => (typeof v === 'number' && Number.isSafeInteger(v) && v > 0 ? v : null);
 const posNum = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null);
 
-/** id de run válido para paths y logs (entero positivo), o null. sirve para fallar un claim roto. */
-export function claimRunId(raw: unknown): number | null {
-  return isObj(raw) && isObj(raw.run) ? posInt(raw.run.id) : null;
+/** id de run válido para paths y logs (del entero positivo legacy), o null. sirve para fallar un claim roto. */
+export function claimRunId(raw: unknown): string | null {
+  return isObj(raw) && isObj(raw.run) ? runIdFromLegacy(raw.run.id) : null;
 }
 
 /** cordura mínima de una rama para pasarla a git (git check-ref-format decide aparte). */
@@ -315,7 +320,7 @@ function eventsConfig(v: unknown): EventsConfig | null {
 export function parseClaim(raw: unknown): ClaimResponse {
   if (!isObj(raw) || !isObj(raw.run)) throw new Error('claim inválido: falta run');
   const r = raw.run;
-  const id = posInt(r.id);
+  const id = runIdFromLegacy(r.id);
   if (id === null) throw new Error('claim inválido: run.id no es un entero positivo');
   const kind = str(r.kind);
   if (!kind) throw new Error('claim inválido: run.kind ausente');
