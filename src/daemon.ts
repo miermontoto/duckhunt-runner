@@ -121,8 +121,9 @@ import { describeFinding, REPO_HEALTH_INTERVAL_MS, repoChoices, repoFindings, re
 import { ProviderRegistry } from './resources/registry.js';
 import { holdLocks, materializeRun, type MaterializedRun } from './resources/lifecycle.js';
 import { legacyRequests, legacyResourceError, legacyScratchExclusive } from './resources/legacy.js';
-import { REPO_TYPE, repoProvider } from './resources/repo/provider.js';
-import { AWS_ACCOUNT_ID_RE, AWS_TYPE, awsProvider } from './resources/aws.js';
+import { repoProvider } from './resources/repo/provider.js';
+import { AWS_ACCOUNT_ID_RE, awsProvider } from './resources/aws.js';
+import { LEGACY_RESOURCE_KEYS } from './config-legacy.js';
 import { RELEASE, type ReleaseOutcome } from './resources/types.js';
 import { applyRepoCommand, parseRepoCommands, type RepoCommandResult } from './repo-commands.js';
 import { RunLease, signalGroup } from './run-lease.js';
@@ -667,10 +668,11 @@ export class RunnerDaemon {
 
   // --- recursos del run ---
 
-  // entrada de la config local de un recurso (null = sin mapear en esta máquina).
+  // entrada de la config local de un recurso (null = sin mapear en esta máquina). repo y aws viven en las claves
+  // de siempre de la config (config-legacy.ts).
   private refOf(type: string, key: string | null): unknown {
-    const maps: Readonly<Record<string, Readonly<Record<string, unknown>>>> = { [REPO_TYPE]: this.cfg.repos, [AWS_TYPE]: this.cfg.aws };
-    const map = maps[type];
+    const field = Object.hasOwn(LEGACY_RESOURCE_KEYS, type) ? LEGACY_RESOURCE_KEYS[type] : undefined;
+    const map: Readonly<Record<string, unknown>> | undefined = field ? this.cfg[field] : undefined;
     return key !== null && map && Object.hasOwn(map, key) ? map[key] : null;
   }
 

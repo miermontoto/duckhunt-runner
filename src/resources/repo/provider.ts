@@ -11,10 +11,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { RepoConfig } from '../../config.js';
 import { CWD_WAIT_NOTE } from '../lifecycle.js';
-import { PHASE, RELEASE, type Materialized, type ResourceProvider } from '../types.js';
+import { PHASE, RELEASE, RESOURCE_TYPE, type Materialized, type ResourceProvider } from '../types.js';
 import { prepareCheckout, prepareConversationWorktree, prepareRunWorktree, removeRunWorktree, touchWorktree, type PreparedWorktree } from './worktree.js';
 
-export const REPO_TYPE = 'repo';
+export const REPO_TYPE = RESOURCE_TYPE.repo;
 export const REPO_PARAM = {
   branch: 'branch',
   worktree: 'worktree',

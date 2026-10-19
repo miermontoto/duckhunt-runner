@@ -18,10 +18,16 @@
 // del login anterior que viaja con la credencial hasta su primer claim. `logout` borra la credencial y
 // deja el resto (mapas, defaults, la identidad de la máquina): loadStoredConfig la lee sin credencial.
 // <runnerHome>/server-state.json guarda lo último que el server dijo de esta máquina (server-state.ts).
+// config v2 (t#495, M2): el modelo con recursos por tipo y plataformas (RunnerConfigV2, loadConfigV2/saveConfigV2)
+// sobre el MISMO fichero: las claves de siempre siguen siendo donde viven la credencial de duckhunt y sus repos y
+// cuentas aws, y lo solo-v2 va aparte (config-legacy.ts). un fichero sin `version` es v1; uno de una versión que
+// este runner no conoce no se lee (ni se escribe): interpretarlo a medias podría exponer lo que no debe.
 
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { filePatch, fromFile } from './config-legacy.js';
+import type { PlatformConfig } from './platforms/types.js';
 
 // permisos del fichero de config: lleva el refresh token.
 const CONFIG_FILE_MODE = 0o600;
@@ -97,6 +103,23 @@ export interface RunnerConfig extends RunnerCredential {
   defaults: RunnerDefaults;
 }
 
+/** versión del modelo de config que este runner lee y escribe (un fichero sin `version` es v1). */
+export const CONFIG_VERSION = 2;
+
+/** tipo de recurso → clave → su entrada en esta máquina (checkout, perfil aws…). */
+export type ResourcesConfig = Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+
+/** el modelo v2: los recursos de la máquina por tipo y cada plataforma con su credencial, su exposición y su techo. */
+export interface RunnerConfigV2 {
+  version: typeof CONFIG_VERSION;
+  label?: string;
+  machineId?: string;
+  machineHost?: string;
+  resources: ResourcesConfig;
+  platforms: Readonly<Record<string, PlatformConfig>>;
+  defaults: RunnerDefaults;
+}
+
 /** lo que el daemon recarga en caliente en cada vuelta de su loop: todo menos la credencial. */
 export type LocalConfig = Omit<RunnerConfig, keyof RunnerCredential>;
 
@@ -143,7 +166,11 @@ function parseObject(text: string): Record<string, unknown> {
   if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
     throw new Error(`config inválida en ${configPath()}: no es un objeto json`);
   }
-  return parsed as Record<string, unknown>;
+  const raw = parsed as Record<string, unknown>;
+  if (raw.version !== undefined && raw.version !== CONFIG_VERSION) {
+    throw new Error(`config en ${configPath()} de otra versión (version ${JSON.stringify(raw.version)}): este runner lee hasta la ${CONFIG_VERSION}, actualízalo`);
+  }
+  return raw;
 }
 
 const stored = (raw: Record<string, unknown>): StoredConfig => {
@@ -230,12 +257,15 @@ function writeAtomic(file: string, content: string): void {
   }
 }
 
+/** claves que cambia una escritura: las v1 y, desde la v2, las solo-v2 del fichero (config-legacy.ts::fileOf). */
+export type ConfigPatch = Partial<RunnerConfig> & Partial<Record<'version' | 'platforms' | 'resources', unknown>>;
+
 /**
  * cambia en la config SOLO las claves que devuelve `change`, calculadas sobre lo que hay AHORA en el
  * fichero (nunca sobre una copia en memoria); el resto, claves desconocidas incluidas, queda como
  * estaba. null = nada que escribir. devuelve la config que queda en el fichero.
  */
-export function saveConfig(change: (current: StoredConfig) => Partial<RunnerConfig> | null): StoredConfig {
+export function saveConfig(change: (current: StoredConfig) => ConfigPatch | null): StoredConfig {
   const text = readConfigText();
   const raw = text === null ? {} : parseObject(text);
   const patch = change(stored(raw));
@@ -254,4 +284,24 @@ export function mergeEntries<T>(current: Record<string, T>, before: Record<strin
   const removed = new Set(Object.keys(before).filter((key) => !Object.hasOwn(after, key)));
   const changed = Object.entries(after).filter(([key, value]) => !Object.hasOwn(before, key) || JSON.stringify(before[key]) !== JSON.stringify(value));
   return { ...Object.fromEntries(Object.entries(current).filter(([key]) => !removed.has(key))), ...Object.fromEntries(changed) };
+}
+
+/** el fichero como modelo v2 (también un v1, vía fromLegacy); null si no existe. lanza si es inválido. */
+export function loadConfigV2(): RunnerConfigV2 | null {
+  const text = readConfigText();
+  return text === null ? null : fromFile(parseObject(text));
+}
+
+/**
+ * saveConfig en el modelo v2: `change` recibe el fichero de AHORA como v2 y devuelve el v2 que debe quedar (null =
+ * nada). solo se escriben las claves del fichero que cambian, así que lo que otro escritor (un daemon ≤ 0.12, la
+ * cli) toque mientras tanto en otras claves se conserva. devuelve el v2 que queda en el fichero.
+ */
+export function saveConfigV2(change: (current: RunnerConfigV2) => RunnerConfigV2 | null): RunnerConfigV2 {
+  const saved = saveConfig((current) => {
+    const before = fromFile(current);
+    const after = change(before);
+    return after === null ? null : filePatch(before, after);
+  });
+  return fromFile(saved);
 }

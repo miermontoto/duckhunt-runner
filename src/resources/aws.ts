@@ -23,9 +23,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import type { AwsAccountConfig } from '../config.js';
 import { runConfigDir } from '../paths.js';
-import { PHASE, type ResourceProvider, type RunContext } from './types.js';
+import { PHASE, RESOURCE_TYPE, type ResourceProvider, type RunContext } from './types.js';
 
-export const AWS_TYPE = 'aws';
+export const AWS_TYPE = RESOURCE_TYPE.aws;
 // identidad aws por defecto de la máquina: una clave que solo existe si el usuario la expone.
 export const AWS_DEFAULT_KEY = 'default';
 export const AWS_ACCOUNT_ID_RE = /^\d{12}$/;
