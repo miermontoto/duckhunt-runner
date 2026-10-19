@@ -367,6 +367,7 @@
       "mcp__duckhunt__duckhunt-user-note-list",
       "mcp__duckhunt__duckhunt-user-note-get",
       "mcp__duckhunt__duckhunt-automation-list",
+      "mcp__duckhunt__duckhunt-automation-runs",
       "mcp__duckhunt__duckhunt-agent-run-list",
       "mcp__duckhunt__duckhunt-attachment-list",
       "mcp__duckhunt__duckhunt-attachment-read",
