@@ -10,12 +10,28 @@
 //   ellos (`aws configure set`) y uno compartido contaminaría a otros runs. los que dejó un daemon muerto
 //   se borran al arrancar.
 // - sin cuenta en el claim (o sin aws) nada cambia: el env del usuario tal cual, como siempre.
+// proveedor de recursos (t#495, M2): la aws es el recurso de la fase env (resources/types.ts). la clave es el id
+// de cuenta del claim y la ref su perfil mapeado; una clave sin mapear degrada a la aws vacía con un aviso. lo
+// que pone se calcula como diff sobre el env de partida, y el directorio de aws vacía se borra al soltar.
+// - `default` (la identidad aws por defecto de la máquina) es una clave más que el usuario expone a mano: nada
+//   la crea sola, y un claim legacy sin cuenta sigue con el env del usuario tal cual.
+// - aislar (isolate): un claim toolset_v1 sin grant de aws corre con la aws vacía, sin región. un claim legacy
+//   nunca se aísla: lo decide quien hace el plan (registry.ts, solo con toolset_v1).
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { AwsAccountConfig } from './config.js';
-import { runConfigDir } from './paths.js';
+import type { AwsAccountConfig } from '../config.js';
+import { runConfigDir } from '../paths.js';
+import { PHASE, type ResourceProvider, type RunContext } from './types.js';
+
+export const AWS_TYPE = 'aws';
+// identidad aws por defecto de la máquina: una clave que solo existe si el usuario la expone.
+export const AWS_DEFAULT_KEY = 'default';
+export const AWS_ACCOUNT_ID_RE = /^\d{12}$/;
+export const AWS_PARAM = {
+  region: 'region',
+} as const;
 
 const AWS_EMPTY_PREFIX = 'aws-';
 const AWS_EMPTY_RANDOM_BYTES = 4;
@@ -66,12 +82,17 @@ export function runAwsEnv(base: NodeJS.ProcessEnv, aws: RunAws, map: Record<stri
   }
   if (aws?.region) env.AWS_DEFAULT_REGION = aws.region;
   if (!accountId) return { env, unmapped: null };
-  const dir = emptyDir();
+  return { env: withEmptyAws(env, emptyDir()), unmapped: accountId };
+}
+
+// la aws cli sin credenciales: sin perfil ni claves en el env, sin metadata y con los ficheros vacíos de `dir`.
+// muta y devuelve `env` (una copia del llamador).
+function withEmptyAws(env: NodeJS.ProcessEnv, dir: string): NodeJS.ProcessEnv {
   AWS_CREDENTIAL_VARS.forEach((key) => delete env[key]);
   env.AWS_CONFIG_FILE = path.join(dir, AWS_CONFIG);
   env.AWS_SHARED_CREDENTIALS_FILE = path.join(dir, AWS_CREDENTIALS);
   env.AWS_EC2_METADATA_DISABLED = 'true';
-  return { env, unmapped: accountId };
+  return env;
 }
 
 /** crea el directorio de un run con la config y las credenciales de aws vacías (0700 / 0600). devuelve su ruta. */
@@ -89,3 +110,46 @@ export function clearRunAwsConfigs(platform: string): number {
   stale.forEach((d) => fs.rmSync(path.join(dir, d.name), { recursive: true, force: true }));
   return stale.length;
 }
+
+/** clave aws válida: un id de cuenta o la identidad por defecto. */
+export const isAwsKey = (key: string): boolean => AWS_ACCOUNT_ID_RE.test(key) || key === AWS_DEFAULT_KEY;
+
+/** aviso del feed de una cuenta que esta máquina no mapea. */
+export const unmappedAwsWarning = (account: string): string =>
+  `cuenta aws ${account} sin mapear en esta máquina: la aws cli corre sin credenciales (\`duckhunt-runner aws add ${account} <perfil>\`)`;
+
+// lo que una aws pone o quita respecto al env de partida (null = la quita).
+const envDiff = (base: NodeJS.ProcessEnv, next: NodeJS.ProcessEnv): Record<string, string | null> => ({
+  ...Object.fromEntries(Object.entries(next).filter((e): e is [string, string] => e[1] !== undefined && base[e[0]] !== e[1])),
+  ...Object.fromEntries(Object.keys(base).filter((k) => base[k] !== undefined && !Object.hasOwn(next, k)).map((k) => [k, null])),
+});
+
+// el directorio de aws vacía de un run (solo si hace falta) y cómo soltarlo.
+function emptyDirOf(ctx: RunContext): { create: () => string; drop: () => Promise<void> } {
+  let dir: string | null = null;
+  return {
+    create: () => (dir = writeEmptyAwsConfig(ctx.runId, ctx.platform)),
+    drop: async () => {
+      if (dir !== null) fs.rmSync(dir, { recursive: true, force: true });
+    },
+  };
+}
+
+export const awsProvider: ResourceProvider<AwsAccountConfig> = {
+  type: AWS_TYPE,
+  phase: PHASE.env,
+
+  async materialize(req, ref, ctx) {
+    const empty = emptyDirOf(ctx);
+    const map = req.key !== null && ref ? { [req.key]: ref } : {};
+    const { env, unmapped } = runAwsEnv(ctx.env, { accountId: req.key, region: req.params[AWS_PARAM.region] ?? null }, map, empty.create);
+    return { env: envDiff(ctx.env, env), warnings: unmapped ? [unmappedAwsWarning(unmapped)] : [], release: empty.drop };
+  },
+
+  async isolate(ctx) {
+    const empty = emptyDirOf(ctx);
+    return { env: envDiff(ctx.env, withEmptyAws({ ...ctx.env }, empty.create())), warnings: [], release: empty.drop };
+  },
+
+  sweep: clearRunAwsConfigs,
+};

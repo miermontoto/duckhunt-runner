@@ -15,7 +15,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
 import { detectClaude, OPTIONAL_FLAGS, type ClaudeInfo } from '../src/claude.js';
-import { parseClaim, type ClaimResponse } from '../src/claim.js';
+import { parseClaim, TOOLSET_V1, type ClaimResponse } from '../src/claim.js';
 import { RunnerDaemon } from '../src/daemon.js';
 import { loadConfig, type RunnerConfig } from '../src/config.js';
 import { RunLease } from '../src/run-lease.js';
@@ -123,6 +123,8 @@ interface Case {
   parallel?: boolean;
   // origin del checkout (por defecto el normal) o ninguno (el path mapeado no es un repo).
   origin?: 'escaping' | 'none';
+  // retoque del claim ya parseado (lo que ningún claim legacy trae: la marca toolset_v1).
+  patch?: (claim: ClaimResponse) => ClaimResponse;
 }
 
 interface DaemonInternals {
@@ -305,7 +307,7 @@ async function runCase(c: Case): Promise<unknown> {
   d.runConfigDeny = allRunConfigDirs().flatMap(runConfigDeny);
   d.secretDeny = secretPathsDeny(process.env).rules;
   const hold = path.join(dir, 'hold');
-  const claims = [c.raw, ...(c.then ?? [])].map((raw) => parseClaim(JSON.parse(JSON.stringify(raw).replaceAll('<hold>', hold)) as unknown));
+  const claims = [c.raw, ...(c.then ?? [])].map((raw) => (c.patch ?? ((cl: ClaimResponse) => cl))(parseClaim(JSON.parse(JSON.stringify(raw).replaceAll('<hold>', hold)) as unknown)));
   const exec = (claim: ClaimResponse): Promise<void> => d.executeRun(claim, new RunLease(claim.run.id));
   if (c.parallel) {
     const first = exec(claims[0]!);
@@ -409,4 +411,24 @@ test('el plan de lanzamiento de cada claim legacy es el de antes de los recursos
   const golden = JSON.parse(fs.readFileSync(GOLDEN, 'utf8')) as Record<string, unknown>;
   assert.deepEqual(Object.keys(plans), Object.keys(golden), 'los mismos casos');
   Object.keys(golden).forEach((name) => assert.deepEqual(plans[name], golden[name], name));
+});
+
+// fuera del golden: lo que un claim legacy no hace nunca (t#495, M2 P5).
+test('aislar la aws solo con toolset_v1: sin aws pedida, la aws vacía; el mismo claim legacy, la del usuario', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  t.mock.method(console, 'warn', () => {});
+  t.mock.method(console, 'error', () => {});
+  const raw = withRun(kit('prompt-read-full'), { id: 950, aws: null });
+  type Plan = { spawns: { env: { set: Record<string, string>; removed: string[] } }[]; runs: Record<string, { feed: { body: string }[] }>; left: { runConfig: string[] } };
+  const legacy = (await runCase({ name: 'isolate/legacy', raw })) as Plan;
+  const v1 = (await runCase({ name: 'isolate/toolset-v1', raw, patch: (cl) => ({ ...cl, toolset: { v: TOOLSET_V1 } }) })) as Plan;
+  const [legacyEnv, v1Env] = [legacy.spawns[0]!.env, v1.spawns[0]!.env];
+  assert.equal(legacyEnv.removed.includes('AWS_PROFILE'), false, 'legacy: el perfil del usuario sigue');
+  assert.equal(legacyEnv.set.AWS_CONFIG_FILE, undefined);
+  assert.ok(v1Env.removed.includes('AWS_PROFILE') && v1Env.removed.includes('AWS_ACCESS_KEY_ID'), 'toolset_v1: sin perfil ni claves');
+  assert.match(v1Env.set.AWS_CONFIG_FILE ?? '', /^<case>\/home\/run-config\/aws-950-<rand>\/config$/);
+  assert.equal(v1Env.set.AWS_EC2_METADATA_DISABLED, 'true');
+  assert.equal(v1Env.set.AWS_DEFAULT_REGION, undefined, 'sin región');
+  assert.equal(v1.runs['950']!.feed.some((e) => e.body.includes('aws')), false, 'aislar no avisa: es lo esperado');
+  assert.deepEqual(v1.left.runConfig, [], 'la aws vacía se borra al cerrar');
 });

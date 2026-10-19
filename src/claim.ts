@@ -48,7 +48,7 @@ export const RUNNER_CAPABILITY = {
   repoEdit: 'repo_edit',
   // 0.11.0 (t#465 P12): niega a Read las rutas reales de las credenciales de esta máquina en todo kit
   // de lectura (secret-paths.ts), aplica el presupuesto a las plantillas (seed_budget), corre con la aws
-  // vacía una cuenta sin mapear (aws-env.ts), anuncia el trabajo que su gc conservó (keptWorktrees) y
+  // vacía una cuenta sin mapear (resources/aws.ts), anuncia el trabajo que su gc conservó (keptWorktrees) y
   // sabe desvincularse (`logout`, y lee el bloque runner del claim).
   secretPaths: 'secret_paths',
   seedBudget: 'seed_budget',
@@ -241,6 +241,14 @@ export interface EventsConfig {
   toolArgMaxChars: number;
 }
 
+// marca de un claim con la política neutra toolset_v1 (t#495, M5): hoy ningún server la manda y parseClaim no la
+// lee aún. separa un claim toolset_v1 de uno legacy donde el runner se comporta distinto (aislar la aws de la
+// máquina, resources/aws.ts).
+export const TOOLSET_V1 = 1;
+export interface ToolsetV1 {
+  v: typeof TOOLSET_V1;
+}
+
 export interface ClaimResponse {
   run: ClaimedRun;
   prompt: string;
@@ -260,6 +268,8 @@ export interface ClaimResponse {
   mcp: { serverName: string; url: string; token: string; expiresAt: number };
   // avisos de la validación local (rama ignorada…): el daemon los loguea y los sube al feed.
   warnings: string[];
+  // null = claim legacy (todo claim de hoy).
+  toolset: ToolsetV1 | null;
 }
 
 type Obj = Record<string, unknown>;
@@ -404,5 +414,6 @@ export function parseClaim(raw: unknown): ClaimResponse {
     events: eventsConfig(raw.events),
     mcp: { serverName, url, token, expiresAt: numOrNull(mcp.expiresAt) ?? 0 },
     warnings,
+    toolset: null,
   };
 }

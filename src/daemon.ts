@@ -54,7 +54,7 @@
 //   claim o el latido de un run, para: corta sus runs, no reintenta y sale con EXIT_CODE_UNPAIRED (un
 //   servicio puede no reiniciarlo con ese código: sin `login` no vuelve).
 // - endurecimiento de lectura (0.11.0): secret_paths (secret-paths.ts) al deny de todo kit de lectura,
-//   aws_strict (aws-env.ts: una cuenta sin mapear corre con la aws vacía) y seed_budget (claude-args.ts).
+//   aws_strict (resources/aws.ts: una cuenta sin mapear corre con la aws vacía) y seed_budget (claude-args.ts).
 //   el gc anuncia en cada claim lo que conservó por guardar trabajo (worktree_report, recuentos; una
 //   conversación que vuelve a reclamarse deja de anunciarse en el acto, sin esperar al siguiente gc). al
 //   arrancar barre una vez los mcp-config que los daemons < 0.10.2 dejaban en el tmpdir.
@@ -95,7 +95,6 @@ import {
 } from './config.js';
 import { ensureMachineId } from './machine.js';
 import { secretPathsDeny } from './secret-paths.js';
-import { runAwsEnv, clearRunAwsConfigs, writeEmptyAwsConfig } from './aws-env.js';
 import {
   CLAIM_OUTCOME,
   parseRunnerBlock,
@@ -123,6 +122,7 @@ import { ProviderRegistry } from './resources/registry.js';
 import { holdLocks, materializeRun, type MaterializedRun } from './resources/lifecycle.js';
 import { legacyRequests, legacyResourceError, legacyScratchExclusive } from './resources/legacy.js';
 import { REPO_TYPE, repoProvider } from './resources/repo/provider.js';
+import { AWS_ACCOUNT_ID_RE, AWS_TYPE, awsProvider } from './resources/aws.js';
 import { RELEASE, type ReleaseOutcome } from './resources/types.js';
 import { applyRepoCommand, parseRepoCommands, type RepoCommandResult } from './repo-commands.js';
 import { RunLease, signalGroup } from './run-lease.js';
@@ -207,7 +207,7 @@ export class RunnerDaemon {
   private readonly gitLocks = new KeyedMutex();
   private readonly cwdLocks = new KeyedMutex();
   // proveedores de recursos de los runs (resources/registry.ts).
-  private readonly registry = new ProviderRegistry([repoProvider]);
+  private readonly registry = new ProviderRegistry([repoProvider, awsProvider]);
   private stopping = false;
   private exitCode = 0;
   private wake: (() => void) | null = null;
@@ -295,7 +295,7 @@ export class RunnerDaemon {
     // lanza si la ruta no cabe en una regla de permisos: sin ese deny el daemon no arranca. cubre el
     // run-config de cada plataforma con estado en disco (hoy solo el de la legacy).
     this.runConfigDeny = allRunConfigDirs().flatMap(runConfigDeny);
-    const stale = clearRunMcpConfigs(this.platform) + clearRunAwsConfigs(this.platform);
+    const stale = clearRunMcpConfigs(this.platform) + this.registry.sweep(this.platform);
     if (stale > 0) console.log(`[runner] ${stale} config(s) de runs anteriores borrada(s)`);
     const legacy = clearLegacyTmpConfigs();
     if (legacy > 0) console.log(`[runner] ${legacy} mcp-config(s) de daemons < 0.10.2 borrado(s) del tmpdir`);
@@ -422,7 +422,8 @@ export class RunnerDaemon {
         repos: Object.keys(this.cfg.repos),
         ...(this.repoHealth ? { repoIssues: this.repoHealth } : {}),
         ...(this.repoChoices ? { repoCandidates: this.repoChoices } : {}),
-        awsAccounts: Object.keys(this.cfg.aws),
+        // solo ids de cuenta: `default` (y cualquier otra clave) no es una cuenta que duckhunt conozca.
+        awsAccounts: Object.keys(this.cfg.aws).filter((key) => AWS_ACCOUNT_ID_RE.test(key)),
         capabilities: this.capabilities(),
         slots: this.slots,
         ...(runnerVersion() ? { version: runnerVersion() } : {}),
@@ -668,7 +669,7 @@ export class RunnerDaemon {
 
   // entrada de la config local de un recurso (null = sin mapear en esta máquina).
   private refOf(type: string, key: string | null): unknown {
-    const maps: Readonly<Record<string, Readonly<Record<string, unknown>>>> = { [REPO_TYPE]: this.cfg.repos };
+    const maps: Readonly<Record<string, Readonly<Record<string, unknown>>>> = { [REPO_TYPE]: this.cfg.repos, [AWS_TYPE]: this.cfg.aws };
     const map = maps[type];
     return key !== null && map && Object.hasOwn(map, key) ? map[key] : null;
   }
@@ -710,17 +711,9 @@ export class RunnerDaemon {
     console.log(
       `[runner] ${tag} reclamado (${run.kind}${run.profile ? `, perfil ${run.profile}` : ''}, entry ${run.entryId}${claim.tier ? `, tier ${claim.tier}` : ''}${run.repo ? `, repo ${run.repo}${run.branch ? `@${run.branch}` : ''}` : ''}${run.sessionId ? `, sesión ${run.sessionId}` : ''}${run.model ? `, modelo ${run.model}` : ''})`,
     );
-    // env del run: el del usuario saneado + el perfil aws de su cuenta; una cuenta que esta máquina no
-    // mapea, con la aws vacía del propio run (aws_strict), que se borra al cerrar el segmento.
-    let awsDir: string | null = null;
-    const dropAwsDir = (): void => {
-      if (awsDir !== null) fs.rmSync(awsDir, { recursive: true, force: true });
-    };
-    const aws = runAwsEnv({ ...scrubEnv(process.env), AWS_PAGER: '' }, run.aws, this.cfg.aws, () => (awsDir = writeEmptyAwsConfig(run.id, this.platform)));
-    const env = aws.env;
-    const awsWarnings = aws.unmapped
-      ? [`cuenta aws ${aws.unmapped} sin mapear en esta máquina: la aws cli corre sin credenciales (\`duckhunt-runner aws add ${aws.unmapped} <perfil>\`)`]
-      : [];
+    // env base del run: el del usuario saneado. el perfil aws de su cuenta (o la aws vacía de una cuenta sin
+    // mapear, aws_strict) lo pone el recurso aws (resources/aws.ts) y se suelta al cerrar el segmento.
+    const env = { ...scrubEnv(process.env), AWS_PAGER: '' };
     // identidad del proceso en cada llamada del run (servers anteriores a los segmentos: nada).
     const seg = run.segment !== null ? { segment: run.segment } : {};
     const heartbeat = this.startHeartbeat(lease, claim.heartbeatMs, seg);
@@ -728,11 +721,11 @@ export class RunnerDaemon {
 
     let res: MaterializedRun;
     try {
-      const plan = this.registry.plan(legacyRequests(run), (type, key) => this.refOf(type, key));
+      // solo un claim toolset_v1 aísla lo que no pide (la aws de la máquina); uno legacy, nunca.
+      const plan = this.registry.plan(legacyRequests(run), (type, key) => this.refOf(type, key), claim.toolset !== null);
       res = await materializeRun(plan, { platform: this.platform, runId: run.id, env, gitLocks: this.gitLocks }, { dir: () => scratchDir(this.platform), exclusive: legacyScratchExclusive(run) });
     } catch (err) {
       clearInterval(heartbeat);
-      dropAwsDir();
       await feed?.close();
       await this.postStatus(run.id, { status: 'failed', error: legacyResourceError(err), ...seg });
       return;
@@ -749,7 +742,7 @@ export class RunnerDaemon {
       feed?.push(systemEvent(text, ctx));
     };
     note(res.note);
-    [...claim.warnings, ...res.warnings, ...awsWarnings].forEach(note);
+    [...claim.warnings, ...res.warnings].forEach(note);
 
     const releaseLocks = await holdLocks(res.locks, this.cwdLocks, lease.killed, note);
     // mcp-config con el token per-run (run-mcp-config.ts: 0600 en un directorio 0700; se borra al terminar).
@@ -762,7 +755,6 @@ export class RunnerDaemon {
       report = { status: 'failed', error: (err as Error).message };
     } finally {
       if (mcpFile !== null) fs.rmSync(mcpFile, { force: true });
-      dropAwsDir();
       clearInterval(heartbeat);
     }
     // los recursos se sueltan (el worktree se marca o se borra) ANTES de reportar: ver cabecera. y con sus

@@ -71,11 +71,12 @@ async function releaseInReverse(steps: readonly Step[], outcome: ReleaseOutcome)
   }
 }
 
-// env con lo que pone un recurso (null = quitar).
+// env con lo que pone un recurso (null = quitar). una variable que ya estaba conserva su sitio.
 const applyEnv = (env: NodeJS.ProcessEnv, vars: Readonly<Record<string, string | null>>): NodeJS.ProcessEnv =>
   Object.entries(vars).reduce<NodeJS.ProcessEnv>((acc, [k, v]) => {
+    if (v !== null) return { ...acc, [k]: v };
     const { [k]: _, ...rest } = acc;
-    return v === null ? rest : { ...rest, [k]: v };
+    return rest;
   }, env);
 
 // i/o secuencial por fases: cada recurso ve el env que dejaron los anteriores. lanza (tras deshacer) al primer fallo.
