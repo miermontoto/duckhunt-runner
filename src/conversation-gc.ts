@@ -16,9 +16,10 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { CONVERSATION_WORKTREE_PREFIX, RUN_WORKTREE_PREFIX, describeWork, removeCleanWorktree, worktreeWork, worktreesDir } from './worktree.js';
+import { CONVERSATION_WORKTREE_PREFIX, RUN_WORKTREE_PREFIX, describeWork, removeCleanWorktree, worktreeWork } from './worktree.js';
 import type { KeptWorktree } from './server-state.js';
 import { RUN_ID_RE } from './run-id.js';
+import { worktreesDir } from './paths.js';
 
 // inactividad tras la que un worktree se puede borrar aunque el server lo dé por abierto
 // (AGENT_CONVERSATION_IDLE_TTL_MS del server).
@@ -36,24 +37,24 @@ export interface WorktreeCandidate {
   lastUsedAt: number;
 }
 
-function candidateOf(repoPath: string, name: string): WorktreeCandidate | null {
+function candidateOf(repoPath: string, name: string, platform: string): WorktreeCandidate | null {
   const kind = name.startsWith(CONVERSATION_WORKTREE_PREFIX) ? 'conversation' : name.startsWith(RUN_WORKTREE_PREFIX) ? 'run' : null;
   if (!kind) return null;
   const runId = name.slice(kind === 'conversation' ? CONVERSATION_WORKTREE_PREFIX.length : RUN_WORKTREE_PREFIX.length);
   if (!RUN_ID_RE.test(runId)) return null;
-  const dir = path.join(worktreesDir(repoPath), name);
+  const dir = path.join(worktreesDir(repoPath, platform), name);
   return { repoPath, dir, kind, runId, lastUsedAt: fs.statSync(dir).mtimeMs };
 }
 
-/** worktrees del daemon presentes en disco en los checkouts dados (paths deduplicados). */
-export function listWorktreeCandidates(repoPaths: string[]): WorktreeCandidate[] {
+/** worktrees de una plataforma presentes en disco en los checkouts dados (paths deduplicados). */
+export function listWorktreeCandidates(repoPaths: string[], platform: string): WorktreeCandidate[] {
   return [...new Set(repoPaths)]
-    .filter((repoPath) => fs.existsSync(worktreesDir(repoPath)))
+    .filter((repoPath) => fs.existsSync(worktreesDir(repoPath, platform)))
     .flatMap((repoPath) =>
       fs
-        .readdirSync(worktreesDir(repoPath), { withFileTypes: true })
+        .readdirSync(worktreesDir(repoPath, platform), { withFileTypes: true })
         .filter((e) => e.isDirectory())
-        .map((e) => candidateOf(repoPath, e.name))
+        .map((e) => candidateOf(repoPath, e.name, platform))
         .filter((c): c is WorktreeCandidate => c !== null),
     );
 }

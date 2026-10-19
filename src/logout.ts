@@ -14,6 +14,7 @@ import { configPath, loadStoredConfig, saveConfig, type RunnerCredential } from 
 import { daemonLockHolder } from './daemon-lock.js';
 import { CredentialRejectedError, refreshAccess } from './oauth.js';
 import { clearServerState } from './server-state.js';
+import { LEGACY_PLATFORM_ID } from './paths.js';
 
 // sin respuesta del server en este plazo = fallo (no se borra nada).
 const UNPAIR_TIMEOUT_MS = 30_000;
@@ -48,14 +49,14 @@ export async function unpairOnServer(cred: RunnerCredential): Promise<UnpairOutc
 /** borra la credencial de la config (y lo último que dijo el server), dejando todo lo demás. */
 export function wipeCredential(): void {
   saveConfig(() => ({ clientId: undefined, refreshToken: undefined, replacesClientId: undefined }));
-  clearServerState();
+  clearServerState(LEGACY_PLATFORM_ID);
 }
 
 export async function logoutCommand(): Promise<void> {
   const cfg = loadStoredConfig();
   if (!cfg?.baseUrl || !cfg.clientId || !cfg.refreshToken) {
     console.log(`sin credencial en ${configPath()}: nada que desvincular`);
-    clearServerState();
+    clearServerState(LEGACY_PLATFORM_ID);
     return;
   }
   const daemon = daemonLockHolder();

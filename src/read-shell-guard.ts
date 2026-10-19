@@ -40,7 +40,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { BASH_TOOL, READ_FORBIDDEN_TOOLS } from './claim.js';
 import { configPath, runnerHome } from './config.js';
-import { worktreesDir } from './worktree.js';
+import { LEGACY_PLATFORM_ID, worktreesDir } from './paths.js';
 
 // modo git de un symlink en el índice.
 const GIT_SYMLINK_MODE = '120000';
@@ -165,9 +165,10 @@ function trackedSymlinks(dir: string, env: NodeJS.ProcessEnv): Promise<string[]>
 }
 
 // worktrees del daemon dentro de `root` (un checkout con conversaciones abiertas en worktree). lanza
-// si uno con contenido ya no es un worktree (sin .git): git no listaría lo que trajo su rama.
+// si uno con contenido ya no es un worktree (sin .git): git no listaría lo que trajo su rama. solo el
+// espacio de la plataforma legacy (t#495 M1): con varias plataformas (M6) se recorrerán todos.
 function daemonWorktreesIn(root: string): string[] {
-  const dir = worktreesDir(root);
+  const dir = worktreesDir(root, LEGACY_PLATFORM_ID);
   let entries: fs.Dirent[];
   try {
     entries = fs.readdirSync(dir, { withFileTypes: true });

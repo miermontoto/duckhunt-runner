@@ -18,7 +18,8 @@ import { EXIT_CODE_UNPAIRED, RunnerDaemon } from '../src/daemon.js';
 import { describeServerState } from '../src/status.js';
 import { reposCommand } from '../src/repos.js';
 import { awsCommand } from '../src/aws.js';
-import { readServerState, serverStatePath, writeServerState } from '../src/server-state.js';
+import { readServerState, writeServerState } from '../src/server-state.js';
+import { LEGACY_PLATFORM_ID, serverStatePath } from '../src/paths.js';
 
 const BASE = 'https://duckhunt.test';
 const HOST = 'fa';
@@ -161,9 +162,9 @@ test('el claim anuncia la máquina y su login anterior hasta que el server lo ac
   await daemon.claim();
   const second = server.calls.filter((c) => c.url.endsWith('/claim'))[1]!;
   assert.equal(second.body!.replacesClientId, undefined, 'y del siguiente claim');
-  const state = readServerState();
+  const state = readServerState(LEGACY_PLATFORM_ID);
   assert.deepEqual([state?.clientId, state?.state, state?.runner], ['c2', 'paused', runner]);
-  assert.equal(fs.statSync(serverStatePath()).mode & 0o777, 0o600);
+  assert.equal(fs.statSync(serverStatePath(LEGACY_PLATFORM_ID)).mode & 0o777, 0o600);
   const lines = describeServerState(state, 'c2').join('\n');
   assert.match(lines, /máquina #7 «servidor» · pausa sí · acepta conversations · tope de slots 1/);
   assert.match(lines, /en pausa/);
@@ -176,7 +177,7 @@ test('un server anterior (204 sin cuerpo): el estado queda sin bloque runner, co
   const daemon = daemonFor(loadConfig()!);
   await daemon.reloadConfig();
   await daemon.claim();
-  const state = readServerState();
+  const state = readServerState(LEGACY_PLATFORM_ID);
   assert.deepEqual([state?.state, state?.runner], ['full', null]);
   assert.match(describeServerState(state, 'c1').join('\n'), /duckhunt anterior a 0\.11/);
   assert.match(describeServerState(state, 'otra').join('\n'), /credencial anterior/);
@@ -193,7 +194,7 @@ test('un refresh rechazado (desvinculada desde duckhunt): el daemon para con EXI
   assert.equal(daemon.stopping, true);
   assert.equal(daemon.exitCode, EXIT_CODE_UNPAIRED);
   assert.match(String(error.mock.calls.at(-1)?.arguments[0]), /desvinculada desde duckhunt.*el daemon se detiene/);
-  assert.equal(readServerState()?.state, 'unpaired');
+  assert.equal(readServerState(LEGACY_PLATFORM_ID)?.state, 'unpaired');
   await assert.rejects(refreshAccess({ baseUrl: BASE, clientId: 'c1', refreshToken: 'r1' }), CredentialRejectedError);
 });
 
@@ -203,7 +204,7 @@ test('logout: desvincula en el server con su propia credencial y borra solo la c
   const log = t.mock.method(console, 'log', () => {});
   const server = fakeServer();
   server.unpair = () => Response.json({ ok: true, runnerId: 7, canceled: [41, 42] });
-  writeServerState({ at: 1, baseUrl: BASE, clientId: 'c1', state: null, runner: null, kept: null });
+  writeServerState({ at: 1, baseUrl: BASE, clientId: 'c1', state: null, runner: null, kept: null }, LEGACY_PLATFORM_ID);
   await logoutCommand();
   const unpair = server.calls.find((c) => c.url.endsWith('/api/runner/unpair'))!;
   assert.equal(unpair.auth, 'Bearer access:c1');
@@ -212,7 +213,7 @@ test('logout: desvincula en el server con su propia credencial y borra solo la c
   assert.deepEqual([left.baseUrl, left.machineId, left.label], [BASE, MACHINE, 'fa'], 'la máquina y su instancia se quedan');
   assert.deepEqual(left.repos, base.repos);
   assert.deepEqual(left.aws, base.aws);
-  assert.equal(readServerState(), null);
+  assert.equal(readServerState(LEGACY_PLATFORM_ID), null);
   assert.equal(loadStoredConfig()?.clientId, undefined);
   assert.throws(() => loadConfig(), /config incompleta/, '`start` pide login');
   // los mapas se quedan y se siguen viendo y editando sin credencial.

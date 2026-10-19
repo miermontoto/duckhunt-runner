@@ -5,7 +5,7 @@
 // defecto, que puede ser OTRA cuenta (el server ya no manda los patrones aws a una plantilla cuya cuenta
 // no anuncia la máquina, t#465 P6; esto es la segunda línea, también para los prompt runs).
 // decisiones:
-// - los ficheros vacíos van en <runnerHome>/run-config/aws-<run>-<rand>/ (0700, como los mcp-config: ya
+// - los ficheros vacíos van en el run-config de la plataforma (paths.ts), aws-<run>-<rand>/ (0700, como los mcp-config: ya
 //   negado a Read en todo kit) y se borran al cerrar el segmento; un run en edición podría escribir en
 //   ellos (`aws configure set`) y uno compartido contaminaría a otros runs. los que dejó un daemon muerto
 //   se borran al arrancar.
@@ -14,7 +14,8 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { runConfigDir, type AwsAccountConfig } from './config.js';
+import type { AwsAccountConfig } from './config.js';
+import { runConfigDir } from './paths.js';
 
 const AWS_EMPTY_PREFIX = 'aws-';
 const AWS_EMPTY_RANDOM_BYTES = 4;
@@ -74,16 +75,16 @@ export function runAwsEnv(base: NodeJS.ProcessEnv, aws: RunAws, map: Record<stri
 }
 
 /** crea el directorio de un run con la config y las credenciales de aws vacías (0700 / 0600). devuelve su ruta. */
-export function writeEmptyAwsConfig(runId: string): string {
-  const dir = path.join(runConfigDir(), `${AWS_EMPTY_PREFIX}${runId}-${crypto.randomBytes(AWS_EMPTY_RANDOM_BYTES).toString('hex')}`);
+export function writeEmptyAwsConfig(runId: string, platform: string): string {
+  const dir = path.join(runConfigDir(platform), `${AWS_EMPTY_PREFIX}${runId}-${crypto.randomBytes(AWS_EMPTY_RANDOM_BYTES).toString('hex')}`);
   fs.mkdirSync(dir, { mode: AWS_EMPTY_DIR_MODE });
   [AWS_CONFIG, AWS_CREDENTIALS].forEach((name) => fs.writeFileSync(path.join(dir, name), '', { mode: AWS_EMPTY_FILE_MODE, flag: 'wx' }));
   return dir;
 }
 
 /** borra los directorios de aws vacía que dejó un daemon anterior. solo al arrancar, con el lock tomado. devuelve cuántos. */
-export function clearRunAwsConfigs(): number {
-  const dir = runConfigDir();
+export function clearRunAwsConfigs(platform: string): number {
+  const dir = runConfigDir(platform);
   const stale = fs.readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory() && d.name.startsWith(AWS_EMPTY_PREFIX));
   stale.forEach((d) => fs.rmSync(path.join(dir, d.name), { recursive: true, force: true }));
   return stale.length;

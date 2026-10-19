@@ -11,7 +11,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { concurrency, configPath, deprecatedRepoFlags, loadStoredConfig, REPO_FLAGS_DEPRECATED, scratchDir } from './config.js';
+import { concurrency, configPath, deprecatedRepoFlags, loadStoredConfig, REPO_FLAGS_DEPRECATED } from './config.js';
+import { LEGACY_PLATFORM_ID, scratchDir } from './paths.js';
 import { daemonLockHolder } from './daemon-lock.js';
 import { detectClaude } from './claude.js';
 import { announcedCapabilities } from './announced-capabilities.js';
@@ -95,7 +96,7 @@ export async function statusCommand(): Promise<void> {
     console.log(`servidor:   ${cfg.baseUrl ?? '(sin login)'}`);
     console.log(`runner:     ${cfg.label ?? os.hostname()} (${cfg.clientId ? `client ${cfg.clientId}` : 'sin credencial: `duckhunt-runner login`'})`);
     console.log(`máquina:    ${cfg.machineId ?? 'sin id (lo genera el daemon al arrancar)'}${cfg.machineId && !ownedHere(cfg) ? ` — generado en ${cfg.machineHost ?? 'otra máquina'}: haz \`login\` aquí para que sea otra máquina` : ''}`);
-    if (cfg.clientId) describeServerState(readServerState(), cfg.clientId).forEach((line) => console.log(line));
+    if (cfg.clientId) describeServerState(readServerState(LEGACY_PLATFORM_ID), cfg.clientId).forEach((line) => console.log(line));
     console.log(`modelo:     el que pida duckhunt en cada run; si no pide ninguno, ${cfg.defaults.model ? `${cfg.defaults.model} (defaults.model)` : 'el default del cli'}`);
     console.log(`slots:      ${concurrency(cfg.defaults)} run(s) a la vez (defaults.maxConcurrent)`);
     console.log(`mapa:       ${cfg.defaults.remoteRepoEdits === false ? 'solo por la cli (defaults.remoteRepoEdits: false)' : 'también desde duckhunt (quitar repos, elegir carpeta)'}`);
@@ -114,7 +115,7 @@ export async function statusCommand(): Promise<void> {
   if (claude.version) {
     console.log(`capacidades: ${announcedCapabilities({ hasAws: aws !== null, supported: claude.supported, remoteRepoEdits: cfg?.defaults.remoteRepoEdits }).join(' ')}`);
   }
-  console.log(`scratch:    ${scratchDir()}`);
+  console.log(`scratch:    ${scratchDir(LEGACY_PLATFORM_ID)}`);
   if (!cfg) return;
   const repos = Object.entries(cfg.repos);
   console.log(`repos:      ${repos.length === 0 ? 'ninguno mapeado (`repos discover <dir>`)' : ''}`);

@@ -8,7 +8,7 @@ import path from 'node:path';
 import { test } from 'node:test';
 import { compareRunIds, isLegacyRunId, legacyWireRunId, RUN_ID_RE, runIdFromLegacy } from '../src/run-id.js';
 import { listWorktreeCandidates } from '../src/conversation-gc.js';
-import { worktreesDir } from '../src/worktree.js';
+import { LEGACY_PLATFORM_ID, worktreesDir } from '../src/paths.js';
 
 test('RUN_ID_RE: texto apto para nombres de fichero, nunca rutas ni espacios', () => {
   ['1', '88', 'l-01HZXK9Q', 'abc_DEF-9', 'x'.repeat(64)].forEach((id) => assert.ok(RUN_ID_RE.test(id), id));
@@ -35,9 +35,9 @@ test('orden: los numéricos por valor, como ya los mandaba el cable; los opacos 
 test('gc: los conv-<n> de siempre siguen casando, los opacos también, y nada que no sea un id', () => {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'duckhunt-runner-run-id-'));
   try {
-    ['conv-123', 'conv-l-01ab_c', 'run-7', 'conv-a.b', 'conv-', 'otro'].forEach((name) => fs.mkdirSync(path.join(worktreesDir(repo), name), { recursive: true }));
+    ['conv-123', 'conv-l-01ab_c', 'run-7', 'conv-a.b', 'conv-', 'otro'].forEach((name) => fs.mkdirSync(path.join(worktreesDir(repo, LEGACY_PLATFORM_ID), name), { recursive: true }));
     assert.deepEqual(
-      listWorktreeCandidates([repo]).map((c) => `${c.kind}:${c.runId}`).sort(),
+      listWorktreeCandidates([repo], LEGACY_PLATFORM_ID).map((c) => `${c.kind}:${c.runId}`).sort(),
       ['conversation:123', 'conversation:l-01ab_c', 'run:7'],
     );
   } finally {

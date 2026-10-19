@@ -6,6 +6,8 @@
 //   de los runs, lock, server-state y los mcp-config (ya negados por run-mcp-config.ts). el scratch NO: es
 //   el cwd de los runs sin repo (negarlo dejaría a uno de lectura sin poder leer su propio directorio) y la
 //   shell de lectura no sale de su cwd, así que el resto del estado solo lo alcanzaría la tool Read.
+// - el estado de cada plataforma no legacy (t#495, <runnerHome>/platforms/<id>/): sus logs, run-config y
+//   server-state, nunca su scratch (el cwd de sus runs sin repo, por la misma razón que el de arriba).
 // - $CLAUDE_CONFIG_DIR/.credentials.json y AWS_SHARED_CREDENTIALS_FILE / AWS_CONFIG_FILE si están.
 // - el realpath de cada una y de las de la lista genérica cuando difiere (dotfiles: ~/.aws enlazado a otro
 //   sitio deja ~/.aws/** sin efecto sobre la ruta real).
@@ -21,9 +23,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { configPath, runnerHome } from './config.js';
 import { readDenyRule } from './run-mcp-config.js';
+import { PLATFORM_PRIVATE_ENTRIES, PLATFORM_SCRATCH_SUBDIR, PLATFORMS_DIR_NAME } from './paths.js';
 
-// subdirectorio del estado que es el cwd de los runs sin repo (config.ts::scratchDir).
-const SCRATCH_SUBDIR = 'scratch';
 // lo que el daemon escribe en su estado aunque aún no exista al arrancar (logs con --verbose, el lock y
 // lo último que dijo el server): directorios con `/` final.
 const RUNNER_HOME_PRIVATE = ['logs/', 'daemon.lock', 'server-state.json'];
@@ -56,16 +57,34 @@ function withRealpath(c: Candidate): Candidate[] {
   }
 }
 
-// lo que hay en el estado del daemon, salvo el scratch, más lo que escribirá.
-function runnerHomeEntries(home: string): Candidate[] {
-  let listed: fs.Dirent[] = [];
+// entradas de `dir` (directorios con `/` final), vacío si no existe.
+function listed(dir: string): fs.Dirent[] {
   try {
-    listed = fs.readdirSync(home, { withFileTypes: true });
+    return fs.readdirSync(dir, { withFileTypes: true });
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    return [];
   }
-  const present = listed.filter((d) => d.name !== SCRATCH_SUBDIR).map((d) => `${d.name}${d.isDirectory() ? '/' : ''}`);
-  return Array.from(new Set([...present, ...RUNNER_HOME_PRIVATE])).map((rel) => entry(home, rel));
+}
+
+// lo que hay en `dir` salvo `skip`, más lo que se escribirá aunque aún no exista (`always`).
+function privateEntries(dir: string, always: readonly string[], skip: readonly string[]): Candidate[] {
+  const present = listed(dir)
+    .filter((d) => !skip.includes(d.name))
+    .map((d) => `${d.name}${d.isDirectory() ? '/' : ''}`);
+  return Array.from(new Set([...present, ...always])).map((rel) => entry(dir, rel));
+}
+
+// lo que hay en el estado del daemon, salvo el scratch, más lo que escribirá. platforms/ no se niega entero:
+// dentro está el scratch de cada plataforma, que es el cwd de sus runs; se niega lo privado de cada una.
+function runnerHomeEntries(home: string): Candidate[] {
+  const platforms = path.join(home, PLATFORMS_DIR_NAME);
+  return [
+    ...privateEntries(home, RUNNER_HOME_PRIVATE, [PLATFORM_SCRATCH_SUBDIR, PLATFORMS_DIR_NAME]),
+    ...listed(platforms)
+      .filter((d) => d.isDirectory())
+      .flatMap((d) => privateEntries(path.join(platforms, d.name), PLATFORM_PRIVATE_ENTRIES, [PLATFORM_SCRATCH_SUBDIR])),
+  ];
 }
 
 /** deny de Read de las rutas reales de las credenciales de esta máquina (ver cabecera), con `env` el del daemon. */
