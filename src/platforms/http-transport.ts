@@ -86,7 +86,9 @@ export class HttpTransport {
    *  adoptar), así que deja de mandarse. el fichero solo se toca si sigue siendo de la misma credencial. */
   accepted(clientId: string, replaces: string): void {
     if (this.current.clientId !== clientId || this.current.replacesClientId !== replaces) return;
-    this.current = { baseUrl: this.current.baseUrl, clientId, refreshToken: this.current.refreshToken };
+    // sin replacesClientId; lo demás (el token endpoint de una plataforma que lo trae) se queda.
+    const { replacesClientId: _, ...rest } = this.current;
+    this.current = rest;
     try {
       this.store.clearReplaces(clientId, replaces);
     } catch (err) {

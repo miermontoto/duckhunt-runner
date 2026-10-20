@@ -30,7 +30,11 @@ const FIXTURES = new URL('../../test/fixtures/', import.meta.url);
 const BASE = 'https://plataforma.test';
 const REPO = 'okt/api';
 const TYPES = ['repo', 'aws'];
-const TRUSTED: V0Enforcement = { ceiling: LEGACY_CEILING, expose: LEGACY_EXPOSE, resourceTypes: TYPES, awsCli: true };
+// el server de los fixtures (el de los tests de duckhunt) habla http con un host de pruebas: sus servidores mcp se
+// leen como el https que serían en producción, porque una plataforma remota solo puede tenerlos en su origen https.
+const FIXTURE_HOST = 'http://duckhunt.test';
+const PLATFORM = 'https://duckhunt.test';
+const TRUSTED: V0Enforcement = { ceiling: LEGACY_CEILING, expose: LEGACY_EXPOSE, resourceTypes: TYPES, awsCli: true, platformBaseUrl: PLATFORM };
 const PROTOCOL_HEADER = 'agent-runner-protocol';
 const HOLD_POLL_MS = 20;
 const WAIT_TIMEOUT_MS = 20_000;
@@ -40,7 +44,10 @@ const CANCEL_WITHIN_MS = 5_000 + 3_000;
 type Obj = Record<string, unknown>;
 const clone = <T>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
 const v0Cases = (): string[] => fs.readdirSync(new URL('v0/', FIXTURES)).filter((f) => f.endsWith('.json')).sort();
-const v0Run = (file: string): Obj => (JSON.parse(fs.readFileSync(new URL(`v0/${file}`, FIXTURES), 'utf8')) as { run: Obj }).run;
+const v0Run = (file: string): Obj => {
+  const { run } = JSON.parse(fs.readFileSync(new URL(`v0/${file}`, FIXTURES), 'utf8')) as { run: Obj };
+  return { ...run, mcpServers: (run.mcpServers as Obj[]).map((s) => ({ ...s, url: String(s.url).replace(FIXTURE_HOST, PLATFORM) })) };
+};
 const capsOf = (file: string): string[] => (JSON.parse(fs.readFileSync(new URL(`toolset-v1/${file}`, FIXTURES), 'utf8')) as { capabilities: string[] }).capabilities;
 const toolsetOf = (run: Obj): Obj => (run.policy as Obj).toolset as Obj;
 
@@ -141,6 +148,28 @@ test('rechazos: tipo que no se sirve, clave no expuesta, techo sin acceso, recur
   rejected(() => claimOfV0(reserved, TRUSTED), CLAIM_REJECT.invalid);
   rejected(() => claimOfV0(withGrant({ type: 'repo', key: 'okt/web', access: 'read' }), TRUSTED), CLAIM_REJECT.invalid);
   rejected(() => claimOfV0({ ...clone(base), id: 'no vale' }, TRUSTED), CLAIM_REJECT.invalid);
+});
+
+test('servidores mcp solo en el origen de la plataforma: ni otro host, ni un servicio de localhost, ni http fuera de loopback (t#495, M6.4)', () => {
+  const base = v0Run('prompt-read-full.json');
+  const withUrl = (url: string, index = 0): Obj => {
+    const raw = clone(base);
+    const servers = raw.mcpServers as Obj[];
+    if (index >= servers.length) servers.push({ name: 'extra', url, token: 'tok-extra', expiresAt: 0 });
+    else servers[index]!.url = url;
+    return raw;
+  };
+  assert.equal(claimOfV0(withUrl(`${PLATFORM}/mcp`), TRUSTED).claim.mcp.url, `${PLATFORM}/mcp`, 'su mismo origen https vale');
+  ['https://otro.test/mcp', 'http://127.0.0.1:8080/mcp', 'http://localhost/mcp', `${PLATFORM}:8443/mcp`, `${FIXTURE_HOST}/mcp`].forEach((url) =>
+    rejected(() => claimOfV0(withUrl(url), TRUSTED), CLAIM_REJECT.mcpOrigin),
+  );
+  rejected(() => claimOfV0(withUrl('http://localhost:3000/mcp', 1), TRUSTED), CLAIM_REJECT.mcpOrigin);
+  // una plataforma remota en http: ni su propio origen vale.
+  rejected(() => claimOfV0(withUrl(`${FIXTURE_HOST}/mcp`), { ...TRUSTED, platformBaseUrl: FIXTURE_HOST }), CLAIM_REJECT.mcpOrigin);
+  // en loopback (desarrollo) vale http, pero solo en su mismo puerto.
+  const dev = { ...TRUSTED, platformBaseUrl: 'http://127.0.0.1:4000' };
+  assert.equal(claimOfV0(withUrl('http://127.0.0.1:4000/mcp'), dev).claim.mcp.url, 'http://127.0.0.1:4000/mcp');
+  rejected(() => claimOfV0(withUrl('http://127.0.0.1:5000/mcp'), dev), CLAIM_REJECT.mcpOrigin);
 });
 
 test('el techo acota: shell, escritura, web, push y el acceso de cada grant al mínimo; un run de lectura nunca escribe', () => {

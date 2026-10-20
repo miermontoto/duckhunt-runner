@@ -6,11 +6,15 @@
 // de un solo daemon (daemon-lock.ts) y lo suelta al salir; `login`, `repos` y `aws` con el daemon en
 // marcha valen sin reiniciarlo (lo recarga en cada vuelta de su loop). `resource` (t#495, M2) es la cli genérica
 // de los recursos de la máquina por tipo: `repos` y `aws` son sus tipos repo y aws (resource.ts).
+// (t#495, M6.4) `login <url> --as [id]` da de alta otra plataforma (platform-login.ts), `platforms` las gestiona
+// (platforms-cli.ts) y `logout <id>` desvincula una; `login` y `logout` a secas son los de siempre (duckhunt).
 
 import { configPath, DEFAULT_BASE_URL, loadConfig } from './config.js';
 import { acquireDaemonLock } from './daemon-lock.js';
 import { login, parseLoginArgs } from './oauth.js';
 import { logoutCommand } from './logout.js';
+import { parsePlatformLoginArgs, platformLogin } from './platform-login.js';
+import { platformsCommand } from './platforms-cli.js';
 import { RunnerDaemon } from './daemon.js';
 import { reposCommand } from './repos.js';
 import { awsCommand } from './aws.js';
@@ -23,7 +27,12 @@ const USAGE = `duckhunt-runner — daemon local de agent runs
 uso:
   duckhunt-runner login [base-url] [label]   conecta el runner (pega el código del browser)
                                             sin base-url apunta a ${DEFAULT_BASE_URL}
+  duckhunt-runner login <url> --as [id] [--name <n>] [--trusted]
+                                            da de alta otra plataforma (su discovery y su oauth)
   duckhunt-runner logout                     desvincula esta máquina de duckhunt y borra su credencial
+  duckhunt-runner logout <id>                lo mismo con otra plataforma
+  duckhunt-runner platforms list|pause|resume|remove|expose|unexpose|trust|untrust
+                                            las plataformas de esta máquina
   duckhunt-runner status                     kit de esta máquina y lo que duckhunt dice de ella
   duckhunt-runner start [--verbose]          arranca el daemon
   duckhunt-runner repos list|add|remove|discover
@@ -43,12 +52,21 @@ async function main(): Promise<void> {
     return;
   }
   if (cmd === 'login') {
+    const platform = parsePlatformLoginArgs(rest);
+    if (platform) {
+      await platformLogin(platform);
+      return;
+    }
     const { baseUrl, label } = parseLoginArgs(rest);
     await login(baseUrl, label);
     return;
   }
   if (cmd === 'logout') {
-    await logoutCommand();
+    await logoutCommand(rest[0]);
+    return;
+  }
+  if (cmd === 'platforms') {
+    await platformsCommand(rest);
     return;
   }
   if (cmd === 'status') {
