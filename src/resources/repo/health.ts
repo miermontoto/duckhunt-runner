@@ -25,11 +25,12 @@ import type { RepoConfig } from '../../config.js';
 import { repoKeyFromRemote, sameRepoKey } from '../../repo-key.js';
 import { gitMaybe } from './worktree.js';
 import { LEGACY_PLATFORM_ID, worktreesDir } from '../../paths.js';
+import { RUNNER_REPO_ISSUES_MAX } from '../../vendor/runner-protocol/index.js';
 
 // cadencia del chequeo (y el primero, al arrancar).
 export const REPO_HEALTH_INTERVAL_MS = 10 * 60_000;
-// issues por claim (RUNNER_REPO_ISSUES_MAX del server).
-export const REPO_ISSUES_MAX = 200;
+// issues por claim (RUNNER_REPO_ISSUES_MAX del protocolo).
+export const REPO_ISSUES_MAX = RUNNER_REPO_ISSUES_MAX;
 // procesos git a la vez: un escaneo son cientos y no deben competir con los runs.
 const GIT_BATCH = 8;
 const WORKTREE_LINE_PREFIX = 'worktree ';

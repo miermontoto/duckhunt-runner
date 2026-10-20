@@ -33,7 +33,8 @@
     "build": "tsc",
     "prepublishOnly": "npm run build",
     "start": "node dist/index.js",
-    "test": "tsc -p tsconfig.test.json && node --test \"dist-test/test/*.test.js\""
+    "test": "tsc -p tsconfig.test.json && node --test \"dist-test/test/*.test.js\"",
+    "vendor:protocol": "node scripts/vendor-protocol.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

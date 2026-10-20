@@ -144,6 +144,7 @@ import { EXPOSE_ALL, isExposed, PLATFORM_DEFAULT_SLOTS, type PlatformConfig } fr
 import { PLATFORM_FACTORIES } from './platforms/duckhunt42.js';
 import { Scheduler } from './platforms/scheduler.js';
 import { PLATFORM_STATE, PlatformSupervisor, type SupervisorHooks } from './platforms/supervisor.js';
+import { RUNNER_LABEL_MAX_CHARS } from './vendor/runner-protocol/index.js';
 
 const execFileP = promisify(execFile);
 
@@ -282,8 +283,10 @@ export class RunnerDaemon {
   // el loop principal ya arrancó (los supervisores nuevos arrancan su poll al crearse).
   private running = false;
 
+  // la etiqueta que se anuncia, dentro de lo que el server acepta: recortada, sin quedarse vacía y como mucho
+  // RUNNER_LABEL_MAX_CHARS. una más larga (o en blanco) tumbaba cada claim con un 400.
   private label(): string {
-    return this.cfg.label ?? os.hostname();
+    return clip(this.cfg.label?.trim() || os.hostname(), RUNNER_LABEL_MAX_CHARS);
   }
 
   // capacidades que se anuncian: prompt solo si el cli puede cumplir su perfil (permission mode

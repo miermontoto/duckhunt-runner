@@ -16,6 +16,7 @@ import { isLegacyRunId, legacyWireRunId } from '../run-id.js';
 import { CLAIM_OUTCOME, parseRunnerBlock } from '../server-state.js';
 import { clampReport, type StatusReport } from '../status-report.js';
 import type { RunnerCredential } from '../config.js';
+import { RUNNER_CLAUDE_VERSION_MAX_CHARS, RUNNER_STATE_HEADER } from '../vendor/runner-protocol/index.js';
 import { HttpTransport } from './http-transport.js';
 import { credentialStore } from './credentials.js';
 import {
@@ -33,10 +34,10 @@ import {
 
 // cabecera de la respuesta del claim con los comandos de repos pendientes para esta máquina.
 const REPO_COMMANDS_HEADER = 'x-duckhunt-repo-commands';
-// cabecera del 204 (o del 200 sin trabajo de un server >= t#465 P12) con el motivo de no recibir trabajo.
-const RUNNER_STATE_HEADER = 'x-duckhunt-runner-state';
-// tope de la versión del cli que el claim anuncia (RUNNER_CLAUDE_VERSION_MAX_CHARS).
-const CLAUDE_VERSION_MAX_CHARS = 80;
+// cabecera del 204 (o del 200 sin trabajo de un server >= t#465 P12) con el motivo de no recibir trabajo: la
+// RUNNER_STATE_HEADER del protocolo. y el tope de la versión del cli que el claim anuncia
+// (RUNNER_CLAUDE_VERSION_MAX_CHARS del protocolo).
+const CLAUDE_VERSION_MAX_CHARS = RUNNER_CLAUDE_VERSION_MAX_CHARS;
 // estado del run que el latido espera mientras el proceso es su dueño.
 const RUN_STATUS_RUNNING = 'running';
 // POST /status: intentos con backoff exponencial (2 s, 4 s, 8 s, 16 s).
