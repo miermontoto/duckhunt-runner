@@ -20,6 +20,8 @@ import type { KeyedMutex } from '../keyed-mutex.js';
 export const RESOURCE_TYPE = {
   repo: 'repo',
   aws: 'aws',
+  // sesión guardada de un navegador (odysea, t#495 M7): resources/browser.
+  browser: 'browser',
 } as const;
 
 export const ACCESS = {

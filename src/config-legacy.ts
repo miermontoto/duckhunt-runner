@@ -18,6 +18,8 @@
 //   reclama, platforms/types.ts); la legacy solo habla el suyo.
 // - (M6.4) issuer y nombre de cada plataforma, y el token endpoint de su credencial si no es el de siempre: solo en
 //   el origen de su base (el refresh token no sale de él).
+// - (M7) las sesiones de navegador (`resources.browser.<clave>`) se validan al leer como el resto de lo v2, y
+//   `providers` (dónde está odysea y su vault) es otra clave solo-v2: ausente o vacía no se escribe.
 
 import type { RepoConfig, AwsAccountConfig, RunnerConfigV2, RunnerCredential, ResourcesConfig } from './config.js';
 import { CONFIG_VERSION } from './config.js';
@@ -26,6 +28,7 @@ import { sameSecureOrigin, urlOf } from './platforms/origin.js';
 import { PROTOCOL } from './platforms/platform.js';
 import { DEFAULT_CEILING, EXPOSE_ALL, LEGACY_CEILING, LEGACY_EXPOSE, SHELL, type Exposure, type PlatformConfig, type ToolsetCeiling } from './platforms/types.js';
 import { ACCESS, RESOURCE_TYPE } from './resources/types.js';
+import { parseBrowserRef, parseProviders } from './resources/browser/config.js';
 
 /** tipo de recurso → la clave del fichero v1 donde vive (también en un fichero v2). */
 export const LEGACY_RESOURCE_KEYS: Readonly<Record<string, 'repos' | 'aws'>> = { [RESOURCE_TYPE.repo]: 'repos', [RESOURCE_TYPE.aws]: 'aws' };
@@ -148,6 +151,26 @@ function platformOf(id: string, v: unknown, base: PlatformConfig): PlatformConfi
 
 const newPlatform: PlatformConfig = { trusted: false, expose: {}, ceiling: DEFAULT_CEILING };
 
+// las sesiones de navegador de `resources.browser`, cada una validada (resources/browser/config.ts).
+const browserEntries = (entries: Raw): Raw =>
+  Object.fromEntries(
+    Object.entries(entries).map(([key, v]) => {
+      try {
+        return [key, parseBrowserRef(key, v, `resources.${RESOURCE_TYPE.browser}.${key}`)];
+      } catch (err) {
+        throw invalid((err as Error).message);
+      }
+    }),
+  );
+
+function providersOf(v: unknown): ReturnType<typeof parseProviders> {
+  try {
+    return parseProviders(v);
+  } catch (err) {
+    throw invalid((err as Error).message);
+  }
+}
+
 /** modelo v2 de un fichero: v1 (sin `version`) vía fromLegacy; v2, sus claves v1 más lo solo-v2. */
 export function fromFile(raw: Raw): RunnerConfigV2 {
   const base = fromLegacy(raw);
@@ -159,9 +182,15 @@ export function fromFile(raw: Raw): RunnerConfigV2 {
   const resources = Object.entries(isObj(raw.resources) ? raw.resources : {}).map(([type, entries]) => {
     if (Object.hasOwn(LEGACY_RESOURCE_KEYS, type)) throw invalid(`resources.${type}: vive en ${LEGACY_RESOURCE_KEYS[type]}`);
     if (!isObj(entries)) throw invalid(`resources.${type} no es un objeto`);
-    return [type, entries] as const;
+    return [type, type === RESOURCE_TYPE.browser ? browserEntries(entries) : entries] as const;
   });
-  return { ...base, resources: { ...base.resources, ...Object.fromEntries(resources) }, platforms: { ...base.platforms, ...Object.fromEntries(platforms) } };
+  const providers = raw.providers === undefined ? undefined : providersOf(raw.providers);
+  return {
+    ...base,
+    resources: { ...base.resources, ...Object.fromEntries(resources) },
+    platforms: { ...base.platforms, ...Object.fromEntries(platforms) },
+    ...(providers && Object.keys(providers).length > 0 ? { providers } : {}),
+  };
 }
 
 /**
@@ -178,7 +207,8 @@ export function fileOf(cfg: RunnerConfigV2): Record<string, unknown> {
     ...Object.entries(cfg.platforms).filter(([id]) => id !== LEGACY_PLATFORM_ID),
   ]);
   const resources: ResourcesConfig = Object.fromEntries(Object.entries(cfg.resources).filter(([type, entries]) => !Object.hasOwn(LEGACY_RESOURCE_KEYS, type) && Object.keys(entries).length > 0));
-  const extra = Object.keys(platforms).length > 0 || Object.keys(resources).length > 0;
+  const providers = cfg.providers && Object.keys(cfg.providers).length > 0 ? cfg.providers : undefined;
+  const extra = Object.keys(platforms).length > 0 || Object.keys(resources).length > 0 || providers !== undefined;
   return {
     baseUrl: credential?.baseUrl,
     clientId: credential?.clientId,
@@ -193,6 +223,7 @@ export function fileOf(cfg: RunnerConfigV2): Record<string, unknown> {
     version: extra ? CONFIG_VERSION : undefined,
     platforms: Object.keys(platforms).length > 0 ? platforms : undefined,
     resources: Object.keys(resources).length > 0 ? resources : undefined,
+    providers,
   };
 }
 

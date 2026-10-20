@@ -33,6 +33,10 @@ const RUN_CONFIG_DIR_MODE = 0o700;
 // auditoría local por plataforma (t#495, M6.6): <runnerHome>/audit/<id>/, 0700 (lleva qué corrió cada plataforma).
 const AUDIT_SUBDIR = 'audit';
 const AUDIT_DIR_MODE = 0o700;
+// sesiones de navegador guardadas por defecto (t#495, M7): <runnerHome>/browser-vault/, 0700 (cookies y tokens
+// vivos). es de la máquina, no de una plataforma: cada plataforma ve las claves que se le exponen.
+const BROWSER_VAULT_SUBDIR = 'browser-vault';
+const BROWSER_VAULT_DIR_MODE = 0o700;
 // dentro de un checkout: el directorio del daemon legacy y el de toda otra plataforma.
 const LEGACY_CHECKOUT_DIR = '.duckhunt';
 const CHECKOUT_DIR = '.runner';
@@ -118,6 +122,18 @@ export function auditDir(platform: string): string {
   const dir = auditPath(platform);
   fs.mkdirSync(dir, { recursive: true, mode: AUDIT_DIR_MODE });
   fs.chmodSync(dir, AUDIT_DIR_MODE);
+  return dir;
+}
+
+/** ruta por defecto del vault de sesiones de navegador (<runnerHome>/browser-vault), sin crearlo. */
+export function defaultBrowserVaultPath(): string {
+  return path.join(runnerHome(), BROWSER_VAULT_SUBDIR);
+}
+
+/** crea (o cierra a 0700) el vault de sesiones de navegador `dir` y lo devuelve. */
+export function ensureBrowserVault(dir: string): string {
+  fs.mkdirSync(dir, { recursive: true, mode: BROWSER_VAULT_DIR_MODE });
+  fs.chmodSync(dir, BROWSER_VAULT_DIR_MODE);
   return dir;
 }
 

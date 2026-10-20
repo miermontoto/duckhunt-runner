@@ -8,6 +8,7 @@
 // de los recursos de la máquina por tipo: `repos` y `aws` son sus tipos repo y aws (resource.ts).
 // (t#495, M6.4) `login <url> --as [id]` da de alta otra plataforma (platform-login.ts), `platforms` las gestiona
 // (platforms-cli.ts) y `logout <id>` desvincula una; `login` y `logout` a secas son los de siempre (duckhunt).
+// (t#495, M7) `browser` gestiona las sesiones de navegador guardadas por odysea (browser-cli.ts).
 
 import { configPath, DEFAULT_BASE_URL, loadConfig } from './config.js';
 import { acquireDaemonLock } from './daemon-lock.js';
@@ -21,6 +22,7 @@ import { awsCommand } from './aws.js';
 import { resourceCommand } from './resource.js';
 import { statusCommand } from './status.js';
 import { auditCommand } from './audit-cli.js';
+import { browserCommand } from './browser-cli.js';
 import { runnerVersion } from './version.js';
 
 const USAGE = `duckhunt-runner — daemon local de agent runs
@@ -39,7 +41,8 @@ uso:
   duckhunt-runner start [--verbose]          arranca el daemon
   duckhunt-runner repos list|add|remove|discover
   duckhunt-runner aws list|add|remove
-  duckhunt-runner resource list|add|remove|check [repo|aws]   los recursos de la máquina por tipo
+  duckhunt-runner resource list|add|remove|check [repo|aws|browser]   los recursos de la máquina por tipo
+  duckhunt-runner browser login|list|check|remove   sesiones de navegador guardadas (odysea)
   duckhunt-runner audit [--platform <id>] [--since 7d|<fecha>] [--json]   lo que corrió cada plataforma
   duckhunt-runner --version
 
@@ -90,6 +93,10 @@ async function main(): Promise<void> {
   }
   if (cmd === 'resource') {
     await resourceCommand(rest);
+    return;
+  }
+  if (cmd === 'browser') {
+    await browserCommand(rest);
     return;
   }
   if (cmd !== undefined && cmd !== 'start' && cmd !== 'run') {
