@@ -192,7 +192,7 @@ export class V0Platform implements Platform {
     const runId = v0RunIdOf(raw.run);
     if (!this.ctx) return { kind: CLAIM_RESULT.invalid, runId, error: 'este daemon no puede aplicar la política de esta plataforma', said, commandsPending };
     try {
-      const { claim, narrowed } = claimOfV0(raw.run, this.ctx.enforcement());
+      const { claim, narrowed } = claimOfV0(raw.run, { ...this.ctx.enforcement(), platformBaseUrl: this.transport.credential.baseUrl });
       if (narrowed.length > 0) console.log(`[runner] run ${claim.run.id}: toolset acotado por el techo de ${this.id}: ${narrowed.join(', ')}`);
       return { kind: CLAIM_RESULT.run, claim, said, commandsPending };
     } catch (err) {
