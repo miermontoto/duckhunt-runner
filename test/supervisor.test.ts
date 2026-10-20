@@ -53,7 +53,7 @@ interface Two {
 }
 
 // la entrada de `beta` en la config v2: otra plataforma duckhunt-42 con su credencial.
-const betaEntry = (extra: object = {}): object => ({ protocol: 'duckhunt-42', credential: { baseUrl: 'https://beta.test', clientId: 'b1', refreshToken: 'rb' }, ...extra });
+const betaEntry = (extra: object = {}): object => ({ protocol: 'duckhunt-42', trusted: true, credential: { baseUrl: 'https://beta.test', clientId: 'b1', refreshToken: 'rb' }, ...extra });
 
 // daemon con la legacy y `beta` (de la config), ambas falsas; executeRun no lanza claude: espera a que la prueba
 // lo termine.

@@ -441,7 +441,7 @@ test('dos plataformas: cada run niega el scratch de la otra; el de la nueva no v
   t.mock.method(console, 'error', () => {});
   type Plan = { spawns: { cwd: string; argv: unknown[]; env: { set: Record<string, string>; removed: string[] } }[]; runs: Record<string, { feed: { body: string }[] }> };
   const withBeta = (c: RunnerConfig): RunnerConfig =>
-    ({ ...c, version: 2, platforms: { beta: { protocol: 'duckhunt-42', credential: { baseUrl: c.baseUrl, clientId: 'b1', refreshToken: 'rb' } } } }) as unknown as RunnerConfig;
+    ({ ...c, version: 2, platforms: { beta: { protocol: 'duckhunt-42', trusted: true, credential: { baseUrl: c.baseUrl, clientId: 'b1', refreshToken: 'rb' } } } }) as unknown as RunnerConfig;
   const denied = (plan: Plan): string[] => {
     const argv = plan.spawns[0]!.argv;
     return (argv[argv.indexOf('--disallowedTools') + 1] as { notFromClaim: string[] }).notFromClaim;

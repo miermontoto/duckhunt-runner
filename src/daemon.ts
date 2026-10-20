@@ -632,8 +632,17 @@ export class RunnerDaemon {
     const protocol = cfg.protocol ?? (legacy ? PROTOCOL.duckhunt42 : undefined);
     const factory = protocol !== undefined && Object.hasOwn(this.factories, protocol) ? this.factories[protocol as Protocol] : undefined;
     const current = this.supervisors.get(id);
-    const why = !factory ? `protocolo ${protocol ?? '(sin protocolo)'} sin soporte en este runner` : !credential ? 'sin credencial (`login`)' : null;
-    if (!factory || !credential) {
+    // el cable duckhunt-42 no lleva toolset_v1: el techo de la plataforma no se le puede aplicar y sus runs reciben el
+    // kit entero que mande su server, shell incluida. fuera de la legacy, solo en una plataforma trusted.
+    const uncapped = !legacy && protocol === PROTOCOL.duckhunt42 && !cfg.trusted;
+    const why = !factory
+      ? `protocolo ${protocol ?? '(sin protocolo)'} sin soporte en este runner`
+      : !credential
+        ? 'sin credencial (`login`)'
+        : uncapped
+          ? `el protocolo ${protocol} no lleva toolset_v1 y su techo no se puede aplicar: solo en una plataforma trusted`
+          : null;
+    if (!factory || !credential || uncapped) {
       if (this.skipped.get(id) !== why) console.warn(`[runner] plataforma ${id}: ${why}: no reclama`);
       this.skipped.set(id, why!);
       if (current) this.retire(current);

@@ -69,7 +69,7 @@ afterEach(() => {
 after(() => fs.rmSync(root, { recursive: true, force: true }));
 
 test('config: protocolo, pausa y cuota sobreviven a una escritura v2; lo que no vale se rechaza', () => {
-  write({ beta: { protocol: 'duckhunt-42', paused: true, slots: 2, credential: credential('b1') }, gamma: { protocol: 'agent-runner/9' } });
+  write({ beta: { protocol: 'duckhunt-42', trusted: true, paused: true, slots: 2, credential: credential('b1') }, gamma: { protocol: 'agent-runner/9' } });
   saveConfigV2((c) => ({ ...c, label: 'otra' }));
   const v2 = loadConfigV2()!;
   assert.deepEqual([v2.platforms.beta?.protocol, v2.platforms.beta?.paused, v2.platforms.beta?.slots], ['duckhunt-42', true, 2]);
@@ -90,17 +90,17 @@ test('alta, pausa, reanudación y retirada en caliente; una retirada con runs ac
   quiet(t);
   const { d, created } = await daemon({});
   assert.deepEqual([...d.supervisors.keys()], ['duckhunt']);
-  write({ beta: { protocol: 'duckhunt-42', credential: credential('b1') } });
+  write({ beta: { protocol: 'duckhunt-42', trusted: true, credential: credential('b1') } });
   await d.reloadConfig();
   const beta = d.supervisors.get('beta')!;
   assert.equal(beta.state, PLATFORM_STATE.active);
   assert.ok(fs.statSync(path.join(runnerHome(), 'platforms', 'beta', 'run-config')).isDirectory(), 'su run-config ya existe (el deny lo cubre)');
-  write({ beta: { protocol: 'duckhunt-42', paused: true, credential: credential('b1') } });
+  write({ beta: { protocol: 'duckhunt-42', trusted: true, paused: true, credential: credential('b1') } });
   await d.reloadConfig();
   assert.equal(beta.state, PLATFORM_STATE.paused);
   assert.equal(await d.pollOnce(beta), false);
   assert.equal(created.get('beta')!.announces.length, 0, 'en pausa no reclama');
-  write({ beta: { protocol: 'duckhunt-42', credential: credential('b1') } });
+  write({ beta: { protocol: 'duckhunt-42', trusted: true, credential: credential('b1') } });
   await d.reloadConfig();
   assert.equal(beta.state, PLATFORM_STATE.active);
   const lease = new RunLease('5');
@@ -127,16 +127,29 @@ test('sin credencial o con un protocolo sin soporte: un aviso y no reclama, ni d
   ]);
 });
 
+test('otra plataforma duckhunt-42 sin trusted no reclama: su techo no se le puede aplicar (sin toolset_v1)', async (t) => {
+  const { warn } = quiet(t);
+  const { d } = await daemon({ beta: { protocol: 'duckhunt-42', credential: credential('b1') } });
+  assert.deepEqual([...d.supervisors.keys()], ['duckhunt']);
+  assert.deepEqual(
+    warn.mock.calls.map((c) => String(c.arguments[0])),
+    ['[runner] plataforma beta: el protocolo duckhunt-42 no lleva toolset_v1 y su techo no se puede aplicar: solo en una plataforma trusted: no reclama'],
+  );
+  write({ beta: { protocol: 'duckhunt-42', trusted: true, credential: credential('b1') } });
+  await d.reloadConfig();
+  assert.equal(d.supervisors.get('beta')?.state, PLATFORM_STATE.active, 'marcada trusted, reclama');
+});
+
 test('la que perdió la credencial vuelve con un `login` nuevo (otro clientId) sin reiniciar', async (t) => {
   quiet(t);
-  const { d, created } = await daemon({ beta: { protocol: 'duckhunt-42', credential: credential('b1') } });
+  const { d, created } = await daemon({ beta: { protocol: 'duckhunt-42', trusted: true, credential: credential('b1') } });
   created.get('beta')!.reject = true;
   await d.pollOnce(d.supervisors.get('beta')!);
   assert.equal(d.supervisors.get('beta')!.state, PLATFORM_STATE.unpaired);
   assert.equal(d.stopping, false, 'quedaba la legacy');
   await d.reloadConfig();
   assert.equal(d.supervisors.get('beta')!.state, PLATFORM_STATE.unpaired, 'misma credencial: sigue fuera');
-  write({ beta: { protocol: 'duckhunt-42', credential: credential('b2') } });
+  write({ beta: { protocol: 'duckhunt-42', trusted: true, credential: credential('b2') } });
   await d.reloadConfig();
   const revived = d.supervisors.get('beta')!;
   assert.equal(revived.state, PLATFORM_STATE.active);
@@ -145,7 +158,7 @@ test('la que perdió la credencial vuelve con un `login` nuevo (otro clientId) s
 
 test('cada plataforma guarda lo que su server dijo en su directorio; la legacy, donde siempre', async (t) => {
   quiet(t);
-  const { d } = await daemon({ beta: { protocol: 'duckhunt-42', credential: credential('b1') } });
+  const { d } = await daemon({ beta: { protocol: 'duckhunt-42', trusted: true, credential: credential('b1') } });
   await d.pollOnce(d.supervisors.get('beta')!);
   const file = serverStatePath('beta');
   assert.equal(file, path.join(runnerHome(), 'platforms', 'beta', 'server-state.json'));
@@ -155,7 +168,7 @@ test('cada plataforma guarda lo que su server dijo en su directorio; la legacy, 
 
 test('cada una ve de la máquina lo que expone: repos, cuentas aws y su salud; sin machine id ni candidatos si no es la legacy', async (t) => {
   quiet(t);
-  const { d, created } = await daemon({ beta: { protocol: 'duckhunt-42', credential: credential('b1'), expose: { repo: ['acme/web'], aws: ['210987654321'] } } });
+  const { d, created } = await daemon({ beta: { protocol: 'duckhunt-42', trusted: true, credential: credential('b1'), expose: { repo: ['acme/web'], aws: ['210987654321'] } } });
   (d as unknown as { repoHealth: unknown; repoChoices: unknown }).repoHealth = [
     { repo: 'acme/api', kind: 'missing' },
     { repo: 'acme/web', kind: 'invalid' },
@@ -174,7 +187,7 @@ test('cada una ve de la máquina lo que expone: repos, cuentas aws y su salud; s
 
 test('los comandos de repos solo se aceptan de la legacy', async (t) => {
   quiet(t);
-  const { d, created } = await daemon({ beta: { protocol: 'duckhunt-42', credential: credential('b1') } });
+  const { d, created } = await daemon({ beta: { protocol: 'duckhunt-42', trusted: true, credential: credential('b1') } });
   const beta = created.get('beta')!;
   const acked: unknown[] = [];
   beta.commands = async () => [{ id: 9, action: 'unmap', repo: 'acme/api', candidateId: null }];
@@ -197,7 +210,7 @@ test('el deny de run-config se recalcula por segmento: una plataforma que aparec
 });
 
 test('una plataforma rota y guarda solo su credencial; la legacy, solo la suya', async () => {
-  write({ beta: { protocol: 'duckhunt-42', credential: { ...credential('b1'), replacesClientId: 'b0' } }, gamma: { protocol: 'duckhunt-42', credential: credential('g1') } });
+  write({ beta: { protocol: 'duckhunt-42', trusted: true, credential: { ...credential('b1'), replacesClientId: 'b0' } }, gamma: { protocol: 'duckhunt-42', trusted: true, credential: credential('g1') } });
   globalThis.fetch = (async (_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const form = new URLSearchParams(String(init?.body));
     return Response.json({ access_token: 'a', refresh_token: `${form.get('refresh_token')}+`, expires_in: ACCESS_TTL_S });
@@ -217,10 +230,10 @@ test('una plataforma rota y guarda solo su credencial; la legacy, solo la suya',
 
 test('una plataforma con runs no se sustituye aunque cambie de instancia; sin ellos, sí', async (t) => {
   quiet(t);
-  const { d } = await daemon({ beta: { protocol: 'duckhunt-42', credential: credential('b1') } });
+  const { d } = await daemon({ beta: { protocol: 'duckhunt-42', trusted: true, credential: credential('b1') } });
   const first = d.supervisors.get('beta')!;
   first.leases.add(new RunLease('1'));
-  write({ beta: { protocol: 'duckhunt-42', credential: credential('b1', 'https://beta2.test') } });
+  write({ beta: { protocol: 'duckhunt-42', trusted: true, credential: credential('b1', 'https://beta2.test') } });
   await d.reloadConfig();
   assert.equal(d.supervisors.get('beta'), first);
   first.leases.clear();
