@@ -52,6 +52,7 @@ import {
 } from './vendor/runner-protocol/index.js';
 import { parseToolsetV1 } from './toolset/parse.js';
 import type { ShadowSource } from './toolset/shadow.js';
+import type { ResourceRequest } from './resources/types.js';
 
 // capacidades que el daemon anuncia en el claim: sus ids y lo que el server hace con cada una vienen del
 // protocolo vendorizado (vendor/runner-protocol, t#495 M3). el server entrega kind=prompt solo a quien
@@ -185,7 +186,7 @@ const SESSION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 // empieza por letra (nunca '-') y sin comas ni saltos (se unen con ',' en un solo argumento).
 const TOOL_ID_RE = /^[A-Za-z_][^,\n\r]{0,199}$/;
 // nombre del servidor mcp: clave del mcp-config y prefijo mcp__<name>__ de las tools.
-const MCP_SERVER_NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;
+export const MCP_SERVER_NAME_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
 export interface ClaimedRun {
   // opaco (run-id.ts): hoy el String() del entero positivo del cable legacy.
@@ -223,8 +224,9 @@ export interface EventsConfig {
 }
 
 // marca de un claim que MANDA con la política neutra toolset_v1 (t#495, M5): separa un claim toolset_v1 de uno
-// legacy donde el runner se comporta distinto (aislar la aws de la máquina, resources/aws.ts). hoy nunca se pone:
-// el toolset del cable legacy va en sombra (toolsetShadow) y las listas de tools siguen mandando.
+// legacy donde el runner se comporta distinto (aislar la aws de la máquina, resources/aws.ts). la pone el cable v0
+// (platforms/claim-v0.ts, M4); el toolset del cable legacy va en sombra (toolsetShadow) y allí las listas de tools
+// siguen mandando.
 export { TOOLSET_V1 };
 export interface ToolsetV1 {
   v: typeof TOOLSET_V1;
@@ -246,14 +248,27 @@ export interface ClaimResponse {
   heartbeatMs: number;
   // null = server sin feed (anterior a t#378): no se suben eventos.
   events: EventsConfig | null;
-  mcp: { serverName: string; url: string; token: string; expiresAt: number };
+  mcp: McpServer;
   // avisos de la validación local (rama ignorada…): el daemon los loguea y los sube al feed.
   warnings: string[];
-  // null = claim legacy (todo claim de hoy).
+  // null = claim legacy (duckhunt-42); un claim v0 la lleva siempre.
   toolset: ToolsetV1 | null;
   // toolset_v1 en sombra (daemon con `toolset_v1`): el toolset y las listas del server tal cual llegaron, para
   // comparar con el render del daemon (toolset/shadow.ts). null = el claim no lo trajo (o no era válido).
   toolsetShadow: ShadowSource | null;
+  // recursos del run que conceden los grants del toolset que manda (cable v0, platforms/claim-v0.ts). ausente = un
+  // claim legacy: sus recursos salen de sus campos (resources/legacy.ts).
+  resources?: ResourceRequest[];
+  // servidores mcp de la plataforma además de `mcp` (cable v0: mcpServers[] a partir del segundo). ausente = ninguno.
+  extraMcp?: McpServer[];
+}
+
+/** un servidor mcp de la plataforma con el token per-run (expiresAt en ms desde epoch). */
+export interface McpServer {
+  serverName: string;
+  url: string;
+  token: string;
+  expiresAt: number;
 }
 
 type Obj = Record<string, unknown>;
@@ -313,9 +328,18 @@ function eventsConfig(v: unknown): EventsConfig | null {
 /** valida y normaliza la respuesta 200 del claim. lanza con el motivo si algo no es seguro. */
 export function parseClaim(raw: unknown): ClaimResponse {
   if (!isObj(raw) || !isObj(raw.run)) throw new Error('claim inválido: falta run');
-  const r = raw.run;
-  const id = runIdFromLegacy(r.id);
+  const id = runIdFromLegacy(raw.run.id);
   if (id === null) throw new Error('claim inválido: run.id no es un entero positivo');
+  return parseClaimBody(raw, id);
+}
+
+/**
+ * el claim con la forma del legacy y el id de run ya validado por quien llama (el cable legacy, del entero; el v0,
+ * su id opaco: platforms/claim-v0.ts lo arma desde el suyo y pasa por aquí para las mismas comprobaciones).
+ */
+export function parseClaimBody(raw: unknown, id: string): ClaimResponse {
+  if (!isObj(raw) || !isObj(raw.run)) throw new Error('claim inválido: falta run');
+  const r = raw.run;
   const kind = str(r.kind);
   if (!kind) throw new Error('claim inválido: run.kind ausente');
   const repo = str(r.repo);

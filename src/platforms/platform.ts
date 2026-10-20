@@ -1,7 +1,7 @@
 // seam de plataforma (t#495, M6): todo lo que el daemon le dice a quien le encarga runs (reclamar, latir, el
 // progreso, el feed, el cierre, las conversaciones abiertas, los comandos de repos y desvincularse) pasa por esta
-// interfaz. hoy la implementa duckhunt-42 sobre http (duckhunt42.ts + http-transport.ts); el protocolo v0 y la
-// plataforma local en proceso serán otras implementaciones de la misma interfaz.
+// interfaz. hoy la implementan duckhunt-42 (duckhunt42.ts) y la spec v0 (v0.ts, t#495 M4), ambas sobre http
+// (http-transport.ts); la plataforma local en proceso será otra implementación de la misma interfaz.
 // decisiones:
 // - la plataforma traduce su cable a lo que el daemon entiende (un claim ya parseado, un veredicto de latido, si
 //   hay comandos pendientes) y loguea lo que es de su cable (un http de error, un json ilegible). el daemon decide
@@ -17,6 +17,7 @@ import type { RepoCommand, RepoCommandResult } from '../repo-commands.js';
 import type { RepoChoice, RepoIssue } from '../resources/repo/health.js';
 import type { KeptWorktree, RunnerBlock } from '../server-state.js';
 import type { StatusReport } from '../status-report.js';
+import type { Exposure, ToolsetCeiling } from './types.js';
 
 export const PROTOCOL = {
   duckhunt42: 'duckhunt-42',
@@ -48,7 +49,10 @@ export interface ClaimAnnounce {
   // null = aún sin chequeo que haya terminado: no se manda (nunca un [] que se leería como "todo sano").
   repoIssues: readonly RepoIssue[] | null;
   repoCandidates: readonly RepoChoice[] | null;
+  // ids de cuenta aws expuestos (los que conoce el cable legacy).
   awsAccounts: readonly string[];
+  // todas las claves aws expuestas, `default` incluida (las anuncia el cable v0 como recursos).
+  awsKeys: readonly string[];
   // null = el gc aún no recogió: no se anuncia.
   kept: readonly KeptWorktree[] | null;
 }
@@ -105,6 +109,14 @@ export interface Platform {
   unpair(): Promise<UnpairOutcome>;
 }
 
-/** crea la plataforma de un id con su credencial. una por protocolo que este runner habla. */
-export type PlatformFactory = (id: string, credential: RunnerCredential) => Platform;
+/** lo que una plataforma que MANDA con toolset_v1 (v0) necesita de la máquina para aplicar un claim: el techo y la
+ *  exposición que el usuario le puso (de la config de AHORA), los tipos de recurso que sirve este daemon y si tiene
+ *  la aws cli. el cable legacy no lo usa: allí mandan las listas de tools del server. */
+export interface PlatformContext {
+  enforcement(): { ceiling: ToolsetCeiling; expose: Readonly<Record<string, Exposure>>; resourceTypes: readonly string[]; awsCli: boolean };
+}
+
+/** crea la plataforma de un id con su credencial (y lo que necesita de la máquina). una por protocolo que este
+ *  runner habla. */
+export type PlatformFactory = (id: string, credential: RunnerCredential, ctx?: PlatformContext) => Platform;
 export type PlatformFactories = Readonly<Partial<Record<Protocol, PlatformFactory>>>;
