@@ -15,13 +15,11 @@
 import path from 'node:path';
 import type { StreamContent, StreamLine } from './claude.js';
 import { maskSecrets } from './secret-mask.js';
+import { AGENT_RUN_EVENT_KIND, AGENT_RUN_EVENT_TOOL_MAX_CHARS, type AgentRunEventKind } from './vendor/runner-protocol/index.js';
 
-export const FEED_KIND = {
-  text: 'text',
-  tool: 'tool',
-  system: 'system',
-} as const;
-export type FeedKind = (typeof FEED_KIND)[keyof typeof FEED_KIND];
+// tipos de evento del feed (AGENT_RUN_EVENT_KIND del protocolo).
+export const FEED_KIND = AGENT_RUN_EVENT_KIND;
+export type FeedKind = AgentRunEventKind;
 
 export interface FeedEvent {
   kind: FeedKind;
@@ -40,8 +38,8 @@ export interface FeedContext {
   platformServer?: string;
 }
 
-// tope del nombre de la tool (AGENT_RUN_EVENT_TOOL_MAX_CHARS del server).
-const TOOL_NAME_MAX_CHARS = 120;
+// tope del nombre de la tool (AGENT_RUN_EVENT_TOOL_MAX_CHARS del protocolo).
+const TOOL_NAME_MAX_CHARS = AGENT_RUN_EVENT_TOOL_MAX_CHARS;
 const ELLIPSIS = '…';
 // prefijo de una ruta fuera del worktree (solo se enseña el nombre del fichero).
 const OUTSIDE_PREFIX = `${ELLIPSIS}/`;

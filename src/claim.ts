@@ -31,63 +31,53 @@
 //   tumbar el claim, y un `-x` nunca llega al cli como flag.
 
 import { runIdFromLegacy } from './run-id.js';
+import {
+  AGENT_AWS_READ_COMMANDS,
+  AGENT_AWS_READ_VERBS,
+  AGENT_PROMPT_PROFILE,
+  AGENT_RUN_EVENT_BATCH_MAX,
+  AGENT_RUN_EVENT_BODY_MAX_CHARS,
+  AGENT_RUN_EVENT_FLUSH_COUNT,
+  AGENT_RUN_EVENT_FLUSH_MS,
+  AGENT_RUN_EVENT_TOOL_ARG_MAX_CHARS,
+  AGENT_RUN_ISOLATION,
+  AGENT_RUN_KIND,
+  AGENT_RUN_SEED,
+  RUNNER_CAPABILITY,
+  type AgentPromptProfile,
+  type AgentRunIsolation,
+  type AgentRunSeed,
+  type RunnerCapability,
+} from './vendor/runner-protocol/index.js';
 
-// capacidades que el daemon anuncia en el claim. el server entrega kind=prompt solo a quien
+// capacidades que el daemon anuncia en el claim: sus ids y lo que el server hace con cada una vienen del
+// protocolo vendorizado (vendor/runner-protocol, t#495 M3). el server entrega kind=prompt solo a quien
 // anuncia `prompt`, pide el feed de progreso solo a quien anuncia `events` y deja abrir una
 // conversación en el checkout solo a quien anuncia `checkout` (>= 0.6.0), la shell de solo lectura
 // en read solo a quien anuncia `read_shell` (>= 0.7.0) y deja de negar Edit/Write enteras en read y
 // en los runs de reglas (su memoria nativa) solo a quien anuncia `native_memory` (>= 0.8.0).
-export const RUNNER_CAPABILITY = {
-  aws: 'aws',
-  prompt: 'prompt',
-  events: 'events',
-  checkout: 'checkout',
-  readShell: 'read_shell',
-  nativeMemory: 'native_memory',
-  // acepta cambios del mapa de repos pedidos desde duckhunt (repo-commands.ts); apagable en local.
-  repoEdit: 'repo_edit',
-  // 0.11.0 (t#465 P12): niega a Read las rutas reales de las credenciales de esta máquina en todo kit
-  // de lectura (secret-paths.ts), aplica el presupuesto a las plantillas (seed_budget), corre con la aws
-  // vacía una cuenta sin mapear (resources/aws.ts), anuncia el trabajo que su gc conservó (keptWorktrees) y
-  // sabe desvincularse (`logout`, y lee el bloque runner del claim).
-  secretPaths: 'secret_paths',
-  seedBudget: 'seed_budget',
-  awsStrict: 'aws_strict',
-  worktreeReport: 'worktree_report',
-  logout: 'logout',
-  // 0.12.0 (t#465): pasa a claude el modelo que pide el claim (run.model) con --model. el server solo
-  // lo manda a quien lo anuncia, y se anuncia solo si `claude --help` lista --model.
-  model: 'model',
-} as const;
-export type RunnerCapability = (typeof RUNNER_CAPABILITY)[keyof typeof RUNNER_CAPABILITY];
+// lo propio de este daemon: `repo_edit` (cambios del mapa de repos pedidos desde duckhunt, repo-commands.ts)
+// es apagable en local; 0.11.0 (t#465 P12) niega a Read las rutas reales de las credenciales de esta máquina
+// en todo kit de lectura (secret-paths.ts), aplica el presupuesto a las plantillas (seed_budget), corre con la
+// aws vacía una cuenta sin mapear (resources/aws.ts), anuncia el trabajo que su gc conservó (keptWorktrees) y
+// sabe desvincularse (`logout`, y lee el bloque runner del claim); 0.12.0 (t#465) pasa a claude el modelo que
+// pide el claim (run.model) con --model, y `model` se anuncia solo si `claude --help` lista --model.
+export { RUNNER_CAPABILITY, type RunnerCapability };
 
 // dónde trabaja un prompt run con repo (lo elige el usuario al abrir la conversación): el worktree
 // conv-<id> aislado o el checkout tal cual (su rama y sus cambios). ausente o desconocido = worktree,
 // lo más aislado. los runs de reglas no lo usan: su cwd lo decide `worktree` del repo en la config.
-export const RUN_ISOLATION = {
-  worktree: 'worktree',
-  checkout: 'checkout',
-} as const;
-export type RunIsolation = (typeof RUN_ISOLATION)[keyof typeof RUN_ISOLATION];
+export const RUN_ISOLATION = AGENT_RUN_ISOLATION;
+export type RunIsolation = AgentRunIsolation;
 
-export const RUN_KIND = {
-  investigate: 'investigate',
-  resume: 'resume',
-  prompt: 'prompt',
-} as const;
+export const RUN_KIND = AGENT_RUN_KIND;
 
-export const PROMPT_PROFILE = {
-  read: 'read',
-  edit: 'edit',
-} as const;
-export type PromptProfile = (typeof PROMPT_PROFILE)[keyof typeof PROMPT_PROFILE];
+export const PROMPT_PROFILE = AGENT_PROMPT_PROFILE;
+export type PromptProfile = AgentPromptProfile;
 
 // de qué nació la conversación (run.seed, t#465 P6): una plantilla de investigación o el texto de la persona.
-export const RUN_SEED = {
-  template: 'template',
-  prompt: 'prompt',
-} as const;
-export type RunSeed = (typeof RUN_SEED)[keyof typeof RUN_SEED];
+export const RUN_SEED = AGENT_RUN_SEED;
+export type RunSeed = AgentRunSeed;
 
 // techo local de permission modes: el server manda dontAsk; bypassPermissions nunca se acepta
 // desde fuera (el opt-in a saltarse permisos es solo local, `repos add --dangerously-skip-permissions`).
@@ -97,14 +87,14 @@ export const ALLOWED_PERMISSION_MODES: readonly string[] = ['dontAsk', 'default'
 // RUN_HEARTBEAT_INTERVAL_MS del server).
 const DEFAULT_TIMEOUT_MS = 30 * 60_000;
 const DEFAULT_HEARTBEAT_MS = 20_000;
-// defaults del feed si el server no los manda (espejo de AGENT_RUN_EVENT_* del server).
+// defaults del feed si el server no los manda: los AGENT_RUN_EVENT_* del protocolo, los que manda él.
 export const EVENTS_DEFAULTS = {
   nextSeq: 1,
-  flushMs: 1000,
-  flushCount: 20,
-  batchMax: 50,
-  bodyMaxChars: 4000,
-  toolArgMaxChars: 200,
+  flushMs: AGENT_RUN_EVENT_FLUSH_MS,
+  flushCount: AGENT_RUN_EVENT_FLUSH_COUNT,
+  batchMax: AGENT_RUN_EVENT_BATCH_MAX,
+  bodyMaxChars: AGENT_RUN_EVENT_BODY_MAX_CHARS,
+  toolArgMaxChars: AGENT_RUN_EVENT_TOOL_ARG_MAX_CHARS,
 } as const;
 
 // cordura mínima de una rama ANTES de tocar git: sin '-' inicial (no puede parecer una opción), sin
@@ -118,23 +108,11 @@ export const READ_FORBIDDEN_TOOLS: readonly string[] = ['Edit', 'Write', 'Notebo
 // built-in con las que el cli escribe su memoria nativa: fuera del deny forzado de lectura.
 export const MEMORY_WRITE_TOOLS: readonly string[] = ['Edit', 'Write'];
 export const BASH_TOOL = 'Bash';
-// aws cli en lectura (espejo de AGENT_AWS_READ_VERBS / AGENT_AWS_READ_COMMANDS del server): verbos
-// por convención de la api de aws y lecturas sueltas (servicio + operación exacta).
-export const READ_AWS_VERBS: readonly string[] = ['describe-', 'list-', 'get-', 'batch-get-'];
-export const READ_AWS_COMMANDS: readonly string[] = [
-  'logs filter-log-events',
-  'logs tail',
-  'logs start-query',
-  's3 ls',
-  's3api head-object',
-  's3api head-bucket',
-  'cloudtrail lookup-events',
-  'dynamodb query',
-  'dynamodb scan',
-  'rds download-db-log-file-portion',
-  'sts get-caller-identity',
-  'sts get-access-key-info',
-];
+// aws cli en lectura (AGENT_AWS_READ_VERBS / AGENT_AWS_READ_COMMANDS del protocolo): verbos por
+// convención de la api de aws y lecturas sueltas (servicio + operación exacta). el servicio no se acota
+// aquí (el server sí los enumera): lo que fija la lectura es la operación.
+export const READ_AWS_VERBS: readonly string[] = AGENT_AWS_READ_VERBS;
+export const READ_AWS_COMMANDS: readonly string[] = AGENT_AWS_READ_COMMANDS;
 // lecturas de la aws cli que escriben un fichero local (payload blob → la cli exige un outfile):
 // al deny de TODO claim read, del servicio que sea. derivadas de los modelos de botocore de la aws
 // cli 2.30.4 (operaciones describe|list|get|batch-get|head con payload blob), por prefijo de
