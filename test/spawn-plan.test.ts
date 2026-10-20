@@ -462,3 +462,24 @@ test('dos plataformas: cada run niega el scratch de la otra; el de la nueva no v
   assert.ok(beta.spawns[0]!.env.removed.includes('AWS_PROFILE'), 'sin la aws del usuario');
   assert.match(beta.spawns[0]!.env.set.AWS_CONFIG_FILE ?? '', /^<case>\/home\/platforms\/beta\/run-config\/aws-961-<rand>\/config$/);
 });
+
+// fuera del golden: toolset_v1 en sombra (t#495, M5).
+test('toolset_v1 en sombra: el spawn es el de siempre y solo el status lleva toolsetShadow', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  t.mock.method(console, 'warn', () => {});
+  t.mock.method(console, 'error', () => {});
+  // el caso de un daemon sin aws cli: el harness no detecta la suya, así que server y daemon coinciden.
+  const name = 'prompt-read-no-aws-cli';
+  const v1 = JSON.parse(fs.readFileSync(new URL(`toolset-v1/${name}.json`, FIXTURES), 'utf8')) as { toolset: unknown };
+  type Plan = { spawns: unknown[]; runs: Record<string, { status: string[] }> };
+  const legacy = (await runCase({ name: 'shadow/legacy', raw: withRun(kit(name), { id: 980 }) })) as Plan;
+  const shadowed = (await runCase({ name: 'shadow/toolset-v1', raw: withRun(kit(name), { id: 980 }, { toolset: v1.toolset }) })) as Plan;
+  assert.deepEqual(shadowed.spawns, legacy.spawns, 'cwd, env, argv y mcp-config idénticos: la sombra no toca el spawn');
+  const statusOf = (p: Plan): Record<string, unknown>[] => p.runs['980']!.status.map((s) => JSON.parse(s) as Record<string, unknown>);
+  assert.equal(statusOf(legacy).some((s) => 'toolsetShadow' in s), false, 'sin toolset, el status de siempre');
+  const [closed, ...more] = statusOf(shadowed);
+  assert.equal(more.length, 0);
+  const { toolsetShadow, ...rest } = closed!;
+  assert.deepEqual(rest, statusOf(legacy)[0], 'lo demás del status, igual');
+  assert.deepEqual(toolsetShadow, { match: true, explained: true, known: [], diff: null });
+});

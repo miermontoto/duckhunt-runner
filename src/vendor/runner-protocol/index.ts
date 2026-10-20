@@ -8,7 +8,8 @@
 // - los fixtures del cable (fixtures/, con su manifiesto) viven aquí, y su api de node en
 //   `@duckhunt/runner-protocol/fixtures`: este barrel no toca el fs, así sirve igual a quien no es node.
 // - pasará a platform/ como @platform/runner-protocol cuando sus interfaces estén estables.
-// non-goals por ahora: validación (zod) y el cable v0 / toolset_v1, que llegan con su router (M4/M5).
+// toolset_v1 (M5, toolset.ts): la política neutra del run, en sombra junto a las listas de tools.
+// non-goals por ahora: validación (zod) y el cable v0, que llegan con su router (M4).
 
 export * from './aws.js';
 export * from './capabilities.js';
@@ -16,3 +17,4 @@ export * from './claim.js';
 export * from './errors.js';
 export * from './events.js';
 export * from './limits.js';
+export * from './toolset.js';

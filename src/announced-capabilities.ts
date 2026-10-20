@@ -34,5 +34,7 @@ export function announcedCapabilities(kit: MachineKit): RunnerCapability[] {
     RUNNER_CAPABILITY.logout,
     // al final: el orden de las anteriores no cambia para el server.
     ...(kit.supported.has('--model') ? [RUNNER_CAPABILITY.model] : []),
+    // toolset_v1 en sombra (t#495, M5): solo lo renderiza y compara (toolset/shadow.ts); las listas siguen mandando.
+    RUNNER_CAPABILITY.toolsetV1,
   ];
 }
