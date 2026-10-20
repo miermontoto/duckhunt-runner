@@ -24,7 +24,7 @@ const FIXTURES_DEST = path.join(ROOT, 'test', 'fixtures');
 // módulos del barrel (src/index.ts del paquete y lo que reexporta).
 const MODULES = ['index.ts', 'aws.ts', 'capabilities.ts', 'claim.ts', 'errors.ts', 'events.ts', 'limits.ts', 'toolset.ts', 'v0.ts'];
 // lo mismo que cubre el manifiesto del paquete (src/fixtures.ts::FIXTURE_SUBDIRS).
-const FIXTURE_SUBDIRS = ['claim-kits', 'claims', 'toolset-v1', 'v0'];
+const FIXTURE_SUBDIRS = ['claim-kits', 'claims', 'toolset-v1', 'toolset-v1-aws-default', 'v0'];
 const FIXTURE_META = ['manifest.json', 'versions.json'];
 const RECORD_FILE = 'vendor.json';
 const JSON_INDENT = 2;

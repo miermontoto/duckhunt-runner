@@ -62,6 +62,13 @@ export const RUNNER_STATE_HEADER = 'x-duckhunt-runner-state';
 export const RUNNER_STATE = { upgradeRequired: 'upgrade_required', paused: 'paused', full: 'full', disabled: 'disabled' } as const;
 export type RunnerState = (typeof RUNNER_STATE)[keyof typeof RUNNER_STATE];
 
+/** lo que un daemon con toolset_v1 anuncia en el cuerpo del claim legacy además de lo de siempre (t#495, M5):
+ *  `awsDefault` = expone a esta plataforma su identidad aws por defecto (aws.ts::RUNNER_AWS_DEFAULT_KEY). un booleano,
+ *  sin más tope; inválido = ausente. ausente = un daemon que no lo sabe: se queda lo último que anunció. */
+export interface LegacyClaimAwsDefault {
+  awsDefault?: boolean;
+}
+
 /** aws del run: la cuenta (null si el entry solo trae región) y la región. */
 export interface LegacyClaimAws {
   accountId: string | null;

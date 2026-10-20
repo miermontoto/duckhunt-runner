@@ -8,10 +8,14 @@
 // - fuera del cable: secretReadDeny (el daemon niega las lecturas de credenciales en todo kit sin shell entera) y el
 //   permission mode (nunca bypassPermissions) son invariantes del daemon; proposeEdit y commentJira se quedan en el
 //   server (son tools de su mcp, ya en platformTools, y texto del prompt).
-// - grants: solo claves que el daemon anunció (el repo en su grafía, la cuenta aws del run si la anuncia). sin
-//   cuenta anunciada no hay grant de aws: la identidad aws por defecto de la máquina es una clave que el usuario
-//   expone a mano (`default`), nunca implícita. es la única diferencia buscada con las listas legacy, que dan la
-//   aws en lectura a un run de lectura sin cuenta (TOOLSET_SHADOW_KNOWN.awsWithoutGrant).
+// - grants: solo claves que el daemon anunció (el repo en su grafía, la cuenta aws del run si la anuncia). la
+//   identidad aws por defecto de la máquina es una clave que el usuario expone a mano (`default`, aws.ts), nunca
+//   implícita: un run SIN cuenta la recibe solo si la máquina la anuncia (read en uno de lectura con la aws en
+//   lectura, full con Bash entero). sin ella, la única diferencia buscada con las listas legacy, que dan la aws en
+//   lectura a un run de lectura sin cuenta (TOOLSET_SHADOW_KNOWN.awsWithoutGrant). una cuenta que la máquina no
+//   anuncia nunca cae en `default` (aws_strict).
+// - flip (t#495, M5): un daemon que anuncia además `toolset_render` lanza el run con su render; las listas de `tools`
+//   siguen viajando y son la entrada de su comparación (el mismo toolsetShadow, mirado al revés).
 // - explained: el daemon dice si la diferencia es SOLO la buscada, calculado sobre el diff entero (el que viaja va
 //   recortado y no basta para decidirlo). el server solo avisa de lo que no casa y no está explicado: la diferencia
 //   buscada de cada run de lectura sin cuenta taparía las de verdad.
