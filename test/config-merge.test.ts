@@ -10,7 +10,7 @@ import path from 'node:path';
 import { after, afterEach, before, beforeEach, test } from 'node:test';
 import { configPath, loadConfig, mergeEntries, saveConfig, type RepoConfig, type RunnerConfig, type RunnerCredential } from '../src/config.js';
 import { refreshAccess } from '../src/oauth.js';
-import { RunnerDaemon } from '../src/daemon.js';
+import { internals, legacyDaemon } from './daemon-harness.js';
 
 const BASE = 'https://duckhunt.test';
 const OTHER_BASE = 'https://otra.test';
@@ -197,17 +197,12 @@ test('mergeEntries: lo que cambiaron los comandos, sobre el mapa del fichero y s
 });
 
 // el loop de claim por dentro: recarga + claim, sin `claude` ni slots.
-interface DaemonInternals {
-  reloadConfig(): Promise<void>;
-  claim(): Promise<unknown>;
-}
-
 test('el daemon en marcha toma `repos add`, `aws add` y la etiqueta en el siguiente claim', async (t) => {
   t.mock.method(console, 'log', () => {});
   t.mock.method(console, 'warn', () => {});
   t.mock.method(console, 'error', () => {});
   const server = fakeServer();
-  const daemon = new RunnerDaemon(loadConfig()!) as unknown as DaemonInternals;
+  const daemon = legacyDaemon(internals(loadConfig()!));
   await daemon.reloadConfig();
   await daemon.claim();
   assert.deepEqual(server.claims[0]!.body.repos, ['acme/api']);
@@ -228,7 +223,7 @@ test('`login` con el daemon en marcha: el siguiente claim ya va con la credencia
   t.mock.method(console, 'log', () => {});
   t.mock.method(console, 'error', () => {});
   const server = fakeServer();
-  const daemon = new RunnerDaemon(loadConfig()!) as unknown as DaemonInternals;
+  const daemon = legacyDaemon(internals(loadConfig()!));
   await daemon.reloadConfig();
   await daemon.claim();
   assert.equal(server.claims[0]!.auth, 'Bearer access:c1');
@@ -244,7 +239,7 @@ test('un fichero ilegible a medias de edición: el daemon sigue con la config ca
   const error = t.mock.method(console, 'error', () => {});
   t.mock.method(console, 'log', () => {});
   const server = fakeServer();
-  const daemon = new RunnerDaemon(loadConfig()!) as unknown as DaemonInternals;
+  const daemon = legacyDaemon(internals(loadConfig()!));
   fs.writeFileSync(configPath(), '{ "repos": ');
   await daemon.reloadConfig();
   await daemon.reloadConfig();

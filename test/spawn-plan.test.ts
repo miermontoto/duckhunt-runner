@@ -16,7 +16,7 @@ import path from 'node:path';
 import { after, before, test } from 'node:test';
 import { detectClaude, OPTIONAL_FLAGS, type ClaudeInfo } from '../src/claude.js';
 import { parseClaim, TOOLSET_V1, type ClaimResponse } from '../src/claim.js';
-import { RunnerDaemon } from '../src/daemon.js';
+import { internals, legacyOf, type DaemonInternals as Harness } from './daemon-harness.js';
 import { loadConfig, type RunnerConfig } from '../src/config.js';
 import { RunLease } from '../src/run-lease.js';
 import { allRunConfigDirs } from '../src/paths.js';
@@ -127,9 +127,7 @@ interface Case {
   patch?: (claim: ClaimResponse) => ClaimResponse;
 }
 
-interface DaemonInternals {
-  reloadConfig(): Promise<void>;
-  executeRun(claim: ClaimResponse, lease: RunLease): Promise<void>;
+interface DaemonInternals extends Harness {
   claude: ClaudeInfo;
   runConfigDeny: string[];
   secretDeny: string[];
@@ -300,7 +298,7 @@ async function runCase(c: Case): Promise<unknown> {
   // el daemon lee config y home del env del proceso en cada acceso: los casos van de uno en uno.
   process.env.DUCKHUNT_RUNNER_CONFIG = configFile;
   process.env.DUCKHUNT_RUNNER_HOME = home;
-  const d = new RunnerDaemon(loadConfig()!) as unknown as DaemonInternals;
+  const d = internals(loadConfig()!) as DaemonInternals;
   await d.reloadConfig();
   // lo que hace run() al arrancar, sin el loop ni las señales.
   d.claude = claude;
@@ -308,7 +306,7 @@ async function runCase(c: Case): Promise<unknown> {
   d.secretDeny = secretPathsDeny(process.env).rules;
   const hold = path.join(dir, 'hold');
   const claims = [c.raw, ...(c.then ?? [])].map((raw) => (c.patch ?? ((cl: ClaimResponse) => cl))(parseClaim(JSON.parse(JSON.stringify(raw).replaceAll('<hold>', hold)) as unknown)));
-  const exec = (claim: ClaimResponse): Promise<void> => d.executeRun(claim, new RunLease(claim.run.id));
+  const exec = (claim: ClaimResponse): Promise<void> => d.executeRun(legacyOf(d), claim, new RunLease(claim.run.id));
   if (c.parallel) {
     const first = exec(claims[0]!);
     await waitFor(() => fs.existsSync(`${hold}.started`));

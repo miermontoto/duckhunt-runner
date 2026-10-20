@@ -9,11 +9,12 @@ import path from 'node:path';
 import { after, before, beforeEach, test } from 'node:test';
 import { parseClaim, type ClaimResponse } from '../src/claim.js';
 import { configPath, loadConfig, type RunnerConfig } from '../src/config.js';
-import { EXIT_CODE_UNPAIRED, RunnerDaemon } from '../src/daemon.js';
+import { EXIT_CODE_UNPAIRED } from '../src/daemon.js';
 import { LEGACY_PLATFORM_ID } from '../src/paths.js';
 import { CLAIM_RESULT } from '../src/platforms/platform.js';
 import { readServerState } from '../src/server-state.js';
 import { fakeFactories, runResult, UNAVAILABLE, type FakePlatform } from './fake-platform.js';
+import { internals, legacyDaemon, type LegacyDaemon } from './daemon-harness.js';
 
 const FIXTURES = new URL('../../test/fixtures/', import.meta.url);
 let root = '';
@@ -29,18 +30,11 @@ const cfg: RunnerConfig = {
   defaults: { maxConcurrent: 2 },
 };
 
-interface DaemonInternals {
-  reloadConfig(): Promise<void>;
-  claim(): Promise<ClaimResponse | null>;
-  stopping: boolean;
-  exitCode: number;
-}
-
 const claimFixture = (): ClaimResponse => parseClaim(JSON.parse(fs.readFileSync(new URL('claim-kits/prompt-read-full.json', FIXTURES), 'utf8')) as unknown);
 
-async function daemon(): Promise<{ d: DaemonInternals; platform: FakePlatform }> {
+async function daemon(): Promise<{ d: LegacyDaemon; platform: FakePlatform }> {
   const { factories, created } = fakeFactories();
-  const d = new RunnerDaemon(loadConfig()!, { factories }) as unknown as DaemonInternals;
+  const d = legacyDaemon(internals(loadConfig()!, { factories }));
   await d.reloadConfig();
   return { d, platform: created.get(LEGACY_PLATFORM_ID)! };
 }

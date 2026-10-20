@@ -9,12 +9,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { after, afterEach, before, beforeEach, test } from 'node:test';
 import { configPath, loadConfig, type RunnerConfig } from '../src/config.js';
-import { RunnerDaemon } from '../src/daemon.js';
 import { RunLease } from '../src/run-lease.js';
 import type { KeptWorktree } from '../src/server-state.js';
 import type { StatusReport } from '../src/status-report.js';
 import type { SeqEvent } from '../src/event-uploader.js';
-import type { Platform } from '../src/platforms/platform.js';
+import { internals, legacyOf } from './daemon-harness.js';
 import { runnerVersion } from '../src/version.js';
 
 const BASE = 'https://duckhunt.test';
@@ -48,14 +47,6 @@ interface Wire {
   keptWorktrees: KeptWorktree[] | null;
 }
 
-interface DaemonInternals {
-  reloadConfig(): Promise<void>;
-  claim(): Promise<unknown>;
-  platform: Platform;
-  postProgress(runId: string, toolCalls: number, seg: { segment?: number }, workdir?: string): void;
-  startHeartbeat(lease: RunLease, heartbeatMs: number, seg: { segment?: number }): NodeJS.Timeout;
-  keptWorktrees: KeptWorktree[] | null;
-}
 
 // server falso: guarda `<ruta> <cuerpo tal cual>` de cada llamada a /api/runner.
 function capture(): string[] {
@@ -73,17 +64,18 @@ function capture(): string[] {
 }
 
 async function daemon(): Promise<Wire> {
-  const d = new RunnerDaemon(loadConfig()!) as unknown as DaemonInternals;
+  const d = internals(loadConfig()!);
   await d.reloadConfig();
+  const sup = legacyOf(d);
   return {
-    claim: () => d.claim(),
-    openConversations: (ids) => d.platform.openConversations(ids),
-    postEvents: (runId, events, seg) => d.platform.events(runId, events, seg),
-    postStatus: (runId, report) => d.platform.result(runId, report),
-    postProgress: (runId, toolCalls, seg, workdir) => d.postProgress(runId, toolCalls, seg, workdir),
-    startHeartbeat: (lease, ms, seg) => d.startHeartbeat(lease, ms, seg),
+    claim: () => sup.claim(),
+    openConversations: (ids) => sup.platform.openConversations(ids),
+    postEvents: (runId, events, seg) => sup.platform.events(runId, events, seg),
+    postStatus: (runId, report) => sup.platform.result(runId, report),
+    postProgress: (runId, toolCalls, seg, workdir) => d.postProgress(sup, runId, toolCalls, seg, workdir),
+    startHeartbeat: (lease, ms, seg) => d.startHeartbeat(sup, lease, ms, seg),
     set keptWorktrees(kept: KeptWorktree[] | null) {
-      d.keptWorktrees = kept;
+      sup.keptWorktrees = kept;
     },
   };
 }

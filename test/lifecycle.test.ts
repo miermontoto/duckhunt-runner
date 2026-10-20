@@ -14,12 +14,13 @@ import { configPath, loadConfig, loadStoredConfig, type RunnerConfig } from '../
 import { ensureMachineId, loginIdentity, ownedHere } from '../src/machine.js';
 import { logoutCommand, unpairOnServer } from '../src/logout.js';
 import { CredentialRejectedError, refreshAccess } from '../src/oauth.js';
-import { EXIT_CODE_UNPAIRED, RunnerDaemon } from '../src/daemon.js';
+import { EXIT_CODE_UNPAIRED } from '../src/daemon.js';
 import { describeServerState } from '../src/status.js';
 import { reposCommand } from '../src/repos.js';
 import { awsCommand } from '../src/aws.js';
 import { readServerState, writeServerState } from '../src/server-state.js';
 import { LEGACY_PLATFORM_ID, serverStatePath } from '../src/paths.js';
+import { internals, legacyDaemon, type LegacyDaemon } from './daemon-harness.js';
 
 const BASE = 'https://duckhunt.test';
 const HOST = 'fa';
@@ -136,14 +137,7 @@ test('ensureMachineId: lo genera una vez (config de 0.10) y luego es estable', (
 
 // --- el daemon reclamando ---
 
-interface DaemonInternals {
-  reloadConfig(): Promise<void>;
-  claim(): Promise<unknown>;
-  exitCode: number;
-  stopping: boolean;
-}
-
-const daemonFor = (cfg: RunnerConfig): DaemonInternals => new RunnerDaemon(cfg) as unknown as DaemonInternals;
+const daemonFor = (cfg: RunnerConfig): LegacyDaemon => legacyDaemon(internals(cfg));
 
 test('el claim anuncia la máquina y su login anterior hasta que el server lo acepta; guarda lo que dice de ella', async (t) => {
   t.mock.method(console, 'log', () => {});
