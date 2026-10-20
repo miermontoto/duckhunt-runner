@@ -23,12 +23,17 @@
 // caliente no lo tendría; por segmento y AÑADIDO detrás, el deny de la legacy no cambia ni de orden.
 // la auditoría (audit/, t#495 M6.6) no va en RUNNER_HOME_PRIVATE: cambiaría el deny de toda instalación aunque no
 // exista; en cuanto existe, la lista de lo presente en runnerHome la niega entera desde el siguiente arranque.
+// el vault de sesiones de navegador (t#495, M7: cookies y tokens vivos), con su realpath, solo si existe o hay alguna
+// sesión configurada: sin navegador el deny es el de siempre. el de por defecto vive en runnerHome (ya lo cubre la
+// lista de lo presente); uno en otra ruta (providers.browser.vaultDir) va aparte, detrás de todo lo demás.
 
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { configPath, runnerHome } from './config.js';
+import { configPath, loadConfigV2, runnerHome } from './config.js';
 import { readDenyRule } from './run-mcp-config.js';
+import { vaultDirOf } from './resources/browser/config.js';
+import { RESOURCE_TYPE } from './resources/types.js';
 import { auditPath, LEGACY_PLATFORM_ID, PLATFORM_ID_RE, PLATFORM_PRIVATE_ENTRIES, PLATFORM_SCRATCH_SUBDIR, PLATFORMS_DIR_NAME, platformHome, scratchPath } from './paths.js';
 
 // lo que el daemon escribe en su estado aunque aún no exista al arrancar (logs con --verbose, el lock y
@@ -93,6 +98,25 @@ function runnerHomeEntries(home: string): Candidate[] {
   ];
 }
 
+// el vault de sesiones de navegador si existe o hay sesiones configuradas (ver cabecera); nada si la config no se lee.
+function browserVaultCandidates(): Candidate[] {
+  let cfg: ReturnType<typeof loadConfigV2>;
+  try {
+    cfg = loadConfigV2();
+  } catch {
+    return [];
+  }
+  const vault = path.resolve(vaultDirOf(cfg?.providers));
+  const configured = Object.keys(cfg?.resources[RESOURCE_TYPE.browser] ?? {}).length > 0;
+  return configured || fs.existsSync(vault) ? withRealpath({ path: vault, dir: true }) : [];
+}
+
+/** deny de Read del vault de sesiones de navegador (ver cabecera): vacío sin navegador. lo usa secretPathsDeny (kits
+ *  de lectura) y servirá al deny por run de todo kit. */
+export function browserVaultDeny(): string[] {
+  return Array.from(new Set(browserVaultCandidates().map((c) => readDenyRule(c.path, c.dir)).filter((r): r is string => r !== null)));
+}
+
 /** deny de Read de las rutas reales de las credenciales de esta máquina (ver cabecera), con `env` el del daemon. */
 export function secretPathsDeny(env: NodeJS.ProcessEnv = process.env, home: string = os.homedir()): SecretPathsDeny {
   const fromEnv = [
@@ -105,7 +129,7 @@ export function secretPathsDeny(env: NodeJS.ProcessEnv = process.env, home: stri
     .flatMap(withRealpath);
   // de la lista genérica solo el realpath distinto: la ruta lógica ya la niega el server.
   const generic = HOME_SECRETS.map((rel) => entry(home, rel)).flatMap((c) => withRealpath(c).slice(1));
-  const candidates = [...own, ...generic];
+  const candidates = [...own, ...generic, ...browserVaultCandidates()];
   const rules = candidates.map((c) => readDenyRule(c.path, c.dir));
   return {
     rules: Array.from(new Set(rules.filter((r): r is string => r !== null))),

@@ -28,6 +28,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { filePatch, fromFile } from './config-legacy.js';
 import type { PlatformConfig } from './platforms/types.js';
+import type { ProvidersConfig } from './resources/browser/config.js';
 
 // permisos del fichero de config: lleva el refresh token.
 const CONFIG_FILE_MODE = 0o600;
@@ -126,6 +127,8 @@ export interface RunnerConfigV2 {
   resources: ResourcesConfig;
   platforms: Readonly<Record<string, PlatformConfig>>;
   defaults: RunnerDefaults;
+  // dónde están las herramientas de los recursos (odysea y su vault, t#495 M7). ausente = las de por defecto.
+  providers?: ProvidersConfig;
 }
 
 /** lo que el daemon recarga en caliente en cada vuelta de su loop: todo menos la credencial. */
@@ -266,7 +269,7 @@ function writeAtomic(file: string, content: string): void {
 }
 
 /** claves que cambia una escritura: las v1 y, desde la v2, las solo-v2 del fichero (config-legacy.ts::fileOf). */
-export type ConfigPatch = Partial<RunnerConfig> & Partial<Record<'version' | 'platforms' | 'resources', unknown>>;
+export type ConfigPatch = Partial<RunnerConfig> & Partial<Record<'version' | 'platforms' | 'resources' | 'providers', unknown>>;
 
 /**
  * cambia en la config SOLO las claves que devuelve `change`, calculadas sobre lo que hay AHORA en el
