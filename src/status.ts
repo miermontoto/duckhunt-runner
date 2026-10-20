@@ -5,13 +5,24 @@
 // worktrees que el gc conservó) es lo del último claim del daemon (server-state.ts), con su edad (t#465
 // P12). también avisa de los flags de repo deprecados (worktree: false, dangerouslySkipPermissions) que
 // ya no aplica nada.
+// `status --platforms` (t#495, M6.6): cada plataforma de la config con su protocolo, credencial, estado local, lo
+// último que dijo su server, su cuota (slots y la del día, de su auditoría), su techo, lo que ve de la máquina con
+// su salud y el resumen de su auditoría de las últimas 24 h. tampoco toca ningún server; `status` sin el flag sigue
+// siendo, byte a byte, el de siempre.
 
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { concurrency, configPath, deprecatedRepoFlags, loadStoredConfig, REPO_FLAGS_DEPRECATED } from './config.js';
+import { concurrency, configPath, deprecatedRepoFlags, loadConfigV2, loadStoredConfig, REPO_FLAGS_DEPRECATED, type StoredConfig } from './config.js';
+import { AUDIT_EVENT, DAY_MS, dayUsage, readAudit } from './audit.js';
+import { PLATFORM_FACTORIES } from './platforms/factories.js';
+import { PROTOCOL } from './platforms/platform.js';
+import { EXPOSE_ALL, PLATFORM_DEFAULT_SLOTS, type PlatformConfig } from './platforms/types.js';
+import { LEGACY_RESOURCE_KEYS } from './config-legacy.js';
+import type { RepoFinding } from './resources/repo/health.js';
+import { RESOURCE_TYPE } from './resources/types.js';
 import { LEGACY_PLATFORM_ID, scratchDir } from './paths.js';
 import { daemonLockHolder } from './daemon-lock.js';
 import { detectClaude } from './claude.js';
@@ -85,7 +96,88 @@ async function credentialSummary(): Promise<string> {
   return fs.existsSync(path.join(configDir, '.credentials.json')) ? 'login de claude code (credenciales locales)' : 'SIN credencial detectada: ejecuta `claude` y haz login';
 }
 
-export async function statusCommand(): Promise<void> {
+// flag de la vista por plataformas.
+const PLATFORMS_FLAG = '--platforms';
+// cómo empieza lo que describeServerState dice del server de duckhunt (en la vista por plataformas, el de cada una).
+const SERVER_SAID_PREFIX = /^en duckhunt/;
+const USD_DECIMALS = 2;
+
+// el estado local de una plataforma visto desde fuera del daemon: la config, lo último que guardó de su server y
+// su auditoría del día.
+function localState(id: string, p: PlatformConfig, credentialId: string | undefined, now: number): string {
+  const legacy = id === LEGACY_PLATFORM_ID;
+  const protocol = p.protocol ?? (legacy ? PROTOCOL.duckhunt42 : undefined);
+  if (protocol === undefined || !Object.hasOwn(PLATFORM_FACTORIES, protocol)) return `protocolo ${protocol ?? '(sin protocolo)'} sin soporte: no reclama`;
+  if (!credentialId) return 'sin credencial (`login`): no reclama';
+  if (!legacy && protocol === PROTOCOL.duckhunt42 && !p.trusted) return 'sin trusted (su techo no se aplica sin toolset_v1): no reclama';
+  const said = readServerState(id);
+  if (said?.state === CLAIM_OUTCOME.unpaired && said.clientId === credentialId) return 'desvinculada: credencial rechazada (`login`)';
+  if (p.paused) return 'en pausa (la config): no reclama, sus runs siguen';
+  const used = dayUsage(id, now);
+  const over = (p.runsPerDay !== undefined && used.runs >= p.runsPerDay) || (p.budgetUsdPerDay !== undefined && used.costUsd >= p.budgetUsdPerDay);
+  return over ? 'cuota del día agotada: no reclama hasta medianoche' : 'activa';
+}
+
+// lo que ve una plataforma de un tipo de recurso: todo (con cuántas claves hay) o su lista.
+const exposedKeys = (p: PlatformConfig, type: string, mapped: readonly string[]): string[] => {
+  const keys = Object.hasOwn(p.expose, type) ? p.expose[type] : undefined;
+  return keys === undefined ? [] : keys === EXPOSE_ALL ? [...mapped] : mapped.filter((k) => keys.includes(k));
+};
+
+/** las líneas de `status --platforms` (ver cabecera). `findings`, la salud de los repos mapeados. */
+export function platformsStatus(cfg: StoredConfig, findings: readonly RepoFinding[], now = Date.now()): string[] {
+  const v2 = loadConfigV2();
+  if (!v2) return ['plataformas: sin config'];
+  const slots = concurrency(cfg.defaults);
+  const day = readAudit(now - DAY_MS);
+  return Object.entries(v2.platforms).flatMap(([id, p]) => {
+    const legacy = id === LEGACY_PLATFORM_ID;
+    const credentialId = legacy ? cfg.clientId : p.credential?.clientId;
+    const baseUrl = legacy ? cfg.baseUrl : p.credential?.baseUrl;
+    const quota = Math.min(p.slots ?? (legacy ? slots : PLATFORM_DEFAULT_SLOTS), slots);
+    const used = dayUsage(id, now);
+    const limits = [
+      p.runsPerDay !== undefined ? `${used.runs}/${p.runsPerDay} segmentos` : `${used.runs} segmentos`,
+      p.budgetUsdPerDay !== undefined ? `${used.costUsd.toFixed(USD_DECIMALS)}/${p.budgetUsdPerDay} usd` : `${used.costUsd.toFixed(USD_DECIMALS)} usd`,
+    ];
+    const c = p.ceiling;
+    const yes = (b: boolean): string => (b ? 'sí' : 'no');
+    const access = Object.entries(c.access).map(([type, a]) => `${type}:${a}`).join(' ') || 'ninguno';
+    const exposed = Object.entries(LEGACY_RESOURCE_KEYS).map(([type, field]) => {
+      const keys = exposedKeys(p, type, Object.keys(cfg[field]));
+      return `${type} ${p.expose[type] === EXPOSE_ALL ? `* (${keys.length})` : keys.length === 0 ? 'nada' : keys.join(', ')}`;
+    });
+    const repos = exposedKeys(p, RESOURCE_TYPE.repo, Object.keys(cfg.repos));
+    const health = findings.filter((f) => f.issue.repo !== null && repos.includes(f.issue.repo));
+    const mine = day.filter((r) => r.platform === id);
+    const failed = mine.filter((r) => r.event === AUDIT_EVENT.closed && r.outcome.status === 'failed').length;
+    const rejected = mine.filter((r) => r.event === AUDIT_EVENT.rejected).length;
+    const cost = mine.reduce((sum, r) => sum + (r.event === AUDIT_EVENT.closed ? (r.costUsd ?? 0) : 0), 0);
+    // lo que dijo su server, con el nombre de la plataforma donde `status` dice duckhunt.
+    const said = credentialId ? describeServerState(readServerState(id), credentialId, now).map((line) => `  ${legacy ? line : line.replace(SERVER_SAID_PREFIX, `en ${id}`)}`) : [];
+    return [
+      `${id}${p.name ? ` «${p.name}»` : ''} · ${p.protocol ?? PROTOCOL.duckhunt42} · ${baseUrl ?? '(sin login)'} · credencial ${credentialId ? 'sí' : 'no'}${p.trusted ? ' · trusted' : ''}`,
+      `  estado: ${localState(id, p, credentialId, now)}`,
+      ...said,
+      `  cuota: ${quota} slot${quota === 1 ? '' : 's'} (de ${slots}) · hoy ${limits.join(' · ')}`,
+      `  techo: shell ${c.shell} · escritura ${yes(c.fsWrite)} · memoria ${yes(c.memory)} · web ${yes(c.web)} · push ${yes(c.vcsPush)} · acceso ${access}`,
+      `  expuesto: ${exposed.join(' · ')}`,
+      ...(health.length === 0 ? [] : [`  avisos: ${health.length}`, ...health.map((f) => `    ⚠ ${describeFinding(f)}`)]),
+      `  24 h: ${mine.filter((r) => r.event === AUDIT_EVENT.claimed).length} segmentos · ${failed} fallidos · ${rejected} rechazados · ${cost.toFixed(USD_DECIMALS)} usd`,
+    ];
+  });
+}
+
+export async function statusCommand(args: string[] = []): Promise<void> {
+  if (args.includes(PLATFORMS_FLAG)) {
+    const cfg = loadStoredConfig();
+    if (!cfg) {
+      console.log(`sin config (${configPath()}): ejecuta \`duckhunt-runner login <base-url>\``);
+      return;
+    }
+    platformsStatus(cfg, repoFindings(await scanRepos(cfg.repos, scrubEnv(process.env)))).forEach((line) => console.log(line));
+    return;
+  }
   console.log(`daemon:     duckhunt-runner ${runnerVersion() ?? '?'} (config ${configPath()})`);
   const running = daemonLockHolder();
   console.log(`en marcha:  ${running ? `pid ${running.pid} desde ${running.startedAt} (config ${running.config})` : 'no'}`);

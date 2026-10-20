@@ -62,3 +62,41 @@ export function ensureMachineId(hostname = os.hostname()): string {
   });
   return id;
 }
+
+// identidad por plataforma (t#495, M6.5): a una plataforma que no es la legacy no se le manda el machine id de
+// arriba sino uno derivado de un secreto de esta máquina y del emisor de la plataforma: HMAC-SHA256(secreto,
+// emisor). estable para cada plataforma (adoptar su fila tras otro `login` sigue funcionando) y distinto entre
+// ellas: dos plataformas que comparan sus ids no pueden saber que son la misma máquina. el secreto se genera la
+// primera vez que hace falta (con una sola plataforma, nunca: la config de siempre no cambia) y vive en la config
+// (0600), como el refresh token.
+const MACHINE_SECRET_BYTES = 32;
+const MACHINE_SECRET_RE = /^[0-9a-f]{64}$/;
+const MACHINE_ID_HMAC = 'sha256';
+
+/** el secreto de esta máquina para derivar sus ids por plataforma: el de la config o uno nuevo que se guarda. */
+export function ensureMachineSecret(): string {
+  let secret = '';
+  saveConfig((current) => {
+    const stored = (current as { machineSecret?: unknown }).machineSecret;
+    if (typeof stored === 'string' && MACHINE_SECRET_RE.test(stored)) {
+      secret = stored;
+      return null;
+    }
+    secret = crypto.randomBytes(MACHINE_SECRET_BYTES).toString('hex');
+    return { machineSecret: secret };
+  });
+  return secret;
+}
+
+// el emisor como origen (esquema + host en minúsculas + puerto): https://Duckhunt.info/ y https://duckhunt.info son
+// el mismo. uno que no es una url, tal cual.
+function issuerKey(issuer: string): string {
+  try {
+    return new URL(issuer).origin;
+  } catch {
+    return issuer;
+  }
+}
+
+/** machine id de esta máquina para una plataforma (64 hex, cabe en RUNNER_MACHINE_ID_RE). */
+export const derivedMachineId = (secret: string, issuer: string): string => crypto.createHmac(MACHINE_ID_HMAC, secret).update(issuerKey(issuer)).digest('hex');

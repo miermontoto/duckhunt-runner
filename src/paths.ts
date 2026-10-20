@@ -9,6 +9,7 @@
 // - el id es la clave local e inmutable de la plataforma (PLATFORM_ID_RE: minúsculas, dígitos y '-'): acaba
 //   en rutas, así que se valida al construirlas y uno inválido lanza.
 // - la config, el lock del daemon y runnerHome son de la máquina, no de una plataforma: siguen en config.ts.
+// - la auditoría local (t#495, M6.6) es de toda plataforma, la legacy incluida: <runnerHome>/audit/<id>/.
 // - los directorios se crean al pedirlos (como antes en config.ts); run-config, 0700 aunque ya existiera.
 
 import fs from 'node:fs';
@@ -29,6 +30,9 @@ const RUN_CONFIG_SUBDIR = 'run-config';
 const SERVER_STATE_FILE = 'server-state.json';
 // permisos del directorio de los mcp-config de los runs: llevan el token per-run.
 const RUN_CONFIG_DIR_MODE = 0o700;
+// auditoría local por plataforma (t#495, M6.6): <runnerHome>/audit/<id>/, 0700 (lleva qué corrió cada plataforma).
+const AUDIT_SUBDIR = 'audit';
+const AUDIT_DIR_MODE = 0o700;
 // dentro de un checkout: el directorio del daemon legacy y el de toda otra plataforma.
 const LEGACY_CHECKOUT_DIR = '.duckhunt';
 const CHECKOUT_DIR = '.runner';
@@ -97,6 +101,24 @@ export function allRunConfigDirs(): string[] {
 /** fichero con lo último que el server de la plataforma dijo de esta máquina (server-state.ts). */
 export function serverStatePath(platform: string): string {
   return path.join(platformHome(platform), SERVER_STATE_FILE);
+}
+
+/** raíz de la auditoría local de todas las plataformas (<runnerHome>/audit, audit.ts). */
+export function auditRoot(): string {
+  return path.join(runnerHome(), AUDIT_SUBDIR);
+}
+
+/** ruta de la auditoría de una plataforma (<runnerHome>/audit/<id>, también la legacy), sin crearla. */
+export function auditPath(platform: string): string {
+  return path.join(auditRoot(), checkedId(platform));
+}
+
+/** directorio 0700 de la auditoría de una plataforma (se crea al pedirlo; uno que ya existía se cierra). */
+export function auditDir(platform: string): string {
+  const dir = auditPath(platform);
+  fs.mkdirSync(dir, { recursive: true, mode: AUDIT_DIR_MODE });
+  fs.chmodSync(dir, AUDIT_DIR_MODE);
+  return dir;
 }
 
 /** directorio de los worktrees de una plataforma dentro de un checkout. */

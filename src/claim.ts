@@ -261,6 +261,9 @@ export interface ClaimResponse {
   resources?: ResourceRequest[];
   // servidores mcp de la plataforma además de `mcp` (cable v0: mcpServers[] a partir del segundo). ausente = ninguno.
   extraMcp?: McpServer[];
+  // la política de un claim que manda con toolset_v1 (cable v0): lo que pidió, lo que se aplicó tras el techo y el
+  // perfil, y qué se recortó. para la auditoría local (audit.ts). ausente = un claim legacy.
+  policyAudit?: { requested: ShadowSource['toolset']; effective: ShadowSource['toolset']; narrowed: string[] };
 }
 
 /** un servidor mcp de la plataforma con el token per-run (expiresAt en ms desde epoch). */

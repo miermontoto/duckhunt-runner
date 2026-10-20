@@ -125,6 +125,11 @@ function platformOf(id: string, v: unknown, base: PlatformConfig): PlatformConfi
   if (legacy && v.protocol !== undefined && v.protocol !== PROTOCOL.duckhunt42) throw invalid(`${where}.protocol: ${LEGACY_PLATFORM_ID} solo habla ${PROTOCOL.duckhunt42}`);
   if (v.paused !== undefined && typeof v.paused !== 'boolean') throw invalid(`${where}.paused no es booleano`);
   if (v.slots !== undefined && !(typeof v.slots === 'number' && Number.isSafeInteger(v.slots) && v.slots >= 1)) throw invalid(`${where}.slots: un entero desde 1`);
+  if (v.label !== undefined && (typeof v.label !== 'string' || !v.label.trim())) throw invalid(`${where}.label no es un texto`);
+  if (v.budgetUsdPerDay !== undefined && !(typeof v.budgetUsdPerDay === 'number' && Number.isFinite(v.budgetUsdPerDay) && v.budgetUsdPerDay >= 0)) {
+    throw invalid(`${where}.budgetUsdPerDay: un número desde 0`);
+  }
+  if (v.runsPerDay !== undefined && !(typeof v.runsPerDay === 'number' && Number.isSafeInteger(v.runsPerDay) && v.runsPerDay >= 0)) throw invalid(`${where}.runsPerDay: un entero desde 0`);
   return {
     ...(credential ? { credential } : {}),
     trusted,
@@ -135,6 +140,9 @@ function platformOf(id: string, v: unknown, base: PlatformConfig): PlatformConfi
     ...(v.slots !== undefined ? { slots: v.slots as number } : {}),
     ...(v.issuer !== undefined ? { issuer: v.issuer as string } : {}),
     ...(v.name !== undefined ? { name: v.name as string } : {}),
+    ...(v.label !== undefined ? { label: v.label as string } : {}),
+    ...(v.budgetUsdPerDay !== undefined ? { budgetUsdPerDay: v.budgetUsdPerDay as number } : {}),
+    ...(v.runsPerDay !== undefined ? { runsPerDay: v.runsPerDay as number } : {}),
   };
 }
 

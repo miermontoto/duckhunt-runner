@@ -78,6 +78,8 @@ export interface RunnerDefaults {
   // cambios del mapa de repos pedidos desde duckhunt (quitar un repo, elegir su carpeta entre las
   // que este daemon encontró; repo-commands.ts). ausente = permitidos; false = solo por la cli.
   remoteRepoEdits?: boolean;
+  // días que se guarda la auditoría local de cada plataforma (audit.ts, t#495 M6.6). ausente = 180.
+  auditRetentionDays?: number;
 }
 
 /** credencial oauth del runner: la escribe `login` y su refreshToken lo rota el daemon (oauth.ts). */
@@ -99,6 +101,9 @@ export interface RunnerConfig extends RunnerCredential {
   // uuid estable de esta máquina (machine.ts) y el hostname con el que se generó.
   machineId?: string;
   machineHost?: string;
+  // secreto de esta máquina con el que se derivan sus ids por plataforma (machine.ts, t#495 M6.5). no lo lee
+  // parseConfig: solo ensureMachineSecret, y solo con una plataforma que no es la legacy.
+  machineSecret?: string;
   // mapa clave ws/slug → checkout local.
   repos: Record<string, RepoConfig>;
   // mapa id de cuenta aws (12 dígitos) → perfil local.

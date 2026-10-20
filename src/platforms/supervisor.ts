@@ -6,6 +6,8 @@
 //   si era la última plataforma usable, el daemon sale con EXIT_CODE_UNPAIRED como siempre. un `login` nuevo
 //   (otro clientId en la config) la sustituye por otra activa (M6.3).
 // - removing: ya no está en la config. no reclama; cuando acaban sus runs, el daemon la suelta (M6.3).
+// - budget: agotó su cuota del día (coste o segmentos, contados en su auditoría local: audit.ts). no reclama hasta
+//   medianoche (o hasta que la config le suba la cuota) y sus runs siguen; cuenta como usable (M6.6).
 // lo que es de la máquina (los slots, la config, los recursos, cómo se ejecuta un run) sigue en el daemon.
 
 import type { ClaimResponse } from '../claim.js';
@@ -18,11 +20,12 @@ export const PLATFORM_STATE = {
   paused: 'paused',
   unpaired: 'unpaired',
   removing: 'removing',
+  budget: 'budget',
 } as const;
 export type PlatformState = (typeof PLATFORM_STATE)[keyof typeof PLATFORM_STATE];
 
 // las que cuentan para seguir vivo: sin ninguna, el daemon sale.
-const USABLE_STATES: ReadonlySet<PlatformState> = new Set([PLATFORM_STATE.active, PLATFORM_STATE.paused]);
+const USABLE_STATES: ReadonlySet<PlatformState> = new Set([PLATFORM_STATE.active, PLATFORM_STATE.paused, PLATFORM_STATE.budget]);
 
 /** lo que el supervisor necesita del daemon. */
 export interface SupervisorHooks {
@@ -32,6 +35,8 @@ export interface SupervisorHooks {
   rejected(sup: PlatformSupervisor, err: PlatformRejectedError): void;
   // la plataforma tiene comandos de repos pendientes para esta máquina.
   commandsPending(sup: PlatformSupervisor): void;
+  // un run reclamado que no se puede ejecutar (se cierra como failed): para la auditoría local.
+  rejectedClaim?(sup: PlatformSupervisor, runId: string | null, error: string): void;
 }
 
 export class PlatformSupervisor {
@@ -78,7 +83,10 @@ export class PlatformSupervisor {
     if (result.commandsPending) this.hooks.commandsPending(this);
     if (result.kind === CLAIM_RESULT.unavailable) return null;
     this.recordServerState(result.said.state, result.said.runner);
-    if (result.kind === CLAIM_RESULT.invalid && result.runId !== null) await this.platform.result(result.runId, { status: 'failed', error: result.error });
+    if (result.kind === CLAIM_RESULT.invalid) {
+      this.hooks.rejectedClaim?.(this, result.runId, result.error);
+      if (result.runId !== null) await this.platform.result(result.runId, { status: 'failed', error: result.error });
+    }
     return result.kind === CLAIM_RESULT.run ? result.claim : null;
   }
 

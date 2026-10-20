@@ -41,6 +41,15 @@ export interface ScratchDefault {
   exclusive: boolean;
 }
 
+/** qué se materializó de cada recurso (la auditoría local, audit.ts): sin paths. degraded = pedido pero sin mapear
+ *  en esta máquina (o un checkout que no está: corrió en el scratch); isolated = sin petición, aislado (toolset_v1). */
+export interface MaterializedSummary {
+  type: string;
+  key: string | null;
+  degraded: boolean;
+  isolated: boolean;
+}
+
 /** los recursos de un run, juntos. */
 export interface MaterializedRun {
   cwd: RunCwd;
@@ -48,6 +57,7 @@ export interface MaterializedRun {
   note: string;
   warnings: string[];
   locks: ResourceLock[];
+  resources: MaterializedSummary[];
   release(outcome: ReleaseOutcome): Promise<void>;
 }
 
@@ -56,6 +66,8 @@ interface Step {
   key: string | null;
   phase: Phase;
   m: Materialized;
+  degraded: boolean;
+  isolated: boolean;
 }
 
 const phaseRank = (order: readonly Phase[], phase: Phase): number => order.indexOf(phase);
@@ -93,7 +105,9 @@ async function materializeSteps(plan: readonly PlannedResource[], ctx: RunContex
       const m = await (request ? provider.materialize(request, ref, stepCtx) : provider.isolate!(stepCtx)).catch((err: unknown) => {
         throw err instanceof ResourceUnavailableError ? err : new ResourceUnavailableError(provider.type, key, UNAVAILABLE_KIND.failed, err);
       });
-      steps.push({ type: provider.type, key, phase: provider.phase, m });
+      // pedido y sin mapear (o un repo cuyo checkout no está): el run sigue, degradado.
+      const degraded = request !== null && (ref === null || (provider.phase === PHASE.cwd && m.cwd === undefined));
+      steps.push({ type: provider.type, key, phase: provider.phase, m, degraded, isolated: request === null });
       const vars = m.env ?? {};
       if (Object.entries(vars).some(([k, v]) => setBy.has(k) && setBy.get(k) !== v)) throw new ResourceUnavailableError(provider.type, key, UNAVAILABLE_KIND.envConflict);
       if (m.cwd && steps.some((s) => s !== steps.at(-1) && s.m.cwd)) throw new ResourceUnavailableError(provider.type, key, UNAVAILABLE_KIND.cwdConflict);
@@ -120,6 +134,7 @@ export async function materializeRun(plan: readonly PlannedResource[], ctx: RunC
     note: steps.find((s) => s.phase === PHASE.cwd && s.m.note !== undefined)?.m.note ?? SCRATCH_NOTE,
     warnings: byNotePhase.flatMap((s) => s.m.warnings),
     locks: [...steps.flatMap((s) => s.m.locks ?? []), ...scratchLock],
+    resources: steps.map(({ type, key, degraded, isolated }) => ({ type, key, degraded, isolated })),
     release: (outcome) => releaseInReverse(steps, outcome),
   };
 }
