@@ -25,6 +25,8 @@ import { statusCommand } from './status.js';
 import { auditCommand } from './audit-cli.js';
 import { browserCommand } from './browser-cli.js';
 import { RUN_USAGE, runCommand } from './run-cli.js';
+import { S3_READ_SUBCOMMAND } from './resources/s3-read.js';
+import { s3McpCommand } from './s3-read-server.js';
 import { runnerVersion } from './version.js';
 
 const VERBOSE_FLAG = '--verbose';
@@ -102,6 +104,11 @@ async function main(): Promise<void> {
   }
   if (cmd === 'browser') {
     await browserCommand(rest);
+    return;
+  }
+  // oculto: el servidor mcp de lectura s3 que lanza el cli de un run (resources/s3-read.ts), no un comando del usuario.
+  if (cmd === S3_READ_SUBCOMMAND) {
+    await s3McpCommand();
     return;
   }
   if (cmd === 'run' && rest.length === 1 && (rest[0] === '--help' || rest[0] === '-h')) {

@@ -1165,7 +1165,7 @@ export class RunnerDaemon {
       // legacy de duckhunt, nunca.
       const isolate = claim.toolset !== null || sup.id !== LEGACY_PLATFORM_ID;
       const plan = this.registry.plan(requests, (type, key) => this.refOf(sup, type, key), isolate);
-      res = await materializeRun(plan, { platform: sup.id, runId: run.id, env, gitLocks: this.gitLocks }, { dir: () => scratchDir(sup.id), exclusive: legacyScratchExclusive(run) });
+      res = await materializeRun(plan, { platform: sup.id, runId: run.id, env, gitLocks: this.gitLocks, toolset: claim.toolset !== null }, { dir: () => scratchDir(sup.id), exclusive: legacyScratchExclusive(run) });
     } catch (err) {
       clearInterval(heartbeat);
       await feed?.close();

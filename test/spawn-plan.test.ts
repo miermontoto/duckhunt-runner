@@ -728,3 +728,30 @@ test('navegador: una sesión que no sirve (caducada) hace fallar el run sin lanz
   assert.ok(!unmapped.spawns[0]!.mcp.includes('res_browser_'));
   assert.ok(unmapped.runs[String(runId)]!.feed.some((e) => e.body.includes('no mapeada en este runner')));
 });
+
+// --- lectura de objetos s3 (t#495, 0.13.0): fuera del golden ---
+
+const S3_SCOPE = 'acme-alb-logs/AWSLogs/';
+const withS3Read = (c: RunnerConfig): RunnerConfig => ({ ...c, aws: { ...c.aws, [ACCOUNT]: { ...c.aws[ACCOUNT]!, s3Read: [S3_SCOPE] } } });
+type McpConfigFile = { mcpServers: Record<string, { command?: string; args?: string[]; env?: Record<string, string> }> };
+
+test('lectura s3: con s3Read y el render, su servidor res_aws_<cuenta> y la tool en el allow; con el interruptor, ni una ni otra', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  t.mock.method(console, 'warn', () => {});
+  const name = 's3/render';
+  const render = (await runCase({ name, raw: withToolset('template-full-aws-announced', 980), cfg: withS3Read, awsCli: true })) as FlipPlan;
+  const [spawn] = browserSpawns(name);
+  assert.ok(flagValue(spawn!.argv, '--allowedTools').includes(`mcp__res_aws_${ACCOUNT}__s3_read`), 'la tool, en el allow');
+  const server = (JSON.parse(spawn!.mcp) as McpConfigFile).mcpServers[`res_aws_${ACCOUNT}`];
+  assert.ok(server, 'su servidor, en el mcp-config del run');
+  assert.deepEqual([server.command, server.args?.at(-1)], [process.execPath, 'mcp-s3']);
+  assert.equal(server.env?.AWS_PROFILE, 'okt-prod', 'con la aws del run');
+  assert.ok(render.runs['980']!.feed.some((e) => e.body === `lectura de objetos s3 de ${ACCOUNT}: ${S3_SCOPE}`));
+  // con el interruptor del flip (las listas del server): ni la tool ni el servidor, con una nota.
+  const offName = 's3/render-off';
+  const off = (await runCase({ name: offName, raw: withRun(kit('template-full-aws-announced'), { id: 981 }), cfg: (c) => renderOff(withS3Read(c)), awsCli: true })) as FlipPlan;
+  const [offSpawn] = browserSpawns(offName);
+  assert.ok(!flagValue(offSpawn!.argv, '--allowedTools').some((tool) => tool.endsWith('__s3_read')));
+  assert.ok(!offSpawn!.mcp.includes('res_aws_'));
+  assert.ok(off.runs['981']!.feed.some((e) => e.body.includes('no se ofrece: solo con el render del daemon')));
+});

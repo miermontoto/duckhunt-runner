@@ -64,6 +64,9 @@ export interface AwsAccountConfig {
   // perfil de ~/.aws/config que la aws cli usa para esa cuenta.
   profile: string;
   region?: string;
+  // lectura de objetos s3 desde un run (t#495, resources/s3-read.ts): true = cualquier bucket que lea el perfil; una
+  // lista = solo esos `bucket` o `bucket/prefijo`. ausente = sin ella.
+  s3Read?: true | readonly string[];
 }
 
 export interface RunnerDefaults {

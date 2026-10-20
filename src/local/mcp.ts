@@ -17,14 +17,14 @@ import { QUESTION_KIND, REPLY_KIND } from './store.js';
 
 const LOOPBACK_HOST = '127.0.0.1';
 const MCP_PATH = '/mcp';
-const JSONRPC_VERSION = '2.0';
+export const JSONRPC_VERSION = '2.0';
 // versión del protocolo mcp si el cliente no pide ninguna (la que dice el cliente se devuelve tal cual).
-const MCP_PROTOCOL_FALLBACK = '2025-06-18';
+export const MCP_PROTOCOL_FALLBACK = '2025-06-18';
 const SERVER_NAME = 'duckhunt-runner-local';
 const TOKEN_BYTES = 24;
 const BODY_MAX_BYTES = 1 << 20;
 const HTTP = { ok: 200, accepted: 202, unauthorized: 401, notFound: 404, notAllowed: 405, tooLarge: 413 } as const;
-const RPC_ERROR = { parse: -32700, invalidRequest: -32600, methodNotFound: -32601, invalidParams: -32602 } as const;
+export const RPC_ERROR = { parse: -32700, invalidRequest: -32600, methodNotFound: -32601, invalidParams: -32602 } as const;
 const BEARER_RE = /^Bearer\s+(\S+)$/i;
 const JSON_TYPE = { 'Content-Type': 'application/json' } as const;
 // marca del error de un cuerpo que pasa de BODY_MAX_BYTES.
@@ -72,8 +72,8 @@ export const LOCAL_TOOLS = [
 type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
 
-const rpcResult = (id: unknown, result: unknown): Obj => ({ jsonrpc: JSONRPC_VERSION, id, result });
-const rpcError = (id: unknown, code: number, message: string): Obj => ({ jsonrpc: JSONRPC_VERSION, id: id ?? null, error: { code, message } });
+export const rpcResult = (id: unknown, result: unknown): Obj => ({ jsonrpc: JSONRPC_VERSION, id, result });
+export const rpcError = (id: unknown, code: number, message: string): Obj => ({ jsonrpc: JSONRPC_VERSION, id: id ?? null, error: { code, message } });
 
 export class LocalMcpServer {
   private server: http.Server | null = null;

@@ -64,6 +64,9 @@ export interface RunContext {
   env: NodeJS.ProcessEnv;
   // git sobre un mismo checkout, serializado entre los runs en paralelo de este daemon.
   gitLocks: KeyedMutex;
+  // el claim manda con toolset_v1 (render del daemon, v0 o la plataforma local): un recurso puede poner tools propias
+  // en el run (la lectura s3 de la aws). ausente o false = las listas del server, que no las nombran.
+  toolset?: boolean;
 }
 
 /** cómo acabó el run: lo que el proveedor hace al soltar (borrar el worktree de un run de reglas solo si done).

@@ -71,7 +71,7 @@ recommends). That is the whole thing. Step by step:
 | `login [base-url] [label]` | Connects the daemon to your account. Opens the browser, you paste the code back. Defaults to `https://duckhunt.info`; pass a URL for another instance (`https://` is assumed if you omit the scheme). Both arguments are optional — an argument that does not look like a URL is taken as the label, which distinguishes machines if you run more than one. A running daemon switches to the new credential before its next claim; one connected to another instance keeps it until you restart it. |
 | `repos discover [dir]` | Scans a directory for git checkouts and maps each one by its `origin` remote, so an agent can read the code behind an alarm. Add `--dry-run` to see what it would map. Only the `workspace/slug` key reaches the server. A repo checked out in more than one directory is listed but not mapped: pick one with `repos add`. |
 | `repos list\|add\|remove` | Manage that map by hand: `repos add <workspace/slug> <path>`. `list` and `add` show each repo's health warnings (see below). |
-| `aws add <accountId> <profile> [region]` | Optional. Binds an AWS account id to a profile of your local AWS CLI, so the agent can read metrics, logs and resource state for that account. |
+| `aws add <accountId> <profile> [region] [--s3-read [bucket[/prefix]]…]` | Optional. Binds an AWS account id to a profile of your local AWS CLI, so the agent can read metrics, logs and resource state for that account. `--s3-read` (0.13.0 or later) also lets runs read S3 objects (see [S3 object reads](#s3-object-reads-0130-or-later)). |
 | `aws list\|remove` | Manage the AWS map. |
 | `resource list\|add\|remove\|check [repo\|aws\|browser]` | The same maps by resource type (0.13.0 or later): `repos`, `aws` and `browser` are its `repo`, `aws` and `browser` types, with the same output and exit codes (`resource discover repo` is `repos discover`). `resource add aws default <profile> [region]` maps the machine's default AWS identity (see [AWS accounts](#aws-accounts-0110-or-later)). `resource check` prints the repo and browser warnings and exits 1 if one blocks runs. |
 | `browser login\|list\|check\|remove` | Browser sessions saved on this machine (0.13.0 or later; see [Browser sessions](#browser-sessions-0130-or-later)). |
@@ -285,6 +285,37 @@ grants it to runs without an account (see [Upgrading to 0.13.0](#upgrading-to-01
 ask for AWS by key (see [Platforms](#platforms-0130-or-later)), and their runs get no AWS at all
 unless they are granted a key you exposed to them.
 
+#### S3 object reads (0.13.0 or later)
+
+A `read` run can list S3 (`aws s3 ls`) but not read objects: `s3api get-object` needs a local output
+file, and a permission rule can't limit `get-object` or `aws s3 cp` to stdout, so both stay denied.
+To let investigations read objects such as ALB access logs, opt in per AWS key:
+
+```sh
+duckhunt-runner aws add <account-id> <profile> [region] --s3-read acme-alb-logs/AWSLogs/
+duckhunt-runner aws add <account-id> <profile> [region] --s3-read      # any bucket the profile can read
+```
+
+The targets are `bucket` or `bucket/prefix`. They are stored as `aws.<key>.s3Read` (`true` or a
+list) and shown by `aws list`. Running `aws add` again without the flag removes it.
+`resource add aws` takes the same flag, including for the `default` key.
+
+A run that has a grant for that key then gets one more MCP server, `res_aws_<key>`. It is the runner
+itself (a hidden `mcp-s3` subcommand) with only the run's AWS settings, `PATH`, `HOME` and the
+allowed targets in its environment. Its single tool, `s3_read {bucket, key, offset?, maxBytes?, region?}`:
+
+- refuses anything outside the allowed buckets and prefixes;
+- checks the size first (`head-object`) and won't read an object over 256 MB compressed;
+- streams it with `aws s3 cp s3://… -` (stdout only, no shell), gunzipping `.gz` objects, and stops as
+  soon as it has the requested window: at most 512 KB of text per call, never past 64 MB of
+  decompressed data. The reply says which bytes it holds and the `offset` to continue from;
+- returns text only: for a binary object (NUL bytes) it reports the size read, not the content.
+
+It never writes a local file and has no upload path. The feed shows `s3://bucket/key` and the window
+asked for, never the content. It is offered only when the daemon builds the run's tool lists (the
+default from 0.13.0, v0 platforms and `runner run`); with `defaults.toolsetRender: false` the run
+gets a note instead. An `edit` run gets it too, though its shell could already read the object.
+
 ## Prompt runs
 
 A prompt run is a conversation you start from the *Agents* page: you pick one of the repos mapped
@@ -392,6 +423,13 @@ allows them.
   (automation runs included); user, project and local settings for the legacy automation runs of an
   older duckhunt. If a settings file can't be read, those tools are denied outright (and the run
   gets no memory).
+- **A symlinked project folder blocks memory writes.** If `~/.claude/projects/<repo>` (or its
+  `memory/`) is a symlink to somewhere outside `~/.claude`, as GNU stow does with a dotfiles repo,
+  runs can still edit `MEMORY.md` but every other memory file they write is refused ("denied
+  because Claude Code is running in don't ask mode"). The Claude CLI resolves the link before applying
+  the auto-memory exception, and under `dontAsk` no allow rule or `--add-dir` brings it back (checked
+  with the CLI 2.1.304), so the daemon can't work around it. Keep those folders as real directories
+  for the repos your runs work on, and link the dotfiles side to them instead.
 - duckhunt can now let investigations and rule runs extend Claude Code's native memory too: a setting
   of yours in Settings → Agents, on by default (nothing changes in the daemon; the server just stops
   denying `Edit` and `Write` for them). Repo runs write the repo's memory, the one your interactive

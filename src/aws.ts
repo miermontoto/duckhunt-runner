@@ -3,9 +3,12 @@
 // AWS_PROFILE/AWS_DEFAULT_REGION del proceso claude. el server nunca ve perfiles ni credenciales.
 // desde t#495 (M2) es también `resource … aws` (resource.ts), que acepta además la clave `default`: la identidad
 // aws por defecto de la máquina, que solo existe si el usuario la expone. `aws add` sigue pidiendo un id de cuenta.
+// 0.13.0 (t#495): `--s3-read [bucket[/prefijo]]…` al final de `add` deja leer objetos s3 a los runs con esa clave
+// (resources/s3-read.ts): sin destinos, cualquier bucket que lea el perfil; sin el flag, como siempre.
 
-import { configPath, loadStoredConfig, saveConfig } from './config.js';
+import { configPath, loadStoredConfig, saveConfig, type AwsAccountConfig } from './config.js';
 import { AWS_ACCOUNT_ID_RE, AWS_DEFAULT_KEY, isAwsKey } from './resources/aws.js';
+import { describeS3Scope, parseS3Target, s3ReadScopeOf, type S3ReadScope } from './resources/s3-read.js';
 
 /** claves que acepta `add` y cómo se describen en el error. */
 export interface AwsKeys {
@@ -19,9 +22,17 @@ export const RESOURCE_AWS_KEYS: AwsKeys = { accepts: isAwsKey, hint: `12 dígito
 
 const USAGE = `uso:
   duckhunt-runner aws list
-  duckhunt-runner aws add <account-id> <profile> [region]
+  duckhunt-runner aws add <account-id> <profile> [region] [--s3-read [bucket[/prefijo]]…]
   duckhunt-runner aws remove <account-id>
 `;
+
+/** el flag de `add` que deja leer objetos s3 a los runs con la clave. */
+export const S3_READ_FLAG = '--s3-read';
+// lo que se escribe del alcance en `list` y al añadir (nada si la clave no lo tiene).
+const s3Note = (a: AwsAccountConfig): string => {
+  const scope = s3ReadScopeOf(a.s3Read);
+  return scope === null ? '' : scope === 'invalid' ? ' · lectura s3: no válida' : ` · lectura s3: ${describeS3Scope(scope as S3ReadScope)}`;
+};
 
 export function awsCommand(args: string[], keys: AwsKeys = ACCOUNT_KEYS): void {
   // sin credencial también (tras `logout` los mapas se quedan): solo se leen y escriben los mapas.
@@ -39,12 +50,16 @@ export function awsCommand(args: string[], keys: AwsKeys = ACCOUNT_KEYS): void {
       console.log('sin cuentas aws mapeadas. añade con `duckhunt-runner aws add <account-id> <profile> [region]`');
       return;
     }
-    entries.forEach(([account, a]) => console.log(`  ${account} → perfil ${a.profile}${a.region ? ` (${a.region})` : ''}`));
+    entries.forEach(([account, a]) => console.log(`  ${account} → perfil ${a.profile}${a.region ? ` (${a.region})` : ''}${s3Note(a)}`));
     return;
   }
 
   if (sub === 'add') {
-    const [account, profile, region] = rest;
+    // lo que sigue a --s3-read son sus destinos; antes, los posicionales de siempre.
+    const flagAt = rest.indexOf(S3_READ_FLAG);
+    const positional = flagAt === -1 ? rest : rest.slice(0, flagAt);
+    const targets = flagAt === -1 ? null : rest.slice(flagAt + 1);
+    const [account, profile, region] = positional;
     if (!account || !profile) {
       console.error(USAGE);
       process.exitCode = 1;
@@ -55,8 +70,15 @@ export function awsCommand(args: string[], keys: AwsKeys = ACCOUNT_KEYS): void {
       process.exitCode = 1;
       return;
     }
-    saveConfig((current) => ({ aws: { ...current.aws, [account]: { profile, ...(region ? { region } : {}) } } }));
-    console.log(`mapeada la cuenta ${account} → perfil ${profile}${region ? ` (${region})` : ''} en ${configPath()}`);
+    const invalid = (targets ?? []).find((t) => parseS3Target(t) === null);
+    if (invalid !== undefined) {
+      console.error(`destino de --s3-read inválido: "${invalid}" (bucket o bucket/prefijo)`);
+      process.exitCode = 1;
+      return;
+    }
+    const entry: AwsAccountConfig = { profile, ...(region ? { region } : {}), ...(targets === null ? {} : { s3Read: targets.length === 0 ? true : targets }) };
+    saveConfig((current) => ({ aws: { ...current.aws, [account]: entry } }));
+    console.log(`mapeada la cuenta ${account} → perfil ${profile}${region ? ` (${region})` : ''}${s3Note(entry)} en ${configPath()}`);
     return;
   }
 
