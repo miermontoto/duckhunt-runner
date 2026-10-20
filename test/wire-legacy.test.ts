@@ -121,7 +121,7 @@ test('cuerpos del cable legacy byte a byte iguales a los del daemon con ids num�
   // la versión solo viaja si se puede leer (en dist-test no hay package.json al lado): como en el daemon.
   const version = runnerVersion() ? `"version":"${runnerVersion()}",` : '';
   assert.deepEqual(calls, [
-    `/claim {"runnerLabel":"fa","repos":["acme/api"],"awsAccounts":["123456789012"],"capabilities":["events","checkout","repo_edit","secret_paths","seed_budget","aws_strict","worktree_report","logout","toolset_v1"],"slots":2,${version}"machine":{"id":"${MACHINE}"},"keptWorktrees":[{"runId":3,"dirtyFiles":2,"unpushedCommits":0},{"runId":12,"dirtyFiles":0,"unpushedCommits":1}]}`,
+    `/claim {"runnerLabel":"fa","repos":["acme/api"],"awsAccounts":["123456789012"],"capabilities":["events","checkout","repo_edit","secret_paths","seed_budget","aws_strict","worktree_report","logout","toolset_v1","toolset_render"],"slots":2,${version}"machine":{"id":"${MACHINE}"},"keptWorktrees":[{"runId":3,"dirtyFiles":2,"unpushedCommits":0},{"runId":12,"dirtyFiles":0,"unpushedCommits":1}],"awsDefault":false}`,
     '/conversations {"runIds":[12,34]}',
     '/runs/88/events {"events":[{"seq":5,"kind":"text","body":"hola"}],"segment":3}',
     '/runs/88/status {"status":"done","result":"listo","costUsd":0.25,"numTurns":2,"toolCalls":3,"sessionId":"s-1","model":"opus","resumed":true,"segment":3}',
@@ -143,7 +143,7 @@ test('un id opaco no llega al cable legacy: ni se pregunta en /conversations ni 
   const open = await d.openConversations(['12', 'l-01HZ']);
   assert.ok(open.has('l-01HZ'), 'sin preguntar cuenta como abierta: solo la recoge el ttl');
   assert.match(String(warn.mock.calls[0]?.arguments[0]), /id no numérico/);
-  assert.match(calls[0]!, /"keptWorktrees":\[\{"runId":7,"dirtyFiles":1,"unpushedCommits":0\}\]\}$/);
+  assert.match(calls[0]!, /"keptWorktrees":\[\{"runId":7,"dirtyFiles":1,"unpushedCommits":0\}\],"awsDefault":false\}$/);
   assert.equal(calls[1], '/conversations {"runIds":[12]}');
   // solo ids opacos: ni una llamada a /conversations.
   assert.deepEqual([...(await d.openConversations(['l-a', 'l-b']))].sort(), ['l-a', 'l-b']);
@@ -172,4 +172,37 @@ test('la etiqueta viaja dentro de lo que acepta el server: recortada y sin pasar
   assert.ok(long.endsWith('…'));
   assert.equal(await labelOf('  fa  '), 'fa');
   assert.equal(await labelOf('   '), os.hostname().slice(0, 100));
+});
+
+test('el flip anuncia toolset_render y si duckhunt ve la aws por defecto; el interruptor deja el cable de 0.13.0 (t#495, M5)', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  const withDefault = { ...cfg, aws: { ...cfg.aws, default: { profile: 'personal' } } };
+  fs.writeFileSync(configPath(), JSON.stringify(withDefault), { mode: 0o600 });
+  const on = capture();
+  await (await daemon()).claim();
+  assert.match(on[0]!, /"toolset_v1","toolset_render"\]/);
+  assert.match(on[0]!, /,"awsDefault":true\}$/, 'expuesta (duckhunt ve todo por defecto)');
+  fs.writeFileSync(configPath(), JSON.stringify({ ...withDefault, defaults: { ...withDefault.defaults, toolsetRender: false } }), { mode: 0o600 });
+  const off = capture();
+  await (await daemon()).claim();
+  assert.ok(!off[0]!.includes('toolset_render') && !off[0]!.includes('awsDefault'), `el cable de 0.13.0: ${off[0]}`);
+});
+
+test('al arrancar avisa una vez si la máquina tiene aws y duckhunt no ve su `default`; con ella o con el interruptor, nada (t#495, M5)', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  const warn = t.mock.method(console, 'warn', () => {});
+  const warnings = async (config: RunnerConfig): Promise<string[]> => {
+    warn.mock.resetCalls();
+    fs.writeFileSync(configPath(), JSON.stringify(config), { mode: 0o600 });
+    const d = internals(loadConfig()!) as unknown as { reloadConfig(): Promise<void>; warnAwsDefault(): void; hasAws: boolean };
+    await d.reloadConfig();
+    d.hasAws = true;
+    d.warnAwsDefault();
+    return warn.mock.calls.map((c) => String(c.arguments[0]));
+  };
+  const [line, ...more] = await warnings(cfg);
+  assert.equal(more.length, 0);
+  assert.match(line ?? '', /^\[runner\] los runs de duckhunt sin cuenta aws ya no heredan la aws de esta máquina.*`duckhunt-runner resource add aws default <perfil>`/);
+  assert.deepEqual(await warnings({ ...cfg, aws: { ...cfg.aws, default: { profile: 'personal' } } }), [], 'con `default` expuesta');
+  assert.deepEqual(await warnings({ ...cfg, defaults: { ...cfg.defaults, toolsetRender: false } }), [], 'con el interruptor');
 });

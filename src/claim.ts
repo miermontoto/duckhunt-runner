@@ -367,24 +367,13 @@ export function parseClaimBody(raw: unknown, id: string): ClaimResponse {
   const prompt = str(raw.prompt);
   if (!prompt || !prompt.trim()) throw new Error('claim inválido: prompt vacío');
   const permissionMode = str(raw.permissionMode) ?? '';
-  if (!ALLOWED_PERMISSION_MODES.includes(permissionMode)) {
-    throw new Error(`claim inválido: permission mode "${permissionMode}" fuera del techo local (${ALLOWED_PERMISSION_MODES.join(', ')})`);
-  }
-  if (kind === RUN_KIND.prompt && permissionMode !== PROMPT_PERMISSION_MODE) {
-    throw new Error(`claim inválido: un prompt run exige permission mode ${PROMPT_PERMISSION_MODE} (llegó "${permissionMode}")`);
-  }
+  vetPermissionMode(kind, permissionMode);
   const tools = isObj(raw.tools) ? raw.tools : {};
   const serverAllowed = toolList(tools.allowed, 'tools.allowed');
-  const readPrompt = kind === RUN_KIND.prompt && profile === PROMPT_PROFILE.read;
-  const leaked = readPrompt ? serverAllowed.filter(isForbiddenInRead) : [];
-  if (leaked.length > 0) throw new Error(`claim inválido: un prompt run de lectura no puede permitir ${leaked.join(', ')}`);
-  // una `Bash(aws …)` que no reconozco (lectura nueva de un server más moderno, o una escritura) se
-  // descarta sin tumbar el run: sin ella el cli la niega (dontAsk).
-  const unknownAws = readPrompt ? serverAllowed.filter((t) => t.startsWith(`${BASH_TOOL}(`) && !isAwsReadPattern(t)) : [];
-  if (unknownAws.length > 0) warnings.push(`aws descartada en lectura (no es una lectura que este runner reconozca): ${unknownAws.join(', ')}`);
-  const allowed = serverAllowed.filter((t) => !unknownAws.includes(t));
   const serverDisallowed = toolList(tools.disallowed, 'tools.disallowed');
-  const disallowed = Array.from(new Set([...serverDisallowed, ...(readPrompt ? READ_FORCED_DENY : [])]));
+  const vetted = vetTools(kind, profile, { allowed: serverAllowed, disallowed: serverDisallowed, permissionMode });
+  warnings.push(...vetted.warnings);
+  const { allowed, disallowed } = vetted;
   const mcp = isObj(raw.mcp) ? raw.mcp : {};
   const serverName = str(mcp.serverName) ?? '';
   const url = str(mcp.url) ?? '';
@@ -432,6 +421,49 @@ export function parseClaimBody(raw: unknown, id: string): ClaimResponse {
       raw.toolset === undefined || raw.toolset === null
         ? null
         : shadowSourceOf(raw.toolset, { allowed: serverAllowed, disallowed: serverDisallowed, permissionMode }, id),
+  };
+}
+
+// el permission mode de un run dentro del techo local (nunca bypassPermissions; un prompt run, el suyo). lanza si no.
+function vetPermissionMode(kind: string, permissionMode: string): void {
+  if (!ALLOWED_PERMISSION_MODES.includes(permissionMode)) {
+    throw new Error(`claim inválido: permission mode "${permissionMode}" fuera del techo local (${ALLOWED_PERMISSION_MODES.join(', ')})`);
+  }
+  if (kind === RUN_KIND.prompt && permissionMode !== PROMPT_PERMISSION_MODE) {
+    throw new Error(`claim inválido: un prompt run exige permission mode ${PROMPT_PERMISSION_MODE} (llegó "${permissionMode}")`);
+  }
+}
+
+/** listas de tools y permission mode de un run, cribadas contra el techo local: las del server al parsear el claim y
+ *  las que renderiza el daemon en el flip de toolset_v1 (withRenderedTools). lanza si no se pueden cumplir. */
+function vetTools(
+  kind: string,
+  profile: PromptProfile | null,
+  lists: { allowed: readonly string[]; disallowed: readonly string[]; permissionMode: string },
+): { allowed: string[]; disallowed: string[]; warnings: string[] } {
+  vetPermissionMode(kind, lists.permissionMode);
+  const readPrompt = kind === RUN_KIND.prompt && profile === PROMPT_PROFILE.read;
+  const leaked = readPrompt ? lists.allowed.filter(isForbiddenInRead) : [];
+  if (leaked.length > 0) throw new Error(`claim inválido: un prompt run de lectura no puede permitir ${leaked.join(', ')}`);
+  // una `Bash(aws …)` que no reconozco (lectura nueva de un server más moderno, o una escritura) se
+  // descarta sin tumbar el run: sin ella el cli la niega (dontAsk).
+  const unknownAws = readPrompt ? lists.allowed.filter((t) => t.startsWith(`${BASH_TOOL}(`) && !isAwsReadPattern(t)) : [];
+  return {
+    allowed: lists.allowed.filter((t) => !unknownAws.includes(t)),
+    disallowed: Array.from(new Set([...lists.disallowed, ...(readPrompt ? READ_FORCED_DENY : [])])),
+    warnings: unknownAws.length > 0 ? [`aws descartada en lectura (no es una lectura que este runner reconozca): ${unknownAws.join(', ')}`] : [],
+  };
+}
+
+/** el claim con las listas que renderizó el daemon (el flip de toolset_v1, toolset/legacy-render.ts) en vez de las
+ *  del server, pasadas por la misma criba. lanza si no se pueden cumplir. */
+export function withRenderedTools(claim: ClaimResponse, rendered: { allowed: readonly string[]; disallowed: readonly string[]; permissionMode: string }): ClaimResponse {
+  const vetted = vetTools(claim.run.kind, claim.run.profile, rendered);
+  return {
+    ...claim,
+    tools: { allowed: vetted.allowed, disallowed: vetted.disallowed },
+    permissionMode: rendered.permissionMode,
+    warnings: [...claim.warnings, ...vetted.warnings],
   };
 }
 

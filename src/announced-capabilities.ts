@@ -13,6 +13,8 @@ export interface MachineKit {
   supported: ReadonlySet<OptionalFlag>;
   // defaults.remoteRepoEdits de la config (false = el mapa de repos solo se cambia por la cli).
   remoteRepoEdits?: boolean;
+  // defaults.toolsetRender de la config (false = el interruptor del flip de toolset_v1: solo en sombra, como 0.13).
+  toolsetRender?: boolean;
 }
 
 /** capacidades del claim: prompt (y lo que va con él) solo si el cli puede cumplir su perfil, model solo con --model. */
@@ -36,5 +38,7 @@ export function announcedCapabilities(kit: MachineKit): RunnerCapability[] {
     ...(kit.supported.has('--model') ? [RUNNER_CAPABILITY.model] : []),
     // toolset_v1 en sombra (t#495, M5): solo lo renderiza y compara (toolset/shadow.ts); las listas siguen mandando.
     RUNNER_CAPABILITY.toolsetV1,
+    // el flip (t#495, M5): lanza los runs de duckhunt con su render (toolset/legacy-render.ts). salvo el interruptor.
+    ...(kit.toolsetRender === false ? [] : [RUNNER_CAPABILITY.toolsetRender]),
   ];
 }

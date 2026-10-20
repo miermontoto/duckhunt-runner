@@ -80,6 +80,35 @@ test('render: cada caso de la matriz del server da sus listas; la única diferen
   assert.ok(count('match') > 0);
 });
 
+// el flip (t#495, M5): ante una máquina que anuncia su aws por defecto, el server concede `default` a los runs sin
+// cuenta, así que la diferencia buscada solo queda en los que traen una cuenta que la máquina no anuncia (aws_strict).
+test('render ante una máquina que anuncia su aws por defecto: las listas del server sin diferencia, salvo una cuenta no anunciada', (t) => {
+  const files = fs
+    .readdirSync(new URL('toolset-v1-aws-default/', FIXTURES))
+    .filter((f) => f.endsWith('.json'))
+    .sort();
+  assert.ok(files.length > 0 && files.every((f) => V1_FILES.includes(f)), 'un caso de la matriz cada uno');
+  const outcome = files.map((file) => {
+    const fx = readJson<V1Fixture>(`toolset-v1-aws-default/${file}`);
+    const toolset = parseToolsetV1(fx.toolset);
+    const ctx = { mcpServerName: fx.mcpServerName, awsCli: fx.capabilities.includes(RUNNER_CAPABILITY.aws) };
+    const server: ClaudeTools = { ...fx.tools, permissionMode: fx.permissionMode };
+    const shadow = compareToolset(server, toolset, ctx);
+    assert.equal(shadow.explained, true, `${file}: ${JSON.stringify(shadow.diff)}`);
+    if (shadow.match) {
+      assert.deepEqual(renderClaudeTools(toolset, ctx), server, file);
+      return 'match';
+    }
+    // la única que queda: la cuenta del run no la anuncia la máquina, ni cae en `default`.
+    assert.ok(!toolset.grants.some((g) => g.type === 'aws'), `${file}: con grant de aws no debería quedar diferencia`);
+    assert.deepEqual(shadow.known, [TOOLSET_SHADOW_KNOWN.awsWithoutGrant], file);
+    return 'awsWithoutGrant';
+  });
+  const count = (kind: string): number => outcome.filter((o) => o === kind).length;
+  t.diagnostic(`${count('match')} sin diferencia, ${count('awsWithoutGrant')} con una cuenta no anunciada, de ${files.length}`);
+  assert.ok(count('awsWithoutGrant') < outcome.length / 2, 'casi todos casan: la aws por defecto cubre lo que daba el kit legacy');
+});
+
 test('parse: un toolset válido pasa tal cual; lo que no casa con el cable se rechaza entero', () => {
   assert.deepEqual(parseToolsetV1(base), base);
   const bad: [string, unknown][] = [

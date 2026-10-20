@@ -19,11 +19,17 @@ function repoWorktree(run: ClaimedRun): string {
   return run.isolation === RUN_ISOLATION.checkout ? REPO_WORKTREE.checkout : REPO_WORKTREE.conversation;
 }
 
+/** parámetros del repo de un run legacy: su rama y dónde trabaja (también los del grant del flip de toolset_v1). */
+export const legacyRepoParams = (run: ClaimedRun): Readonly<Record<string, string | null>> => ({
+  [REPO_PARAM.branch]: run.branch,
+  [REPO_PARAM.worktree]: repoWorktree(run),
+});
+
 /** recursos que pide un run legacy. */
 export function legacyRequests(run: ClaimedRun): ResourceRequest[] {
   const access = run.profile === PROMPT_PROFILE.edit ? ACCESS.full : ACCESS.read;
   return [
-    ...(run.repo ? [{ type: REPO_TYPE, key: run.repo, access, params: { [REPO_PARAM.branch]: run.branch, [REPO_PARAM.worktree]: repoWorktree(run) } }] : []),
+    ...(run.repo ? [{ type: REPO_TYPE, key: run.repo, access, params: legacyRepoParams(run) }] : []),
     ...(run.aws ? [{ type: AWS_TYPE, key: run.aws.accountId, access: ACCESS.read, params: { [AWS_PARAM.region]: run.aws.region } }] : []),
   ];
 }

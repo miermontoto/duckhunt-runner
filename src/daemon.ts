@@ -77,6 +77,11 @@
 //   con el techo de la plataforma, lo renderiza (toolset/) y lo compara con las listas del claim, que siguen
 //   mandando; el resultado va en el status del segmento (toolsetShadow) y lo que no casa, al log. claim.toolset
 //   sigue null: un toolset en sombra no aísla la aws ni cambia nada del spawn.
+// - el flip (t#495, M5, `toolset_render`): por defecto ese toolset MANDA (enforceToolset → toolset/legacy-render.ts):
+//   las listas del render, los recursos de sus grants y la aws aislada sin grant; las del server pasan a ser la
+//   comparación. `defaults.toolsetRender: false` vuelve a la sombra de arriba (el cable y los runs de 0.13.0). al
+//   arrancar avisa si la máquina tiene aws y duckhunt no ve su identidad por defecto (`resource add aws default`):
+//   un run sin cuenta ya no la hereda.
 // - plataformas (t#495, M6): todo lo que el daemon le dice a duckhunt pasa por el seam de plataforma
 //   (platforms/platform.ts): el cable legacy y su credencial viven en platforms/duckhunt42.ts y
 //   platforms/http-transport.ts, con los mismos cuerpos y respuestas (test/wire-legacy.test.ts,
@@ -146,7 +151,7 @@ import { ProviderRegistry } from './resources/registry.js';
 import { holdLocks, materializeRun, type MaterializedRun } from './resources/lifecycle.js';
 import { legacyRequests, legacyResourceError, legacyScratchExclusive } from './resources/legacy.js';
 import { repoProvider } from './resources/repo/provider.js';
-import { AWS_ACCOUNT_ID_RE, awsProvider } from './resources/aws.js';
+import { AWS_ACCOUNT_ID_RE, AWS_DEFAULT_KEY, awsProvider, machineHasAws } from './resources/aws.js';
 import { LEGACY_RESOURCE_KEYS, legacyPlatform } from './config-legacy.js';
 import { RELEASE, RESOURCE_TYPE, ResourceUnavailableError, type ReleaseOutcome } from './resources/types.js';
 import { applyRepoCommand, type RepoCommandResult } from './repo-commands.js';
@@ -163,7 +168,8 @@ import { RUNNER_LABEL_MAX_CHARS, type ToolsetShadow } from './vendor/runner-prot
 import { shadowOf } from './toolset/shadow.js';
 import { intersectToolset } from './toolset/intersect.js';
 import { v0Announce } from './platforms/v0.js';
-import { CLAIM_REJECT } from './platforms/claim-v0.js';
+import { CLAIM_REJECT, ClaimRejectedError } from './platforms/claim-v0.js';
+import { renderLegacyClaim } from './toolset/legacy-render.js';
 
 const execFileP = promisify(execFile);
 
@@ -372,11 +378,31 @@ export class RunnerDaemon {
   // capacidades que se anuncian: prompt solo si el cli puede cumplir su perfil (permission mode
   // explícito, sin mcp del repo, deny list y settings solo del usuario en lectura), model solo con --model.
   private capabilities(): string[] {
-    return announcedCapabilities({ hasAws: this.hasAws, supported: this.claude.supported, remoteRepoEdits: this.cfg.defaults.remoteRepoEdits });
+    return announcedCapabilities({ hasAws: this.hasAws, supported: this.claude.supported, remoteRepoEdits: this.cfg.defaults.remoteRepoEdits, toolsetRender: this.cfg.defaults.toolsetRender });
   }
 
   /** loop principal: gc → claim → ejecutar en un slot libre → repetir, hasta SIGINT/SIGTERM.
    *  devuelve el exit code tras esperar el cierre de los runs en vuelo. */
+  // el flip de toolset_v1 (t#495, M5): los runs de duckhunt-42 que traen `toolset` se lanzan con el render del daemon,
+  // salvo el interruptor de la config (defaults.toolsetRender: false = solo en sombra, como 0.13.0).
+  private get toolsetRender(): boolean {
+    return this.cfg.defaults.toolsetRender !== false;
+  }
+
+  // ¿duckhunt ve la identidad aws por defecto de esta máquina? (`resource add aws default`, expuesta a la legacy).
+  private awsDefaultExposed(sup: PlatformSupervisor): boolean {
+    return Object.hasOwn(this.cfg.aws, AWS_DEFAULT_KEY) && isExposed(this.exposure(sup), RESOURCE_TYPE.aws, AWS_DEFAULT_KEY);
+  }
+
+  // aviso del arranque (una vez): con el flip, un run de duckhunt sin cuenta aws ya no hereda la aws de la máquina;
+  // solo si la hay y su identidad por defecto no está expuesta a duckhunt.
+  private warnAwsDefault(): void {
+    if (!this.toolsetRender || this.awsDefaultExposed(this.legacy) || !machineHasAws(process.env, this.hasAws, os.homedir())) return;
+    console.warn(
+      `[runner] los runs de duckhunt sin cuenta aws ya no heredan la aws de esta máquina (toolset_v1): para dársela, \`duckhunt-runner resource add aws ${AWS_DEFAULT_KEY} <perfil>\` (o defaults.toolsetRender: false para volver a como era)`,
+    );
+  }
+
   async run(): Promise<number> {
     this.claude = await detectClaude();
     if (!this.claude.version) {
@@ -397,6 +423,7 @@ export class RunnerDaemon {
     this.secretDeny = secrets.rules;
     secrets.skipped.forEach((p) => console.warn(`[runner] secret_paths: ${p} no cabe en una regla de permisos de claude: queda solo la lista genérica del server`));
     this.adoptMachineId();
+    this.warnAwsDefault();
     this.pruneAudit();
     this.installSignalHandlers();
     console.log(
@@ -605,6 +632,8 @@ export class RunnerDaemon {
       awsAccounts: Object.keys(this.cfg.aws).filter((key) => AWS_ACCOUNT_ID_RE.test(key) && seen(RESOURCE_TYPE.aws)(key)),
       // el cable v0 anuncia recursos por clave: también `default` si el usuario la expone.
       awsKeys: Object.keys(this.cfg.aws).filter(seen(RESOURCE_TYPE.aws)),
+      // el legacy, aparte y solo con el flip: con el interruptor, el cable de 0.13.0.
+      awsDefault: this.toolsetRender ? this.awsDefaultExposed(sup) : null,
       kept: sup.keptWorktrees,
     };
   }
@@ -913,7 +942,9 @@ export class RunnerDaemon {
 
   // --- ejecución ---
 
-  private async executeRun(sup: PlatformSupervisor, claim: ClaimResponse, lease: RunLease): Promise<void> {
+  private async executeRun(sup: PlatformSupervisor, offered: ClaimResponse, lease: RunLease): Promise<void> {
+    const claim = await this.enforceToolset(sup, offered);
+    if (claim === null) return;
     const { run } = claim;
     const tag = `run ${run.id}`;
     const log = this.tagOf(sup);
@@ -994,6 +1025,29 @@ export class RunnerDaemon {
     audited({ lockWaitMs, materialized: res.resources, report, toolsByName: attempt?.stream.toolsByName ?? {}, code: outcomeCode(report.status, attempt && attemptFacts(attempt)) });
     await sup.platform.result(run.id, { ...report, ...withShadow, ...seg });
     console.log(`${log} ${tag} terminado (${report.status}${report.error ? `: ${report.error}` : ''})`);
+  }
+
+  // el flip de toolset_v1 (t#495, M5): un claim de duckhunt-42 con `toolset` se lanza con el render del daemon
+  // (toolset/legacy-render.ts) salvo el interruptor; uno sin toolset (un server anterior) o de v0 (ya aplicado), tal
+  // cual. un grant que no se puede cumplir (un tipo que el daemon no sirve, una clave no expuesta) rechaza el claim:
+  // se cierra como failed con su código, a la auditoría, y devuelve null.
+  private async enforceToolset(sup: PlatformSupervisor, claim: ClaimResponse): Promise<ClaimResponse | null> {
+    if (!this.toolsetRender || sup.platform.protocol !== PROTOCOL.duckhunt42 || claim.toolset !== null || claim.toolsetShadow === null) return claim;
+    try {
+      return renderLegacyClaim(claim, {
+        ceiling: this.platformsCfg[sup.id]?.ceiling ?? legacyPlatform().ceiling,
+        expose: this.exposure(sup),
+        resourceTypes: this.registry.types(),
+        awsCli: this.hasAws,
+      }).claim;
+    } catch (err) {
+      if (!(err instanceof ClaimRejectedError)) throw err;
+      const error = `claim rechazado por el runner (${err.message})`;
+      console.error(`${this.tagOf(sup)} run ${claim.run.id}: ${error}`);
+      this.audit.append(rejectedRecord(this.auditSubject(sup), claim.run.id, rejectCode(error)));
+      await sup.platform.result(claim.run.id, { status: 'failed', error, ...(claim.run.segment !== null ? { segment: claim.run.segment } : {}) });
+      return null;
+    }
   }
 
   // el toolset de un claim para la auditoría: el de un claim v0 tal como se aplicó (platforms/claim-v0.ts); el de uno

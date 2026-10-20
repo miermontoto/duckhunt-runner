@@ -119,8 +119,9 @@ function mcpServersOf(raw: unknown, platformBaseUrl: string): McpServer[] {
   return servers;
 }
 
-// cada grant contra la máquina: un tipo que se sirve, con acceso en el techo y una clave expuesta a esta plataforma.
-function checkGrants(t: ToolsetV1, e: V0Enforcement): void {
+/** cada grant contra la máquina: un tipo que se sirve, con acceso en el techo y una clave expuesta a esta plataforma.
+ *  lanza ClaimRejectedError. también el flip de toolset_v1 en el cable legacy (toolset/legacy-render.ts). */
+export function checkGrants(t: ToolsetV1, e: Pick<V0Enforcement, 'ceiling' | 'expose' | 'resourceTypes'>): void {
   t.grants.forEach((g) => {
     if (!e.resourceTypes.includes(g.type)) reject(CLAIM_REJECT.unknownType, `grant de ${g.type}: este runner no sirve ese tipo`);
     if (!Object.hasOwn(e.ceiling.access, g.type)) reject(CLAIM_REJECT.notAllowed, `grant de ${g.type}: el techo de la plataforma no le da acceso`);
@@ -149,8 +150,8 @@ function resourceParams(raw: unknown, t: ToolsetV1): Map<string, Readonly<Record
   );
 }
 
-// un run de lectura no escribe ni tiene shell entera, deje lo que deje el techo.
-function forProfile(t: ToolsetV1, profile: PromptProfile): { toolset: ToolsetV1; narrowed: string[] } {
+/** un run de lectura no escribe ni tiene shell entera, deje lo que deje el techo. */
+export function forProfile(t: ToolsetV1, profile: PromptProfile): { toolset: ToolsetV1; narrowed: string[] } {
   if (profile !== PROMPT_PROFILE.read || (t.shell !== TOOLSET_SHELL.full && !t.fsWrite)) return { toolset: t, narrowed: [] };
   return { toolset: { ...t, shell: t.shell === TOOLSET_SHELL.full ? TOOLSET_SHELL.read : t.shell, fsWrite: false }, narrowed: [READ_PROFILE_NARROWED] };
 }

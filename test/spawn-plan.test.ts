@@ -128,11 +128,14 @@ interface Case {
   patch?: (claim: ClaimResponse) => ClaimResponse;
   // plataforma que ejecuta los claims (por defecto la legacy).
   platform?: string;
+  // la máquina tiene aws cli (por defecto no: el harness no detecta la suya). el render de toolset_v1 la mira.
+  awsCli?: boolean;
 }
 
 interface DaemonInternals extends Harness {
   claude: ClaudeInfo;
   secretDeny: string[];
+  hasAws: boolean;
 }
 
 const fixtureCases = (): Case[] =>
@@ -304,6 +307,7 @@ async function runCase(c: Case): Promise<unknown> {
   await d.reloadConfig();
   // lo que hace run() al arrancar, sin el loop ni las señales.
   d.claude = claude;
+  d.hasAws = c.awsCli === true;
   allRunConfigDirs().forEach(runConfigDeny);
   d.secretDeny = secretPathsDeny(process.env).rules;
   const hold = path.join(dir, 'hold');
@@ -464,7 +468,10 @@ test('dos plataformas: cada run niega el scratch de la otra; el de la nueva no v
 });
 
 // fuera del golden: toolset_v1 en sombra (t#495, M5).
-test('toolset_v1 en sombra: el spawn es el de siempre y solo el status lleva toolsetShadow', async (t) => {
+// el interruptor del flip (defaults.toolsetRender: false): la config de un caso que vuelve a la sombra de 0.13.0.
+const renderOff = (c: RunnerConfig): RunnerConfig => ({ ...c, defaults: { ...c.defaults, toolsetRender: false } });
+
+test('el interruptor del flip (toolsetRender: false): la sombra de 0.13.0, el spawn de siempre y solo el status lleva toolsetShadow', async (t) => {
   t.mock.method(console, 'log', () => {});
   t.mock.method(console, 'warn', () => {});
   t.mock.method(console, 'error', () => {});
@@ -472,8 +479,8 @@ test('toolset_v1 en sombra: el spawn es el de siempre y solo el status lleva too
   const name = 'prompt-read-no-aws-cli';
   const v1 = JSON.parse(fs.readFileSync(new URL(`toolset-v1/${name}.json`, FIXTURES), 'utf8')) as { toolset: unknown };
   type Plan = { spawns: unknown[]; runs: Record<string, { status: string[] }> };
-  const legacy = (await runCase({ name: 'shadow/legacy', raw: withRun(kit(name), { id: 980 }) })) as Plan;
-  const shadowed = (await runCase({ name: 'shadow/toolset-v1', raw: withRun(kit(name), { id: 980 }, { toolset: v1.toolset }) })) as Plan;
+  const legacy = (await runCase({ name: 'shadow/legacy', raw: withRun(kit(name), { id: 980 }), cfg: renderOff })) as Plan;
+  const shadowed = (await runCase({ name: 'shadow/toolset-v1', raw: withRun(kit(name), { id: 980 }, { toolset: v1.toolset }), cfg: renderOff })) as Plan;
   assert.deepEqual(shadowed.spawns, legacy.spawns, 'cwd, env, argv y mcp-config idénticos: la sombra no toca el spawn');
   const statusOf = (p: Plan): Record<string, unknown>[] => p.runs['980']!.status.map((s) => JSON.parse(s) as Record<string, unknown>);
   assert.equal(statusOf(legacy).some((s) => 'toolsetShadow' in s), false, 'sin toolset, el status de siempre');
@@ -482,4 +489,102 @@ test('toolset_v1 en sombra: el spawn es el de siempre y solo el status lleva too
   const { toolsetShadow, ...rest } = closed!;
   assert.deepEqual(rest, statusOf(legacy)[0], 'lo demás del status, igual');
   assert.deepEqual(toolsetShadow, { match: true, explained: true, known: [], diff: null });
+});
+
+// --- el flip de toolset_v1 (t#495, M5): fuera del golden ---
+
+type FlipPlan = {
+  spawns: { cwd: string; env: { set: Record<string, string>; removed: string[] }; argv: unknown[] }[];
+  runs: Record<string, { status: string[]; feed: { body: string }[] }>;
+};
+// el toolset que el server manda para un caso de la matriz (toolset-v1/, o toolset-v1-aws-default/ si la máquina
+// anuncia su aws por defecto).
+const toolsetFx = (name: string, dir = 'toolset-v1'): { grants: unknown[] } & Record<string, unknown> =>
+  (JSON.parse(fs.readFileSync(new URL(`${dir}/${name}.json`, FIXTURES), 'utf8')) as { toolset: { grants: unknown[] } & Record<string, unknown> }).toolset;
+const withToolset = (name: string, id: number, dir?: string): Record<string, unknown> => withRun(kit(name), { id }, { toolset: toolsetFx(name, dir) });
+// la aws por defecto de la máquina, mapeada (`resource add aws default personal`).
+const awsDefault = (c: RunnerConfig): RunnerConfig => ({ ...c, aws: { ...c.aws, default: { profile: 'personal' } } });
+// lo que la lista de tools del spawn tiene de más y de menos frente a la del server (argvPlan).
+const allowedOf = (p: FlipPlan): { notFromClaim: string[]; dropped: string[] } => {
+  const { notFromClaim, dropped } = p.spawns[0]!.argv.find((a): a is { notFromClaim: string[]; dropped: string[] } => typeof a === 'object' && a !== null && 'dropped' in a)!;
+  return { notFromClaim, dropped };
+};
+const AWS_PATTERN_PREFIX = 'Bash(aws ';
+const statusOf = (p: FlipPlan, id: number): Record<string, unknown> => JSON.parse(p.runs[String(id)]!.status[0]!) as Record<string, unknown>;
+
+test('flip: con su cuenta mapeada, el spawn de hoy salido del render', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  t.mock.method(console, 'warn', () => {});
+  const name = 'template-full-aws-announced';
+  const legacy = (await runCase({ name: 'flip/legacy', raw: withRun(kit(name), { id: 960 }), cfg: renderOff, awsCli: true })) as FlipPlan;
+  const render = (await runCase({ name: 'flip/render', raw: withToolset(name, 960), awsCli: true })) as FlipPlan;
+  assert.deepEqual(render.spawns, legacy.spawns, 'cwd, env (su perfil), argv y mcp-config: los de hoy');
+  assert.deepEqual(statusOf(render, 960).toolsetShadow, { match: true, explained: true, known: [], diff: null });
+});
+
+test('flip: sin cuenta, la aws de la máquina solo con `default` expuesta (lectura con sus patrones, edición entera)', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  t.mock.method(console, 'warn', () => {});
+  const isolated = (p: FlipPlan, id: number): void => {
+    const { env } = p.spawns[0]!;
+    assert.ok(env.removed.includes('AWS_PROFILE') && env.removed.includes('AWS_ACCESS_KEY_ID'), `${id}: sin el perfil ni las claves del usuario`);
+    assert.match(env.set.AWS_CONFIG_FILE ?? '', new RegExp(`^<case>/home/run-config/aws-${id}-<rand>/config$`), `${id}: la aws vacía`);
+  };
+  const withDefault = (p: FlipPlan, id: number): void => {
+    assert.equal(p.spawns[0]!.env.set.AWS_PROFILE, 'personal', `${id}: el perfil de \`default\``);
+    assert.equal(p.spawns[0]!.env.set.AWS_CONFIG_FILE, undefined, `${id}: nada de aws vacía`);
+  };
+  // lectura sin `default`: aislada y sin los patrones de la aws en lectura que el server daba con la identidad por defecto.
+  const read = (await runCase({ name: 'flip/read-no-default', raw: withToolset('prompt-read-full', 961), awsCli: true })) as FlipPlan;
+  isolated(read, 961);
+  assert.ok(allowedOf(read).dropped.length > 0 && allowedOf(read).dropped.every((id) => id.startsWith(AWS_PATTERN_PREFIX)), 'solo faltan los patrones de la aws');
+  assert.deepEqual(allowedOf(read).notFromClaim, []);
+  // la comparación, ahora al revés: lo que el server daba y el render no, explicado (el diff viaja recortado).
+  const shadow = statusOf(read, 961).toolsetShadow as { match: boolean; explained: boolean; known: string[]; diff: { allowedMissing: string[]; allowedExtra: string[] } };
+  assert.deepEqual([shadow.match, shadow.explained, shadow.known, shadow.diff.allowedExtra], [false, true, ['aws_without_grant'], []]);
+  assert.deepEqual(shadow.diff.allowedMissing, allowedOf(read).dropped.slice(0, shadow.diff.allowedMissing.length));
+  // lectura con `default`: su perfil y las mismas listas que el server.
+  const readDefault = (await runCase({ name: 'flip/read-default', raw: withToolset('prompt-read-full', 962, 'toolset-v1-aws-default'), cfg: awsDefault, awsCli: true })) as FlipPlan;
+  withDefault(readDefault, 962);
+  assert.deepEqual(allowedOf(readDefault), { notFromClaim: [], dropped: [] }, 'el render da las listas del server');
+  // edición sin `default`: Bash entero, pero sin la aws de la máquina.
+  const edit = (await runCase({ name: 'flip/edit-no-default', raw: withToolset('prompt-edit-full', 963), awsCli: true })) as FlipPlan;
+  isolated(edit, 963);
+  assert.deepEqual(allowedOf(edit), { notFromClaim: [], dropped: [] });
+  // edición con `default`: su perfil.
+  const editDefault = (await runCase({ name: 'flip/edit-default', raw: withToolset('prompt-edit-full', 964, 'toolset-v1-aws-default'), cfg: awsDefault, awsCli: true })) as FlipPlan;
+  withDefault(editDefault, 964);
+});
+
+test('flip: un run en el checkout trabaja donde siempre', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  t.mock.method(console, 'warn', () => {});
+  const name = 'prompt-edit-checkout';
+  const legacy = (await runCase({ name: 'flip/checkout-legacy', raw: withRun(kit(name), { id: 965 }), cfg: renderOff })) as FlipPlan;
+  const render = (await runCase({ name: 'flip/checkout-render', raw: withToolset(name, 965) })) as FlipPlan;
+  assert.equal(render.spawns[0]!.cwd, legacy.spawns[0]!.cwd);
+  assert.deepEqual(allowedOf(render), { notFromClaim: [], dropped: [] });
+});
+
+test('flip: un grant que el daemon no puede cumplir rechaza el claim con su código, sin lanzar nada', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  t.mock.method(console, 'warn', () => {});
+  t.mock.method(console, 'error', () => {});
+  const base = toolsetFx('prompt-read-full');
+  // un tipo que el daemon aún no sirve en un run (browser hasta M7 fase 2): nunca se quita en silencio.
+  const browser = (await runCase({
+    name: 'flip/browser-grant',
+    raw: withRun(kit('prompt-read-full'), { id: 966 }, { toolset: { ...base, grants: [...base.grants, { type: 'browser', key: 'jira', access: 'read' }] } }),
+  })) as FlipPlan;
+  assert.equal(browser.spawns.length, 0);
+  assert.equal(statusOf(browser, 966).status, 'failed');
+  assert.match(String(statusOf(browser, 966).error), /^claim rechazado por el runner \(resource_type_unknown: grant de browser/);
+  // una clave que el usuario no expone a duckhunt.
+  const hidden = (await runCase({
+    name: 'flip/repo-not-exposed',
+    raw: withToolset('prompt-read-full', 967),
+    cfg: (c) => ({ ...c, version: 2, platforms: { duckhunt: { expose: { repo: [], aws: '*' } } } }) as unknown as RunnerConfig,
+  })) as FlipPlan;
+  assert.equal(hidden.spawns.length, 0);
+  assert.match(String(statusOf(hidden, 967).error), /^claim rechazado por el runner \(resource_not_exposed: grant de repo /);
 });
