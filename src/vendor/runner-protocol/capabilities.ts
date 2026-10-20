@@ -43,5 +43,9 @@ export const RUNNER_CAPABILITY = {
   // `--model`; null = su defaults.model o el default del cli. lo anuncia solo si su cli tiene `--model`.
   // sin ella el run no lleva la clave (el cable de siempre) y corre con el modelo de la máquina.
   model: 'model',
+  // >= 0.13.0 (t#495, M5): recibe `toolset` (toolset_v1, toolset.ts) junto a las listas de tools, lo renderiza en
+  // sombra y devuelve toolsetShadow en el status del segmento. sin ella el claim no lleva la clave (el cable de
+  // siempre, byte a byte). las listas siguen mandando hasta el flip.
+  toolsetV1: 'toolset_v1',
 } as const;
 export type RunnerCapability = (typeof RUNNER_CAPABILITY)[keyof typeof RUNNER_CAPABILITY];

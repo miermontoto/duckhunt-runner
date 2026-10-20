@@ -5,6 +5,8 @@
 // catálogo es del server. el orden de las claves del json lo fija quien lo emite (claim-kit.ts del server),
 // no estos tipos: los fixtures lo comprueban byte a byte.
 
+import type { ToolsetV1 } from './toolset.js';
+
 // investigate = run de reglas o manual sobre un entry; prompt = conversación libre desde /agents
 // (t#378), su texto va en agent_run.prompt. en ambos los mensajes del usuario (respuestas,
 // seguimientos, también sobre done/failed/canceled) re-encolan la MISMA fila: una conversación = un
@@ -130,6 +132,9 @@ export interface LegacyClaimBody {
   tier: string;
   tools: { allowed: string[]; disallowed: string[] };
   permissionMode: string;
+  // solo a un daemon con RUNNER_CAPABILITY.toolsetV1, justo tras permissionMode: la misma política en vocabulario
+  // neutro (toolset.ts), en sombra. sin la capability no viaja la clave.
+  toolset?: ToolsetV1;
   // null desde t#465 P15 (un server anterior mandaba el tope de turnos); null = no pasar el flag.
   maxTurns: number | null;
   maxBudgetUsd: number | null;

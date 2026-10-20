@@ -50,3 +50,9 @@ export const RUNNER_REPO_CHOICES_MAX = 200;
 export const RUNNER_REPO_CANDIDATE_ID_MAX_CHARS = 64;
 export const RUNNER_REPO_CANDIDATE_NAME_MAX_CHARS = 200;
 export const RUNNER_REPO_CANDIDATE_BRANCH_MAX_CHARS = 250;
+
+// toolsetShadow del status de un segmento (t#495, M5): ids por lista del diff, el largo de cada uno y los motivos
+// explicados. el diff es para un log, no para reproducir el kit: se recorta, nunca tumba el status.
+export const RUNNER_TOOLSET_SHADOW_IDS_MAX = 50;
+export const RUNNER_TOOLSET_SHADOW_ID_MAX_CHARS = 200;
+export const RUNNER_TOOLSET_SHADOW_KNOWN_MAX = 8;
