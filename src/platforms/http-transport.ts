@@ -8,8 +8,9 @@
 //   se quita del fichero si sigue siendo de la misma credencial.
 
 import { AccessTokenSource } from '../access-token.js';
-import { saveConfig, type RunnerCredential } from '../config.js';
+import type { RunnerCredential } from '../config.js';
 import { refreshAccess } from '../oauth.js';
+import { LEGACY_CREDENTIALS, type CredentialStore } from './credentials.js';
 
 // toda llamada al server: sin respuesta en este plazo cuenta como fallo de red.
 const API_TIMEOUT_MS = 30_000;
@@ -22,9 +23,13 @@ export class HttpTransport {
   // el último refresh rotado no se pudo escribir: al cambiar el fichero se fuerza otro refresh.
   private unsaved = false;
 
-  constructor(private current: RunnerCredential) {
+  constructor(
+    private current: RunnerCredential,
+    // de dónde se lee y dónde se guarda esta credencial (la de duckhunt: las claves de siempre).
+    private readonly store: CredentialStore = LEGACY_CREDENTIALS,
+  ) {
     this.auth = new AccessTokenSource(async () => {
-      const { access, credential, saved } = await refreshAccess(this.current);
+      const { access, credential, saved } = await refreshAccess(this.current, this.store);
       this.current = credential;
       this.unsaved = !saved;
       return access;
@@ -73,7 +78,7 @@ export class HttpTransport {
     if (this.current.clientId !== clientId || this.current.replacesClientId !== replaces) return;
     this.current = { baseUrl: this.current.baseUrl, clientId, refreshToken: this.current.refreshToken };
     try {
-      saveConfig((current) => (current.clientId === clientId && current.replacesClientId === replaces ? { replacesClientId: undefined } : null));
+      this.store.clearReplaces(clientId, replaces);
     } catch (err) {
       console.error(`[runner] no se pudo quitar replacesClientId de la config: ${(err as Error).message} — se reenvía al reiniciar (inocuo)`);
     }

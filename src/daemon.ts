@@ -81,6 +81,15 @@
 //   (platforms/scheduler.ts: pool global + cuota por plataforma, reservar antes de reclamar). una credencial
 //   muerta para SOLO esa plataforma; el daemon sale con EXIT_CODE_UNPAIRED cuando no queda ninguna usable.
 //   con una sola plataforma con todo el pool es el loop de siempre.
+// - plataformas en la config (t#495, M6.3): los supervisores salen de `platforms` de la config v2 y se ajustan
+//   en cada vuelta (alta, pausa, retirada, otra credencial). la de duckhunt sigue con su credencial en las claves
+//   de siempre; otra, en su entrada (platforms/credentials.ts), y cada una rota y guarda solo la suya. una sin
+//   credencial o con un protocolo que este runner no habla se avisa y no reclama. cuota de slots por plataforma
+//   (la legacy, todo el pool; una nueva, PLATFORM_DEFAULT_SLOTS) y lo que ve de la máquina, su `expose` (lo que
+//   anuncia y lo que un run suyo puede usar; la legacy, todo). una que no es la legacy corre con la aws aislada,
+//   sin machine id (M6.5) y sin comandos de repos.
+// - deny de todo kit por segmento (t#495): el run-config de todas las plataformas con estado en disco y el scratch
+//   de las demás, recalculados al lanzar cada segmento: una plataforma añadida en caliente queda cubierta.
 
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
@@ -92,14 +101,17 @@ import {
   concurrency,
   mergeEntries,
   parseConfig,
+  parseConfigV2,
   readConfigText,
   saveConfig,
   splitConfig,
   type LocalConfig,
   type RunnerConfig,
+  type RunnerConfigV2,
+  type RunnerCredential,
 } from './config.js';
 import { ensureMachineId } from './machine.js';
-import { secretPathsDeny } from './secret-paths.js';
+import { otherScratchDeny, secretPathsDeny } from './secret-paths.js';
 import { CLAIM_OUTCOME } from './server-state.js';
 import { consumeStreamLine, detectClaude, newStreamState, type ClaudeInfo } from './claude.js';
 import { buildClaudeArgs } from './claude-args.js';
@@ -120,14 +132,15 @@ import { holdLocks, materializeRun, type MaterializedRun } from './resources/lif
 import { legacyRequests, legacyResourceError, legacyScratchExclusive } from './resources/legacy.js';
 import { repoProvider } from './resources/repo/provider.js';
 import { AWS_ACCOUNT_ID_RE, awsProvider } from './resources/aws.js';
-import { LEGACY_RESOURCE_KEYS } from './config-legacy.js';
-import { RELEASE, type ReleaseOutcome } from './resources/types.js';
+import { LEGACY_RESOURCE_KEYS, legacyPlatform } from './config-legacy.js';
+import { RELEASE, RESOURCE_TYPE, type ReleaseOutcome } from './resources/types.js';
 import { applyRepoCommand, type RepoCommandResult } from './repo-commands.js';
 import { RunLease, signalGroup } from './run-lease.js';
 import { compareRunIds } from './run-id.js';
-import { allRunConfigDirs, LEGACY_PLATFORM_ID, logsDir, scratchDir } from './paths.js';
+import { allRunConfigDirs, LEGACY_PLATFORM_ID, logsDir, runConfigDir, scratchDir } from './paths.js';
 import { runnerVersion } from './version.js';
-import { PlatformRejectedError, PROTOCOL, type ClaimAnnounce, type Platform, type PlatformFactories, type RunSegment } from './platforms/platform.js';
+import { PlatformRejectedError, PROTOCOL, type ClaimAnnounce, type Platform, type PlatformFactories, type Protocol, type RunSegment } from './platforms/platform.js';
+import { EXPOSE_ALL, isExposed, PLATFORM_DEFAULT_SLOTS, type PlatformConfig } from './platforms/types.js';
 import { PLATFORM_FACTORIES } from './platforms/duckhunt42.js';
 import { Scheduler } from './platforms/scheduler.js';
 import { PLATFORM_STATE, PlatformSupervisor, type SupervisorHooks } from './platforms/supervisor.js';
@@ -176,6 +189,14 @@ export class RunnerDaemon {
   private readonly scheduler = new Scheduler(() => this.slots);
   // el poll de cada supervisor (la parada los espera).
   private readonly polls: Promise<void>[] = [];
+  // cómo se crea la plataforma de cada protocolo que este runner habla.
+  private readonly factories: PlatformFactories;
+  // la config de cada plataforma (config v2, se recarga con el fichero); hasta leerlo, la legacy con lo de siempre.
+  private platformsCfg: Readonly<Record<string, PlatformConfig>> = { [LEGACY_PLATFORM_ID]: legacyPlatform() };
+  // la credencial de duckhunt en el fichero (las claves de siempre): con otro clientId reaviva su supervisor.
+  private legacyCredential: RunnerCredential;
+  // plataformas de la config que no reclaman (sin credencial, o con un protocolo que este runner no habla) y por qué.
+  private readonly skipped = new Map<string, string>();
   private claude: ClaudeInfo = { version: null, supported: new Set() };
   private hasAws = false;
   // mapas, etiqueta y defaults: los recarga reloadConfig en cada vuelta del loop.
@@ -203,8 +224,6 @@ export class RunnerDaemon {
   private lastRepoHealthAt = 0;
   // chequeo en curso: los forzados lo esperan en vez de solaparse con él.
   private repoHealthRun: Promise<void> | null = null;
-  // Read negado del directorio de mcp-configs: lo lleva todo kit (se calcula al arrancar).
-  private runConfigDeny: string[] = [];
   // Read negado de las rutas reales de las credenciales de la máquina: todo kit de lectura (al arrancar).
   private secretDeny: string[] = [];
   // lo que cada supervisor necesita del daemon.
@@ -220,7 +239,9 @@ export class RunnerDaemon {
   ) {
     const { credential, local } = splitConfig(cfg);
     this.cfg = local;
-    this.addSupervisor((opts.factories ?? PLATFORM_FACTORIES)[PROTOCOL.duckhunt42]!(LEGACY_PLATFORM_ID, credential));
+    this.factories = opts.factories ?? PLATFORM_FACTORIES;
+    this.legacyCredential = credential;
+    this.addSupervisor(this.factories[PROTOCOL.duckhunt42]!(LEGACY_PLATFORM_ID, credential));
   }
 
   // la plataforma legacy: siempre está (su credencial vive en las claves de siempre de la config).
@@ -233,9 +254,9 @@ export class RunnerDaemon {
     return [...this.supervisors.values()].flatMap((sup) => [...sup.leases]);
   }
 
-  // un supervisor nuevo; con el daemon ya en marcha, arranca su poll.
-  private addSupervisor(platform: Platform): PlatformSupervisor {
-    const sup = new PlatformSupervisor(platform.id, platform, PLATFORM_STATE.active, this.hooks);
+  // un supervisor nuevo (sustituye al que hubiera con su id); con el daemon ya en marcha, arranca su poll.
+  private addSupervisor(platform: Platform, paused = false): PlatformSupervisor {
+    const sup = new PlatformSupervisor(platform.id, platform, paused ? PLATFORM_STATE.paused : PLATFORM_STATE.active, this.hooks);
     this.supervisors.set(sup.id, sup);
     if (this.running) this.polls.push(this.poll(sup));
     return sup;
@@ -246,9 +267,16 @@ export class RunnerDaemon {
     return concurrency(this.cfg.defaults);
   }
 
-  // cuota de una plataforma: hoy todo el pool.
-  private quota(_sup: PlatformSupervisor): number {
-    return this.slots;
+  // cuota de una plataforma dentro del pool: la de su config; sin ella, la legacy todo el pool y una nueva
+  // PLATFORM_DEFAULT_SLOTS.
+  private quota(sup: PlatformSupervisor): number {
+    const slots = this.platformsCfg[sup.id]?.slots ?? (sup.id === LEGACY_PLATFORM_ID ? this.slots : PLATFORM_DEFAULT_SLOTS);
+    return Math.min(slots, this.slots);
+  }
+
+  // lo que la plataforma ve de la máquina (su `expose`; sin config, nada).
+  private exposure(sup: PlatformSupervisor): PlatformConfig['expose'] {
+    return this.platformsCfg[sup.id]?.expose ?? {};
   }
 
   // el loop principal ya arrancó (los supervisores nuevos arrancan su poll al crearse).
@@ -276,8 +304,8 @@ export class RunnerDaemon {
       () => false,
     );
     // lanza si la ruta no cabe en una regla de permisos: sin ese deny el daemon no arranca. cubre el
-    // run-config de cada plataforma con estado en disco (hoy solo el de la legacy).
-    this.runConfigDeny = allRunConfigDirs().flatMap(runConfigDeny);
+    // run-config de cada plataforma con estado en disco; cada segmento lo recalcula (runDeny).
+    allRunConfigDirs().forEach(runConfigDeny);
     const stale = clearRunMcpConfigs(LEGACY_PLATFORM_ID) + this.registry.sweep(LEGACY_PLATFORM_ID);
     if (stale > 0) console.log(`[runner] ${stale} config(s) de runs anteriores borrada(s)`);
     const legacy = clearLegacyTmpConfigs();
@@ -308,6 +336,7 @@ export class RunnerDaemon {
       // también con los slots llenos: un maxConcurrent más alto vale sin esperar a que acabe un run.
       await this.reloadConfig();
       void this.refreshRepoHealth();
+      if (this.supervisors.get(sup.id) !== sup) break;
       if (!(await this.pollOnce(sup)) && !this.stopping) await sup.idle(CLAIM_POLL_MS);
     }
   }
@@ -366,8 +395,10 @@ export class RunnerDaemon {
     this.wake?.();
   }
 
-  // un slot libre: lo prueba en el acto su plataforma y cualquiera que esperara slot (y la parada, si espera).
+  // un slot libre: lo prueba en el acto su plataforma y cualquiera que esperara slot (y la parada, si espera). una
+  // retirada de la config que ya no tiene runs se suelta.
   private slotFreed(sup: PlatformSupervisor): void {
+    if (sup.state === PLATFORM_STATE.removing) this.retire(sup);
     sup.wake();
     this.supervisors.forEach((other) => other.blocked && other.wake());
     this.wake?.();
@@ -412,20 +443,27 @@ export class RunnerDaemon {
   // --- claim ---
 
   // lo que esta máquina anuncia a una plataforma en su claim (platforms/platform.ts::ClaimAnnounce): sus slots
-  // son su cuota (nunca los libres del pool, que dirían cuánto trabajo traen las demás).
+  // son su cuota (nunca los libres del pool, que dirían cuánto trabajo traen las demás), y de los repos y cuentas
+  // aws solo los que expone (la legacy, todos). los candidatos de carpeta y el machine id, solo a la legacy: los
+  // comandos de repos son solo suyos y el id de una nueva saldrá derivado (M6.5).
   private announce(sup: PlatformSupervisor): ClaimAnnounce {
+    const legacy = sup.id === LEGACY_PLATFORM_ID;
+    const expose = this.exposure(sup);
+    const seen = (type: string) => (key: string): boolean => isExposed(expose, type, key);
+    const repos = Object.keys(this.cfg.repos).filter(seen(RESOURCE_TYPE.repo));
+    const allRepos = expose[RESOURCE_TYPE.repo] === EXPOSE_ALL;
     return {
       label: this.label(),
-      machineId: this.cfg.machineId ?? null,
+      machineId: legacy ? (this.cfg.machineId ?? null) : null,
       capabilities: this.capabilities(),
       slots: this.quota(sup),
       version: runnerVersion(),
       claudeVersion: this.claude.version,
-      repos: Object.keys(this.cfg.repos),
-      repoIssues: this.repoHealth,
-      repoCandidates: this.repoChoices,
+      repos,
+      repoIssues: allRepos ? this.repoHealth : (this.repoHealth?.filter((i) => i.repo !== null && repos.includes(i.repo)) ?? null),
+      repoCandidates: !legacy ? null : allRepos ? this.repoChoices : (this.repoChoices?.filter((c) => repos.includes(c.repo)) ?? null),
       // solo ids de cuenta: `default` (y cualquier otra clave) no es una cuenta que duckhunt conozca.
-      awsAccounts: Object.keys(this.cfg.aws).filter((key) => AWS_ACCOUNT_ID_RE.test(key)),
+      awsAccounts: Object.keys(this.cfg.aws).filter((key) => AWS_ACCOUNT_ID_RE.test(key) && seen(RESOURCE_TYPE.aws)(key)),
       kept: sup.keptWorktrees,
     };
   }
@@ -493,14 +531,19 @@ export class RunnerDaemon {
       const commands = await sup.platform.commands(this.label());
       if (!commands || commands.length === 0) return;
       const env = scrubEnv(process.env);
-      const disabled = this.cfg.defaults.remoteRepoEdits === false;
+      // solo la legacy cambia el mapa de repos de la máquina, y solo si el usuario no lo apagó.
+      const disabled = sup.id !== LEGACY_PLATFORM_ID || this.cfg.defaults.remoteRepoEdits === false;
       // i/o secuencial: cada comando se aplica sobre el mapa que dejó el anterior.
       const before = this.cfg.repos;
       let repos = before;
       const results: RepoCommandResult[] = [];
       for (const cmd of commands) {
         if (disabled) {
-          results.push({ id: cmd.id, ok: false, error: 'este runner no acepta cambios de repos desde duckhunt (defaults.remoteRepoEdits)' });
+          results.push({
+            id: cmd.id,
+            ok: false,
+            error: sup.id === LEGACY_PLATFORM_ID ? 'este runner no acepta cambios de repos desde duckhunt (defaults.remoteRepoEdits)' : `este runner solo acepta cambios de repos de ${LEGACY_PLATFORM_ID}`,
+          });
           continue;
         }
         const applied = await applyRepoCommand(repos, cmd, this.candidatePaths, env);
@@ -526,10 +569,16 @@ export class RunnerDaemon {
 
   // --- config en caliente (cada vuelta del loop) ---
 
-  // relee el fichero si su texto cambió: mapas, etiqueta y defaults se toman tal cual; un fichero
+  // relee la config y pone al día los supervisores de sus plataformas.
+  private async reloadConfig(): Promise<void> {
+    await this.readConfig();
+    this.syncSupervisors();
+  }
+
+  // relee el fichero si su texto cambió: mapas, etiqueta, defaults y plataformas se toman tal cual; un fichero
   // ausente o ilegible deja la config cargada (se avisa una vez por cambio). la credencial no se
   // toca: un `login` de la misma instancia o un refresh sin guardar fuerzan el refresh que lo resuelve.
-  private async reloadConfig(): Promise<void> {
+  private async readConfig(): Promise<void> {
     let text: string | null;
     try {
       text = readConfigText();
@@ -544,19 +593,109 @@ export class RunnerDaemon {
       return;
     }
     let next: RunnerConfig;
+    let platforms: RunnerConfigV2['platforms'];
     try {
       next = parseConfig(text);
+      platforms = parseConfigV2(text).platforms;
     } catch (err) {
       console.error(`[runner] ${(err as Error).message} — sigo con la config cargada`);
       return;
     }
     const { credential, local } = splitConfig(next);
-    this.legacy.platform.observe(credential);
+    this.legacyCredential = credential;
+    this.platformsCfg = platforms;
+    // la credencial del fichero, a cada plataforma que ya corre (las nuevas nacen con ella: syncSupervisors).
+    this.supervisors.forEach((sup) => {
+      const cred = sup.id === LEGACY_PLATFORM_ID ? credential : platforms[sup.id]?.credential;
+      if (cred) sup.platform.observe(cred);
+    });
     if (JSON.stringify(local) === JSON.stringify(this.cfg)) return;
     const reposChanged = JSON.stringify(local.repos) !== JSON.stringify(this.cfg.repos);
     this.cfg = local;
     console.log(`[runner] config recargada: ${Object.keys(local.repos).length} repos, ${Object.keys(local.aws).length} cuentas aws, ${this.slots} slot${this.slots === 1 ? '' : 's'}`);
     if (reposChanged) await this.refreshRepoHealth(true);
+  }
+
+  // --- plataformas de la config (en cada vuelta de cada poll; idempotente) ---
+
+  // alta de las nuevas, pausa y reanudación, reavivar la que perdió la credencial tras un `login` nuevo,
+  // sustituir la que cambió de instancia o protocolo (sin runs en vuelo) y retirar las que ya no están.
+  private syncSupervisors(): void {
+    Object.entries(this.platformsCfg).forEach(([id, cfg]) => this.syncPlatform(id, cfg));
+    [...this.supervisors.values()].filter((sup) => !Object.hasOwn(this.platformsCfg, sup.id)).forEach((sup) => this.retire(sup));
+    [...this.skipped.keys()].filter((id) => !Object.hasOwn(this.platformsCfg, id)).forEach((id) => this.skipped.delete(id));
+  }
+
+  private syncPlatform(id: string, cfg: PlatformConfig): void {
+    const legacy = id === LEGACY_PLATFORM_ID;
+    const credential = legacy ? this.legacyCredential : cfg.credential;
+    const protocol = cfg.protocol ?? (legacy ? PROTOCOL.duckhunt42 : undefined);
+    const factory = protocol !== undefined && Object.hasOwn(this.factories, protocol) ? this.factories[protocol as Protocol] : undefined;
+    const current = this.supervisors.get(id);
+    // el cable duckhunt-42 no lleva toolset_v1: el techo de la plataforma no se le puede aplicar y sus runs reciben el
+    // kit entero que mande su server, shell incluida. fuera de la legacy, solo en una plataforma trusted.
+    const uncapped = !legacy && protocol === PROTOCOL.duckhunt42 && !cfg.trusted;
+    const why = !factory
+      ? `protocolo ${protocol ?? '(sin protocolo)'} sin soporte en este runner`
+      : !credential
+        ? 'sin credencial (`login`)'
+        : uncapped
+          ? `el protocolo ${protocol} no lleva toolset_v1 y su techo no se puede aplicar: solo en una plataforma trusted`
+          : null;
+    if (!factory || !credential || uncapped) {
+      if (this.skipped.get(id) !== why) console.warn(`[runner] plataforma ${id}: ${why}: no reclama`);
+      this.skipped.set(id, why!);
+      if (current) this.retire(current);
+      return;
+    }
+    this.skipped.delete(id);
+    // una retirada que vuelve a la config: se suelta al acabar sus runs (retire) y entonces nace otra.
+    if (current?.state === PLATFORM_STATE.removing) return;
+    // otra plataforma por la misma: tras un `login` nuevo la que perdió la credencial; una que cambió de instancia o
+    // de protocolo, sin runs en vuelo. la legacy no cambia de instancia en caliente (oauth.ts): pide reiniciar.
+    const identity = current?.platform.identity();
+    const replace =
+      current !== undefined &&
+      current.leases.size === 0 &&
+      (current.state === PLATFORM_STATE.unpaired
+        ? identity!.clientId !== credential.clientId
+        : !legacy && (current.platform.protocol !== protocol || identity!.baseUrl !== credential.baseUrl));
+    if (!current || replace) {
+      if (!legacy) this.prepare(id);
+      this.addSupervisor(factory(id, credential), cfg.paused === true);
+      // el poll de la sustituida termina en cuanto despierta.
+      current?.wake();
+      if (!legacy || current) console.log(`[runner] plataforma ${id} → ${credential.baseUrl}${cfg.paused ? ' (en pausa)' : ''}`);
+      return;
+    }
+    if (current.state === PLATFORM_STATE.active && cfg.paused) {
+      current.state = PLATFORM_STATE.paused;
+      console.log(`[runner] plataforma ${id} en pausa: no reclama, sus runs siguen`);
+    } else if (current.state === PLATFORM_STATE.paused && !cfg.paused) {
+      current.state = PLATFORM_STATE.active;
+      console.log(`[runner] plataforma ${id} reanudada`);
+      current.wake();
+    }
+  }
+
+  // lo que una plataforma no legacy necesita antes de su primer run: su run-config (0700) ya creado, así el deny
+  // de los segmentos de las demás lo cubre desde ya, y sin lo que dejó un daemon muerto (no tiene runs en vuelo).
+  private prepare(id: string): void {
+    runConfigDir(id);
+    const stale = clearRunMcpConfigs(id) + this.registry.sweep(id);
+    if (stale > 0) console.log(`[runner] plataforma ${id}: ${stale} config(s) de runs anteriores borrada(s)`);
+  }
+
+  // una plataforma que sale de la config (o se queda sin credencial o sin protocolo): no reclama más y, en cuanto
+  // no le quedan runs, se suelta (su poll termina).
+  private retire(sup: PlatformSupervisor): void {
+    if (sup.state !== PLATFORM_STATE.removing) {
+      console.log(`[runner] plataforma ${sup.id} fuera de la config${sup.leases.size > 0 ? `: deja de reclamar, ${sup.leases.size} run(s) acaban` : ''}`);
+      sup.state = PLATFORM_STATE.removing;
+    }
+    if (sup.leases.size > 0 || this.supervisors.get(sup.id) !== sup) return;
+    this.supervisors.delete(sup.id);
+    sup.wake();
   }
 
   // --- gc de worktrees (en el loop de claim, throttled) ---
@@ -594,12 +733,20 @@ export class RunnerDaemon {
 
   // --- recursos del run ---
 
-  // entrada de la config local de un recurso (null = sin mapear en esta máquina). repo y aws viven en las claves
-  // de siempre de la config (config-legacy.ts).
-  private refOf(type: string, key: string | null): unknown {
+  // entrada de la config local de un recurso para un run de esa plataforma (null = sin mapear en esta máquina, o
+  // no expuesto a ella: el run lo ve igual que uno sin mapear). repo y aws viven en las claves de siempre de la
+  // config (config-legacy.ts).
+  private refOf(sup: PlatformSupervisor, type: string, key: string | null): unknown {
     const field = Object.hasOwn(LEGACY_RESOURCE_KEYS, type) ? LEGACY_RESOURCE_KEYS[type] : undefined;
     const map: Readonly<Record<string, unknown>> | undefined = field ? this.cfg[field] : undefined;
-    return key !== null && map && Object.hasOwn(map, key) ? map[key] : null;
+    return key !== null && map && Object.hasOwn(map, key) && isExposed(this.exposure(sup), type, key) ? map[key] : null;
+  }
+
+  // deny de todo kit para un segmento de la plataforma: el run-config de todas (con estado en disco) y el scratch de
+  // las demás. por segmento: una plataforma añadida en caliente queda cubierta en el siguiente.
+  private runDeny(sup: PlatformSupervisor): string[] {
+    const configured = [...new Set([...Object.keys(this.platformsCfg), ...this.supervisors.keys()])];
+    return [...allRunConfigDirs().flatMap(runConfigDeny), ...otherScratchDeny(sup.id, configured)];
   }
 
   // latido del run desde el claim hasta el cierre: transporta el soft-cancel del server (y refresca
@@ -640,8 +787,11 @@ export class RunnerDaemon {
 
     let res: MaterializedRun;
     try {
-      // solo un claim toolset_v1 aísla lo que no pide (la aws de la máquina); uno legacy, nunca.
-      const plan = this.registry.plan(legacyRequests(run), (type, key) => this.refOf(type, key), claim.toolset !== null);
+      // un claim toolset_v1 aísla lo que no pide (la aws de la máquina), y uno de cualquier plataforma que no sea la
+      // legacy también: sin compatibilidad que guardar, una plataforma nueva no hereda la aws del usuario. uno
+      // legacy de duckhunt, nunca.
+      const isolate = claim.toolset !== null || sup.id !== LEGACY_PLATFORM_ID;
+      const plan = this.registry.plan(legacyRequests(run), (type, key) => this.refOf(sup, type, key), isolate);
       res = await materializeRun(plan, { platform: sup.id, runId: run.id, env, gitLocks: this.gitLocks }, { dir: () => scratchDir(sup.id), exclusive: legacyScratchExclusive(run) });
     } catch (err) {
       clearInterval(heartbeat);
@@ -727,7 +877,7 @@ export class RunnerDaemon {
         skipPermissions: res.cwd.skipPermissions,
         payingWithApiKey: !!process.env.ANTHROPIC_API_KEY,
         mirroredDeny: deny,
-        runConfigDeny: this.runConfigDeny,
+        runConfigDeny: this.runDeny(sup),
         secretPathsDeny: this.secretDeny,
         withoutShell: shell.dropShell,
       });

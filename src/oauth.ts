@@ -10,14 +10,18 @@
 // reemplaza (machine.ts::loginIdentity), y un rechazo del token endpoint (invalid_grant: credencial
 // desvinculada desde duckhunt, revocada por un replay o caducada) es un CredentialRejectedError: el
 // daemon para en vez de reintentar cada 5 s con una credencial que ya no vuelve.
+// plataformas (t#495, M6.3): de dónde se lee y dónde se guarda la credencial es un CredentialStore
+// (platforms/credentials.ts): la de duckhunt en las claves de siempre, la de otra plataforma en su entrada de
+// `platforms`. cada refresh escribe solo la suya.
 
 import crypto from 'node:crypto';
 import path from 'node:path';
 import readline from 'node:readline/promises';
-import { configPath, DEFAULT_BASE_URL, loadConfig, saveConfig, type RunnerCredential } from './config.js';
+import { configPath, DEFAULT_BASE_URL, saveConfig, type RunnerCredential } from './config.js';
 import { daemonLockHolder } from './daemon-lock.js';
 import { loginIdentity } from './machine.js';
 import { PlatformRejectedError } from './platforms/platform.js';
+import { LEGACY_CREDENTIALS, type CredentialStore } from './platforms/credentials.js';
 
 // path del recurso runner en el server (espejo de canonicalRunnerResourceUrl).
 const RUNNER_RESOURCE_PATH = '/api/runner';
@@ -173,10 +177,10 @@ export interface RefreshResult {
 
 // credencial con la que refrescar: la del fichero si `login` cambió el cliente con el daemon en marcha
 // y es de la misma instancia; si no, la de memoria.
-function credentialToRefresh(current: RunnerCredential): RunnerCredential {
+function credentialToRefresh(current: RunnerCredential, store: CredentialStore): RunnerCredential {
   let disk: RunnerCredential | null;
   try {
-    disk = loadConfig();
+    disk = store.load();
   } catch (err) {
     console.error(`[runner] ${(err as Error).message}: refresco con la credencial en memoria`);
     return current;
@@ -197,9 +201,9 @@ function credentialToRefresh(current: RunnerCredential): RunnerCredential {
 
 // guarda el refresh token recién rotado si el fichero sigue siendo de su cliente (un `login` hecho
 // durante el refresh gana). false = no se pudo escribir; true = guardado o ya no es de este cliente.
-function persistRefreshToken(cred: RunnerCredential): boolean {
+function persistRefreshToken(cred: RunnerCredential, store: CredentialStore): boolean {
   try {
-    saveConfig((current) => (current.clientId === cred.clientId ? { refreshToken: cred.refreshToken } : null));
+    store.saveRefreshToken(cred);
     return true;
   } catch (err) {
     console.error(
@@ -212,8 +216,8 @@ function persistRefreshToken(cred: RunnerCredential): boolean {
 /** refresca el access token del daemon. la rotación persiste el refresh nuevo AL INSTANTE (perder el
  *  refresh rotado invalida la cadena entera), y un fallo al guardarlo no tumba el refresh: el server
  *  ya rotó, así que la credencial nueva vuelve igual y el daemon la sigue usando. */
-export async function refreshAccess(current: RunnerCredential): Promise<RefreshResult> {
-  const cred = credentialToRefresh(current);
+export async function refreshAccess(current: RunnerCredential, store: CredentialStore = LEGACY_CREDENTIALS): Promise<RefreshResult> {
+  const cred = credentialToRefresh(current, store);
   const tokens = await postToken(cred.baseUrl, {
     grant_type: 'refresh_token',
     refresh_token: cred.refreshToken,
@@ -225,6 +229,6 @@ export async function refreshAccess(current: RunnerCredential): Promise<RefreshR
   return {
     access: { token: tokens.access_token, expiresAt: Date.now() + tokens.expires_in * 1000 },
     credential,
-    saved: persistRefreshToken(credential),
+    saved: persistRefreshToken(credential, store),
   };
 }

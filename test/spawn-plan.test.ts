@@ -79,7 +79,7 @@ function makeOrigin(name: string, links: Record<string, string> = {}): string {
 }
 
 // `claude` falso: --version/--help como el de verdad (todos los flags opcionales); un run anota lo que recibe en
-// <case>/spawns.jsonl (el case sale de la ruta del mcp-config) y contesta un stream-json mínimo. el prompt puede
+// <case>/spawns.jsonl (el case es el primer padre del mcp-config con la config del caso) y contesta un stream-json mínimo. el prompt puede
 // pedir esperar a un fichero (HOLD:<f>) o fallar (FAIL); --resume gone simula una sesión que no está.
 function writeFakeClaude(): void {
   const script = `#!${process.execPath}
@@ -89,7 +89,8 @@ const args = process.argv.slice(2);
 if (args[0] === '--version') { console.log('9.9.9 (Claude Code)'); process.exit(0); }
 if (args[0] === '--help') { console.log(${JSON.stringify(OPTIONAL_FLAGS.join('\n'))}); process.exit(0); }
 const mcpFile = args[args.indexOf('--mcp-config') + 1];
-const caseDir = path.dirname(path.dirname(path.dirname(mcpFile)));
+let caseDir = path.dirname(mcpFile);
+while (!fs.existsSync(path.join(caseDir, 'runner.json'))) caseDir = path.dirname(caseDir);
 fs.appendFileSync(path.join(caseDir, 'spawns.jsonl'), JSON.stringify({ argv: args, cwd: process.cwd(), env: process.env, mcp: fs.readFileSync(mcpFile, 'utf8') }) + '\\n');
 const prompt = args[args.length - 1];
 const resume = args.includes('--resume') ? args[args.indexOf('--resume') + 1] : null;
@@ -125,11 +126,12 @@ interface Case {
   origin?: 'escaping' | 'none';
   // retoque del claim ya parseado (lo que ningún claim legacy trae: la marca toolset_v1).
   patch?: (claim: ClaimResponse) => ClaimResponse;
+  // plataforma que ejecuta los claims (por defecto la legacy).
+  platform?: string;
 }
 
 interface DaemonInternals extends Harness {
   claude: ClaudeInfo;
-  runConfigDeny: string[];
   secretDeny: string[];
 }
 
@@ -302,11 +304,12 @@ async function runCase(c: Case): Promise<unknown> {
   await d.reloadConfig();
   // lo que hace run() al arrancar, sin el loop ni las señales.
   d.claude = claude;
-  d.runConfigDeny = allRunConfigDirs().flatMap(runConfigDeny);
+  allRunConfigDirs().forEach(runConfigDeny);
   d.secretDeny = secretPathsDeny(process.env).rules;
   const hold = path.join(dir, 'hold');
   const claims = [c.raw, ...(c.then ?? [])].map((raw) => (c.patch ?? ((cl: ClaimResponse) => cl))(parseClaim(JSON.parse(JSON.stringify(raw).replaceAll('<hold>', hold)) as unknown)));
-  const exec = (claim: ClaimResponse): Promise<void> => d.executeRun(legacyOf(d), claim, new RunLease(claim.run.id));
+  const sup = c.platform ? d.supervisors.get(c.platform)! : legacyOf(d);
+  const exec = (claim: ClaimResponse): Promise<void> => d.executeRun(sup, claim, new RunLease(claim.run.id));
   if (c.parallel) {
     const first = exec(claims[0]!);
     await waitFor(() => fs.existsSync(`${hold}.started`));
@@ -429,4 +432,33 @@ test('aislar la aws solo con toolset_v1: sin aws pedida, la aws vacía; el mismo
   assert.equal(v1Env.set.AWS_DEFAULT_REGION, undefined, 'sin región');
   assert.equal(v1.runs['950']!.feed.some((e) => e.body.includes('aws')), false, 'aislar no avisa: es lo esperado');
   assert.deepEqual(v1.left.runConfig, [], 'la aws vacía se borra al cerrar');
+});
+
+// fuera del golden: dos plataformas en la config (t#495, M6.3).
+test('dos plataformas: cada run niega el scratch de la otra; el de la nueva no ve lo que no le expone y corre con la aws aislada', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  t.mock.method(console, 'warn', () => {});
+  t.mock.method(console, 'error', () => {});
+  type Plan = { spawns: { cwd: string; argv: unknown[]; env: { set: Record<string, string>; removed: string[] } }[]; runs: Record<string, { feed: { body: string }[] }> };
+  const withBeta = (c: RunnerConfig): RunnerConfig =>
+    ({ ...c, version: 2, platforms: { beta: { protocol: 'duckhunt-42', trusted: true, credential: { baseUrl: c.baseUrl, clientId: 'b1', refreshToken: 'rb' } } } }) as unknown as RunnerConfig;
+  const denied = (plan: Plan): string[] => {
+    const argv = plan.spawns[0]!.argv;
+    return (argv[argv.indexOf('--disallowedTools') + 1] as { notFromClaim: string[] }).notFromClaim;
+  };
+  const raw = withRun(kit('prompt-read-full'), { id: 960, aws: null });
+  const legacy = (await runCase({ name: 'platforms/legacy', raw, cfg: withBeta })) as Plan;
+  assert.equal(legacy.spawns[0]!.cwd, '<case>/checkout/.duckhunt/worktrees/conv-960', 'la legacy, como siempre');
+  assert.ok(denied(legacy).includes('Read(/<case>/home/platforms/beta/scratch/**)'), 'el scratch de beta');
+  assert.ok(denied(legacy).includes('Read(/<case>/home/platforms/beta/run-config/**)'), 'y su run-config, desde que existe en la config');
+  assert.equal(legacy.spawns[0]!.env.removed.includes('AWS_PROFILE'), false);
+
+  const beta = (await runCase({ name: 'platforms/beta', raw: withRun(raw, { id: 961 }), cfg: withBeta, platform: 'beta' })) as Plan;
+  assert.equal(beta.spawns[0]!.cwd, '<case>/home/platforms/beta/scratch', 'el repo no le está expuesto: su scratch');
+  assert.ok(beta.runs['961']!.feed.some((e) => e.body.includes('no mapeado')));
+  assert.ok(denied(beta).includes('Read(/<case>/home/scratch/**)'), 'el scratch de duckhunt');
+  assert.ok(['Read(/<case>/home/run-config/**)', 'Read(/<case>/home/platforms/beta/run-config/**)'].every((r) => denied(beta).includes(r)));
+  assert.ok(!denied(beta).includes('Read(/<case>/home/platforms/beta/scratch/**)'), 'el suyo no: es su cwd');
+  assert.ok(beta.spawns[0]!.env.removed.includes('AWS_PROFILE'), 'sin la aws del usuario');
+  assert.match(beta.spawns[0]!.env.set.AWS_CONFIG_FILE ?? '', /^<case>\/home\/platforms\/beta\/run-config\/aws-961-<rand>\/config$/);
 });

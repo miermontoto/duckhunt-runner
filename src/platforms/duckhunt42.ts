@@ -17,6 +17,7 @@ import { CLAIM_OUTCOME, parseRunnerBlock } from '../server-state.js';
 import { clampReport, type StatusReport } from '../status-report.js';
 import type { RunnerCredential } from '../config.js';
 import { HttpTransport } from './http-transport.js';
+import { credentialStore } from './credentials.js';
 import {
   CLAIM_RESULT,
   PlatformRejectedError,
@@ -225,5 +226,5 @@ export class Duckhunt42Platform implements Platform {
 
 /** los protocolos que este runner habla y cómo se crea cada plataforma. */
 export const PLATFORM_FACTORIES: PlatformFactories = {
-  [PROTOCOL.duckhunt42]: (id, credential) => new Duckhunt42Platform(id, new HttpTransport(credential)),
+  [PROTOCOL.duckhunt42]: (id, credential) => new Duckhunt42Platform(id, new HttpTransport(credential, credentialStore(id))),
 };

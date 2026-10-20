@@ -14,10 +14,13 @@
 // - fromLegacy no crea `aws.default`: la identidad aws por defecto la expone el usuario a mano.
 // - ninguna parte v2 se acepta a medias: una plataforma con un id que no vale, un techo con shell:'full' sin
 //   `trusted`, o repo/aws dentro de `resources` (viven en repos/aws) hacen la config inválida.
+// - (M6.3) protocolo, pausa y cuota de cada plataforma: un protocolo desconocido es válido (la plataforma no
+//   reclama, platforms/types.ts); la legacy solo habla el suyo.
 
 import type { RepoConfig, AwsAccountConfig, RunnerConfigV2, RunnerCredential, ResourcesConfig } from './config.js';
 import { CONFIG_VERSION } from './config.js';
 import { LEGACY_PLATFORM_ID, PLATFORM_ID_RE } from './paths.js';
+import { PROTOCOL } from './platforms/platform.js';
 import { DEFAULT_CEILING, EXPOSE_ALL, LEGACY_CEILING, LEGACY_EXPOSE, SHELL, type Exposure, type PlatformConfig, type ToolsetCeiling } from './platforms/types.js';
 import { ACCESS, RESOURCE_TYPE } from './resources/types.js';
 
@@ -110,7 +113,19 @@ function platformOf(id: string, v: unknown, base: PlatformConfig): PlatformConfi
   const trusted = (v.trusted as boolean | undefined) ?? base.trusted;
   if (v.expose !== undefined && !isObj(v.expose)) throw invalid(`${where}.expose no es un objeto`);
   const expose = isObj(v.expose) ? Object.fromEntries(Object.entries(v.expose).map(([type, keys]) => [type, exposureOf(keys, `${where}.expose.${type}`)])) : base.expose;
-  return { ...(credential ? { credential } : {}), trusted, expose, ceiling: ceilingOf(v.ceiling, base.ceiling, trusted, `${where}.ceiling`) };
+  if (v.protocol !== undefined && (typeof v.protocol !== 'string' || !v.protocol)) throw invalid(`${where}.protocol no es un texto`);
+  if (legacy && v.protocol !== undefined && v.protocol !== PROTOCOL.duckhunt42) throw invalid(`${where}.protocol: ${LEGACY_PLATFORM_ID} solo habla ${PROTOCOL.duckhunt42}`);
+  if (v.paused !== undefined && typeof v.paused !== 'boolean') throw invalid(`${where}.paused no es booleano`);
+  if (v.slots !== undefined && !(typeof v.slots === 'number' && Number.isSafeInteger(v.slots) && v.slots >= 1)) throw invalid(`${where}.slots: un entero desde 1`);
+  return {
+    ...(credential ? { credential } : {}),
+    trusted,
+    expose,
+    ceiling: ceilingOf(v.ceiling, base.ceiling, trusted, `${where}.ceiling`),
+    ...(v.protocol !== undefined ? { protocol: v.protocol as string } : {}),
+    ...(v.paused !== undefined ? { paused: v.paused as boolean } : {}),
+    ...(v.slots !== undefined ? { slots: v.slots as number } : {}),
+  };
 }
 
 const newPlatform: PlatformConfig = { trusted: false, expose: {}, ceiling: DEFAULT_CEILING };
