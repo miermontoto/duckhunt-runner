@@ -158,3 +158,18 @@ test('la clave aws `default` no se anuncia como cuenta: el cable legacy solo lle
   await d.claim();
   assert.match(calls[0]!, /"awsAccounts":\["123456789012"\],/);
 });
+
+test('la etiqueta viaja dentro de lo que acepta el server: recortada y sin pasar de su tope; en blanco, el hostname (t#495, M3)', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  const labelOf = async (label: string): Promise<string> => {
+    fs.writeFileSync(configPath(), JSON.stringify({ ...cfg, label }), { mode: 0o600 });
+    const calls = capture();
+    await (await daemon()).claim();
+    return String((JSON.parse(calls[0]!.slice(calls[0]!.indexOf('{'))) as { runnerLabel: string }).runnerLabel);
+  };
+  const long = await labelOf('x'.repeat(150));
+  assert.equal(long.length, 100, 'una de más de 100 tumbaba cada claim con un 400');
+  assert.ok(long.endsWith('…'));
+  assert.equal(await labelOf('  fa  '), 'fa');
+  assert.equal(await labelOf('   '), os.hostname().slice(0, 100));
+});
