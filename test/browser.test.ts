@@ -44,15 +44,19 @@ const cookie = (domain: string, extra: Partial<StateCookie> = {}): StateCookie =
 const state = (cookies: StateCookie[], origins: string[] = []): StorageState => ({ cookies, origins: origins.map((origin) => ({ origin, localStorage: [{ name: 'k', value: 'v' }] })) });
 const patterns = (...raw: string[]) => raw.map(parseOriginPattern);
 
-// odysea falso: --version, login (escribe FAKE_ODYSEA_LOGIN_STATE en el state file) y probe (imprime FAKE_ODYSEA_PROBE_OUT).
+// odysea falso: --identify (o FAKE_ODYSEA_IDENTIFY_OUT tal cual, como un odysea viejo u otro programa), --version,
+// login (escribe FAKE_ODYSEA_LOGIN_STATE en el state file) y probe (imprime FAKE_ODYSEA_PROBE_OUT).
 const FAKE_ODYSEA = `#!/bin/sh
 case "$1" in
-  --version) echo "\${FAKE_ODYSEA_VERSION:-0.5.0}" ;;
+  --identify)
+    if [ -n "$FAKE_ODYSEA_IDENTIFY_OUT" ]; then echo "$FAKE_ODYSEA_IDENTIFY_OUT"; exit "\${FAKE_ODYSEA_IDENTIFY_EXIT:-0}"; fi
+    printf '{"name":"%s","tool":"odysea","protocol":%s,"version":"%s"}\\n' "\${FAKE_ODYSEA_NAME:-@miermontoto/odysea}" "\${FAKE_ODYSEA_PROTOCOL:-1}" "\${FAKE_ODYSEA_VERSION:-0.5.1}" ;;
+  --version) echo "\${FAKE_ODYSEA_VERSION:-0.5.1}" ;;
   login) [ -n "$FAKE_ODYSEA_LOGIN_STATE" ] && printf '%s' "$FAKE_ODYSEA_LOGIN_STATE" > "$3"; exit "\${FAKE_ODYSEA_LOGIN_EXIT:-0}" ;;
   probe) [ -n "$FAKE_ODYSEA_PROBE_SEEN" ] && cat "$3" > "$FAKE_ODYSEA_PROBE_SEEN"; echo "$FAKE_ODYSEA_PROBE_OUT"; exit "\${FAKE_ODYSEA_PROBE_EXIT:-0}" ;;
 esac
 `;
-const FAKE_ENV = ['FAKE_ODYSEA_VERSION', 'FAKE_ODYSEA_LOGIN_STATE', 'FAKE_ODYSEA_LOGIN_EXIT', 'FAKE_ODYSEA_PROBE_SEEN', 'FAKE_ODYSEA_PROBE_OUT', 'FAKE_ODYSEA_PROBE_EXIT'];
+const FAKE_ENV = ['FAKE_ODYSEA_VERSION', 'FAKE_ODYSEA_NAME', 'FAKE_ODYSEA_PROTOCOL', 'FAKE_ODYSEA_IDENTIFY_OUT', 'FAKE_ODYSEA_IDENTIFY_EXIT', 'FAKE_ODYSEA_LOGIN_STATE', 'FAKE_ODYSEA_LOGIN_EXIT', 'FAKE_ODYSEA_PROBE_SEEN', 'FAKE_ODYSEA_PROBE_OUT', 'FAKE_ODYSEA_PROBE_EXIT'];
 
 // salida de un comando de la cli (log + error) y su exit code.
 async function cli(t: { mock: { method: typeof import('node:test').mock.method } }, run: () => Promise<void> | void): Promise<{ out: string; code: number }> {
@@ -178,6 +182,30 @@ test('config: la entrada y providers se validan y sobreviven a una escritura v2'
   assert.throws(() => loadConfigV2(), /providers\.browser\.bin/);
 });
 
+test('odysea solo si es el nuestro: sin --identify, con otro nombre o con un protocolo viejo, no se usa (t#495, M7)', async () => {
+  const rejected = async (): Promise<string> => {
+    const d = await detectOdysea(undefined);
+    return d.ok ? '' : d.reason;
+  };
+  const notOurs = /no es @miermontoto\/odysea, o es anterior a 0\.5\.1/;
+  // odysea 0.5.0: no conoce el flag, su uso a stderr y exit de error.
+  process.env.FAKE_ODYSEA_IDENTIFY_OUT = 'usage: odysea --version';
+  process.env.FAKE_ODYSEA_IDENTIFY_EXIT = '1';
+  assert.match(await rejected(), notOurs);
+  // otro programa que se llama odysea y contesta cualquier cosa con exit 0.
+  process.env.FAKE_ODYSEA_IDENTIFY_EXIT = '0';
+  process.env.FAKE_ODYSEA_IDENTIFY_OUT = 'A fast and lightweight SolidJS component library';
+  assert.match(await rejected(), notOurs);
+  delete process.env.FAKE_ODYSEA_IDENTIFY_OUT;
+  process.env.FAKE_ODYSEA_NAME = 'odysea';
+  assert.match(await rejected(), notOurs);
+  delete process.env.FAKE_ODYSEA_NAME;
+  process.env.FAKE_ODYSEA_PROTOCOL = '0';
+  assert.match(await rejected(), /protocolo 0: este runner necesita 1 o posterior/);
+  delete process.env.FAKE_ODYSEA_PROTOCOL;
+  assert.equal((await detectOdysea(undefined)).ok, true);
+});
+
 test('odysea por su cli: el binario del PATH o el de la config, su versión y el json del probe', async () => {
   assert.equal(findOdysea(undefined), bin);
   assert.equal(findOdysea(bin), bin);
@@ -188,11 +216,12 @@ test('odysea por su cli: el binario del PATH o el de la config, su versión y el
   assert.equal(versionAtLeast('0.4.9', '0.5.0'), false);
   assert.equal(versionAtLeast('1.0.0\n', '0.5.0'), true);
   assert.equal(versionAtLeast('nope', '0.5.0'), false);
-  assert.deepEqual(await detectOdysea(undefined), { ok: true, info: { bin, version: '0.5.0' } });
-  process.env.FAKE_ODYSEA_VERSION = '0.4.0';
+  assert.deepEqual(await detectOdysea(undefined), { ok: true, info: { bin, version: '0.5.1' } });
+  process.env.FAKE_ODYSEA_VERSION = '0.5.0';
   const old = await detectOdysea(undefined);
   assert.equal(old.ok, false);
-  assert.match(old.ok ? '' : old.reason, /0\.5\.0 o posterior/);
+  assert.match(old.ok ? '' : old.reason, /0\.5\.1 o posterior/);
+  delete process.env.FAKE_ODYSEA_VERSION;
   assert.match((await detectOdysea(undefined, { PATH: dir })).ok ? '' : 'sin', /sin/);
   process.env.FAKE_ODYSEA_PROBE_OUT = JSON.stringify({ ok: true, status: 200, finalUrl: 'https://x.com/login?t=1', loggedOut: true, reason: 'redirected to login' });
   assert.equal((await odyseaProbe(bin, '/tmp/x.json', 'https://x.com')).loggedOut, true);

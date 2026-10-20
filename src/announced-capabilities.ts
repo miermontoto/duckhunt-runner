@@ -13,7 +13,7 @@ export interface MachineKit {
   supported: ReadonlySet<OptionalFlag>;
   // defaults.remoteRepoEdits de la config (false = el mapa de repos solo se cambia por la cli).
   remoteRepoEdits?: boolean;
-  // defaults.toolsetRender de la config (false = el interruptor del flip de toolset_v1: solo en sombra, como 0.13).
+  // defaults.toolsetRender de la config (false = el interruptor del flip de toolset_v1: solo en sombra, sin el flip).
   toolsetRender?: boolean;
   // odysea hallado en la máquina (t#495, M7): sabe poner una sesión de navegador en un run.
   browser?: boolean;

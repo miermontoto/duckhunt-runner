@@ -10,9 +10,11 @@ answers in the run's conversation in duckhunt, which reaches you as a push notif
 You can also start a run yourself: the *Agents* page in duckhunt is a chat with an agent running
 on this machine, in a checkout of one of your repos (see [Prompt runs](#prompt-runs)).
 
-From 0.13.0 the daemon can also take runs from other platforms that speak the same open protocol.
-duckhunt stays the built-in one, and nothing changes for it unless you add another (see
-[Platforms](#platforms-0130-or-later)).
+From 0.13.0 the daemon can also take runs from other platforms that speak the same open protocol
+(see [Platforms](#platforms-0130-or-later)), let a run browse with a session you saved (see
+[Browser sessions](#browser-sessions-0130-or-later)) and run an agent with no server at all (see
+[Local runs](#local-runs-runner-run-0130-or-later)). duckhunt stays the built-in platform. **Read
+[Upgrading to 0.13.0](#upgrading-to-0130) first**: runs without an AWS account change.
 
 The server never sees your credentials, your filesystem paths or your git tokens. It only ever
 learns a repo's `workspace/slug` key and, optionally, an AWS account id — never where they live on
@@ -28,6 +30,29 @@ disk. With the progress feed on, it also receives what the agent says and one li
 
 > `ANTHROPIC_API_KEY` in your environment silently shadows your Claude subscription login. If it is
 > set and you did not mean to bill the API, unset it for the daemon's environment.
+
+## Upgrading to 0.13.0
+
+From 0.13.0 the daemon builds each run's Claude tool lists itself, from the permissions duckhunt sends
+in a platform-neutral form, instead of taking duckhunt's lists as they come (see
+[Tool lists](#tool-lists-built-by-the-daemon-0130-or-later)). For almost every run the result is the
+same. The exception is AWS:
+
+- **A run without an AWS account no longer inherits this machine's AWS.** Before, a run whose entry
+  had no AWS account (or only a region) used your environment's default profile: read-only patterns in
+  a `read` run, the whole AWS CLI through the shell in an `edit` one. Now it gets an empty AWS config.
+- **To keep the old behaviour**, map your default identity: `duckhunt-runner resource add aws default
+  <profile> [region]`. The daemon then tells duckhunt it exposes `default`, and duckhunt grants it to
+  runs without an account: read-only in `read` runs, the whole AWS CLI in `edit` runs.
+- Runs whose account you mapped with `aws add` behave as before, and so does an account you did not
+  map (empty AWS, with a note in the feed).
+- The daemon warns once when it starts if this machine has AWS configured (the AWS CLI, AWS variables
+  or `~/.aws`) and `default` is not exposed to duckhunt.
+- **To go back entirely**, set `"defaults": { "toolsetRender": false }` in the config file: the daemon
+  launches with duckhunt's lists again, only compares them with its own, announces neither
+  `toolset_render` nor `default`, and does not warn. Browser sessions need the switch on.
+
+A run from a duckhunt that does not send the neutral form yet launches exactly as in 0.12.0.
 
 ## Setup
 
@@ -48,28 +73,31 @@ recommends). That is the whole thing. Step by step:
 | `repos list\|add\|remove` | Manage that map by hand: `repos add <workspace/slug> <path>`. `list` and `add` show each repo's health warnings (see below). |
 | `aws add <accountId> <profile> [region]` | Optional. Binds an AWS account id to a profile of your local AWS CLI, so the agent can read metrics, logs and resource state for that account. |
 | `aws list\|remove` | Manage the AWS map. |
-| `resource list\|add\|remove\|check [repo\|aws]` | The same maps by resource type (0.13.0 or later): `repos` and `aws` are its `repo` and `aws` types, with the same output and exit codes (`resource discover repo` is `repos discover`). `resource add aws default <profile> [region]` maps the machine's default AWS identity (see [AWS accounts](#aws-accounts-0110-or-later)). `resource check` prints the repo warnings and exits 1 if one blocks runs. |
+| `resource list\|add\|remove\|check [repo\|aws\|browser]` | The same maps by resource type (0.13.0 or later): `repos`, `aws` and `browser` are its `repo`, `aws` and `browser` types, with the same output and exit codes (`resource discover repo` is `repos discover`). `resource add aws default <profile> [region]` maps the machine's default AWS identity (see [AWS accounts](#aws-accounts-0110-or-later)). `resource check` prints the repo and browser warnings and exits 1 if one blocks runs. |
+| `browser login\|list\|check\|remove` | Browser sessions saved on this machine (0.13.0 or later; see [Browser sessions](#browser-sessions-0130-or-later)). |
 | `status [--platforms]` | Reports whether a daemon is running, this machine's kit (Claude version, which credential it will use, AWS profiles and mapped repos) and what duckhunt last said about this machine (see [Machines](#machines-and-credentials)). Run this first when something does not work. `--platforms` shows each platform instead (see [Platforms](#platforms-0130-or-later)). |
 | `logout [id]` | Unpairs this machine from duckhunt and deletes its credential from the config file (0.11.0 or later; see [Machines](#machines-and-credentials)). With an id, does the same for another platform. |
 | `login <url> --as [id]`, `platforms …`, `audit …` | Add and manage other platforms, and read what each one ran here (0.13.0 or later; see [Platforms](#platforms-0130-or-later)). |
 | `start [--verbose]` | Starts the claim loop. |
+| `run [flags] "<prompt>"` | Runs an agent on this machine with no server (0.13.0 or later; see [Local runs](#local-runs-runner-run-0130-or-later)). `run` with no prompt still starts the daemon, with a deprecation warning. |
 
 Configuration lives in `~/.duckhunt-runner.json`. It holds the base URL, the OAuth credential, this
-machine's id, the repo and AWS maps, and optional defaults (`model`, `maxBudgetUsd`, `maxConcurrent`, `auditRetentionDays`). Set `DUCKHUNT_RUNNER_CONFIG` to use
+machine's id, the repo and AWS maps, and optional defaults (`model`, `maxBudgetUsd`, `maxConcurrent`, `auditRetentionDays`, `toolsetRender`). Set `DUCKHUNT_RUNNER_CONFIG` to use
 another file (a second account, a test instance) and `DUCKHUNT_RUNNER_HOME` to move the state
 directory (`~/.duckhunt-runner`: the scratch directory, `--verbose` logs, the daemon lock, the
 per-run MCP configs and `server-state.json`, what duckhunt last said about this machine; from 0.13.0
-also `audit/` and `platforms/<id>/` for other platforms). `--version` prints the daemon version.
+also `audit/`, `platforms/<id>/` for other platforms, `browser-vault/` for saved browser sessions and
+`sockets/` for `runner run`). `--version` prints the daemon version.
 
 From 0.13.0 the same file can also hold `platforms` (other platforms and your settings for each, see
-[Platforms](#platforms-0130-or-later)), `resources` (resource types other than repos and AWS; none
-yet) and `version: 2`. These keys only appear once you use something that needs them, so a file
+[Platforms](#platforms-0130-or-later)), `resources` (resource types other than repos and AWS: today
+`browser`), `providers` (where to find odysea and the vault) and `version: 2`. These keys only appear once you use something that needs them, so a file
 without them is exactly what 0.12.0 wrote, and the duckhunt credential and the repo and AWS maps stay
 in their usual keys either way. An older daemon on the same file keeps working and leaves the new keys
 alone (daemons before 0.10.1 rewrite the whole file and drop them). A file with a `version` this daemon
 does not know is refused rather than half-read.
 
-The daemon does not need a restart after `login`, `repos`, `aws`, `resource`, `platforms` or a hand edit of the file: it
+The daemon does not need a restart after `login`, `repos`, `aws`, `resource`, `browser`, `platforms` or a hand edit of the file: it
 rereads the config every few seconds, even while all its slots are busy. Each command, and the
 daemon itself when it rotates its token, rewrites only its own keys and replaces the file in one
 step, so nothing undoes another's change. If the file does not parse (a hand edit in progress), the
@@ -249,12 +277,13 @@ may belong to another account: the AWS CLI runs with empty config and credential
 call fails, and the run's feed says which account to map. duckhunt already omits the AWS read
 patterns for an investigation whose account this machine does not announce; this is the second line.
 
-A run without an account keeps your environment's AWS setup, as before. From 0.13.0 you can also map
-the machine's default identity under the key `default`
-(`resource add aws default <profile> [region]`; `aws add` still takes only account ids). Nothing
-creates it for you, and duckhunt never sees it: only account ids are announced. It is there for
-platforms that ask for AWS by key (see [Platforms](#platforms-0130-or-later)), whose runs get no AWS at
-all unless they are granted a key you exposed to them.
+From 0.13.0 a run without an account gets an empty AWS config too, unless you map the machine's
+default identity under the key `default` (`resource add aws default <profile> [region]`; `aws add`
+still takes only account ids). Nothing creates it for you. When it is exposed to duckhunt (it is by
+default, like every AWS key), the daemon announces that it has one, never its profile, and duckhunt
+grants it to runs without an account (see [Upgrading to 0.13.0](#upgrading-to-0130)). Other platforms
+ask for AWS by key (see [Platforms](#platforms-0130-or-later)), and their runs get no AWS at all
+unless they are granted a key you exposed to them.
 
 ## Prompt runs
 
@@ -341,7 +370,9 @@ of the listed ones that is a symlink (dotfiles). A path that a Claude permission
 (commas, brackets, wildcards) is skipped with a warning at startup. From 0.13.0 that includes the
 audit directory (from the first start after it exists), and every run is also denied the state of the
 other platforms: their logs, run configs, `server-state.json`, audit and scratch directory,
-including a platform added while the daemon runs (from its next step).
+including a platform added while the daemon runs (from its next step). Once a browser session is
+configured, every run, `edit` included, is also denied the browser vault (see
+[Browser sessions](#browser-sessions-0130-or-later)).
 
 Checked with Claude Code 2.1.296: `Read`, `Grep` and `Glob` honour these deny rules, through symlinks
 and in recursive searches. The read-only shell approves nothing outside its working directory, and
@@ -449,7 +480,9 @@ URL, `password=`/`token=`-style assignments, `Bearer` headers, private keys) is 
 leaves the machine, also in the final result, error and stderr; the server masks it again. Set *progress feed* to *counter only* in Settings → Agents to send just the
 tool-call count. From 0.13.0, what the agent types or evaluates in a tool that is not the platform's
 own (the `value` of a form fill, a script it runs in a page) shows only its length, and a URL shows
-only its origin and path, never its query or fragment.
+only its origin and path, never its query or fragment. Browser tools get a summary of their own: the
+selector of a `fill` or `select_option`, `js ‹length›` for an `evaluate`, the action of a dialog and
+the key pressed.
 
 The daemon also strips variables of the Claude Code session it may have been started from
 (`CLAUDECODE`, `CLAUDE_CODE_SESSION_ID`…), empty `ANTHROPIC_*` values and a dead `SSH_AUTH_SOCK` from
@@ -490,13 +523,16 @@ running daemon picks it up within a few seconds.
 | --- | --- |
 | `platforms list` | Every platform with its protocol, server, whether it is trusted, paused, its slots and what it can see. Never contacts a server. |
 | `platforms pause\|resume <id>` | Stop or resume claiming; runs in progress finish. |
-| `platforms expose\|unexpose <id> <type> <key\|*>` | What it can see of this machine: `repo` keys and `aws` keys you mapped, or `*` for all of a type, including those you map later. |
+| `platforms expose\|unexpose <id> <type> <key\|*>` | What it can see of this machine: `repo`, `aws` and `browser` keys you mapped, or `*` for all of a type, including those you map later. |
 | `platforms trust\|untrust <id>` | Whether it may get a full shell (see below). `untrust` lowers a full-shell ceiling to the read-only shell. |
 | `platforms remove <id>` | Unpairs it on its server and deletes its entry. Its directories stay, since they may hold work, and the command prints where. |
 | `logout <id>` | Unpairs it and deletes only its credential. |
 
-duckhunt can be paused and its exposure edited (by default it sees every repo and AWS account, as
-before), but not removed or untrusted: `logout` unpairs it.
+duckhunt can be paused and its exposure edited (by default it sees every repo and AWS key, as
+before, but no browser session until you run `platforms expose duckhunt browser <key>`), but not
+removed or untrusted: `logout` unpairs it. `local` is the platform behind `runner run` (see
+[Local runs](#local-runs-runner-run-0130-or-later)): it exists without an entry, is trusted, has the
+whole ceiling and sees nothing until you expose it.
 
 ### What a platform may do
 
@@ -570,13 +606,141 @@ A month's file is deleted once that month ended more than `defaults.auditRetenti
 and each platform keeps at most 50 MB, oldest months first, never the current one.
 `audit [--platform <id>] [--since 7d|<date>] [--json]` prints it (the last 7 days by default).
 
-### Comparing policies with duckhunt
+### Tool lists built by the daemon (0.13.0 or later)
 
-0.13.0 announces `toolset_v1`. duckhunt then sends each run's permissions in the platform-neutral form
-as well, and the daemon builds its own tool lists from them and reports in each step's status
-whether they match duckhunt's. Runs still launch with duckhunt's lists: nothing changes in what an
-agent can do. The one expected difference is a `read` run without an announced AWS account, which
-today gets the AWS read patterns with your default identity and in the new form gets none.
+0.13.0 announces `toolset_v1` and `toolset_render`. duckhunt then sends each run's permissions in the
+platform-neutral form next to its usual tool lists, and the daemon launches the run with the lists it
+builds itself, capped by duckhunt's ceiling. The run's resources (its repo, its AWS key, a browser
+session) come from the grants in that form, so a key you did not expose to duckhunt is refused rather
+than used. Worktree paths do not change.
+
+The daemon still compares its lists with duckhunt's and reports in each step's status whether they
+match; duckhunt logs only a difference the daemon cannot explain. With
+`"defaults": { "toolsetRender": false }` it launches with duckhunt's lists again and only compares
+(see [Upgrading to 0.13.0](#upgrading-to-0130)).
+
+## Browser sessions (0.13.0 or later)
+
+A run can browse with a session you logged into yourself, such as your Jira or an admin console, without
+the agent ever seeing your password. The browser is [odysea](https://github.com/miermontoto/odysea), an
+MCP server installed separately (0.5.1 or later): the daemon finds it on `PATH` or at
+`providers.browser.bin`, and launches it as its own process for each run. It never loads a browser
+itself.
+
+On npm it is `@miermontoto/odysea` (the unscoped `odysea` package is an unrelated project). Set
+`providers.browser.bin` to the installed binary's absolute path, so the daemon never depends on what
+`PATH` resolves:
+
+```sh
+npm i -g @miermontoto/odysea
+```
+
+Before using a binary, the daemon asks it for its identity (`odysea --identify`) and only accepts
+`@miermontoto/odysea` 0.5.1 or later; anything else counts as odysea missing. That keeps an unrelated
+program called `odysea` from being handed a copy of your session by accident. It is not protection
+against a binary made to impersonate it: whatever is on your `PATH` already runs as you.
+
+```sh
+duckhunt-runner browser login jira https://acme.atlassian.net --origin https://acme.atlassian.net --origin https://id.atlassian.com
+duckhunt-runner platforms expose duckhunt browser jira
+```
+
+| Command | What it does |
+| --- | --- |
+| `browser login <key> <url> [--origin <pattern> …] [--session <name>] [--exclusive] [--probe-url <url> [--login-pattern <regex>]]` | Opens a visible odysea window on `<url>` so you log in, then saves the session in the vault (`~/.duckhunt-runner/browser-vault/`, or `providers.browser.vaultDir`; `0700`). The entry is only saved if odysea saved a session. Without `--origin` it keeps the previous origins or, for a new key, uses the URL's origin. |
+| `browser list` | Each session with its origins and health. |
+| `browser check [key]` | Health, running each session's probe now (see below). Exits 1 if one is unusable. |
+| `browser remove <key> [--purge]` | Removes the entry. `--purge` also deletes the saved session, unless another key uses it. |
+
+**Origins** (`scheme://host[:port]`, `*.` for any subdomain, never a wildcard on fewer than two
+labels) are the only part of the session a run gets: list the sign-in host too when the site logs you
+in through another domain, or the session will look expired. **`--exclusive`** makes runs take turns on
+the session and write back what they change (a site that rotates its token keeps working).
+**`--probe-url`** is a page that tells whether you are still logged in (a redirect matching
+`--login-pattern`, or a 401/403). The daemon checks each session every 10 minutes from the saved file
+alone, and runs its probe at most once a day, since that opens a browser.
+
+No platform sees a session until you expose it (`platforms expose <id> browser <key>`). duckhunt then
+offers it in the composer, next to the model, where you choose what the run may do, and shows each
+machine's sessions with their health under Settings → Agents → Machines. It only sends a run with a
+session to a machine that has odysea and builds the tool lists itself (see
+[Tool lists](#tool-lists-built-by-the-daemon-0130-or-later)).
+
+| Access | Browser tools |
+| --- | --- |
+| `read` | `navigate`, `reload`, `back`, `tabs`, `resize`, `scroll`, `hover`, `wait_for`, `screenshot`, `dom_snapshot`, `dom_query`, `console_messages`, `network_requests` |
+| `interact` | also `click`, `fill`, `press_key`, `select_option`, `handle_dialog` |
+| `full` | also `evaluate` and `network_details` (request headers, cookies included) |
+
+The `session` tool is never allowed. duckhunt gives a `read` conversation `read` (or `interact`, if you
+turn that on in Settings → Agents, which asks you to confirm your identity) and never `full`.
+
+**What a run gets.** Its own MCP server, `res_browser_<key>`, with a copy of the session filtered by
+the daemon to the session's origins: cookies of those hosts (and parent-domain cookies they need),
+their local storage and IndexedDB, no expired cookies. The copy lives in the run's private config
+directory and is deleted when the step ends. An exclusive session writes back only what changed on
+its origins, never anything the run collected from other sites, and never when the run was aborted
+before it started. A session that is missing, unreadable, expired or logged out fails the run before
+it launches, with the reason and no paths. A key this machine does not map, or a machine without
+odysea, runs without a browser and says so in the feed. A run waiting for an exclusive session says
+so too.
+
+**Limits.**
+
+- odysea's navigation allowlist covers the pages a run opens, not the requests a page makes, so
+  cookies from other sites can land in a run's copy. They are never written back.
+- Every run's `Read` deny covers the vault, but `Read` denies do not bind `Bash`: an `edit` run's
+  shell can read every saved session. Only give a full shell to platforms you trust.
+- A session's cookies are as good as your login while they last. Expose a session only to the
+  platforms you would hand that login to, and pick the lowest access that does the job.
+
+## Local runs: `runner run` (0.13.0 or later)
+
+`run` starts an agent on this machine with no server: you are the platform (`local`), and the answer
+goes to stdout, so `$(duckhunt-runner run …)` captures it while the feed goes to stderr.
+
+```sh
+duckhunt-runner platforms expose local repo acme/api
+duckhunt-runner run --repo acme/api "why does the nightly import fail?"
+```
+
+| Flag | Effect |
+| --- | --- |
+| `--repo <ws/slug> [--branch <branch>]` | Works in a worktree of that mapped repo. |
+| `--profile read\|edit` | `read` (default): read-only shell, no edits, memory and web. `edit`: full shell and edits. |
+| `--push` | Allows `git push`. |
+| `--grant <type:key[:access]>` | Adds a resource, such as `--grant browser:jira:interact` or `--grant aws:123456789012`. `read` by default. |
+| `--model <model>` | The model for the run. |
+| `--yes` | Accepts the escalation without asking. |
+| `--json` | NDJSON on stdout of the conversation's messages instead (claim, event, question, result). Never prompts. |
+| `--wait <duration>` | Gives up if no slot frees within it (`30s`, `5m`, `1h`). Without it, waits. |
+| `--resume <conversation> "<answer>"` | Answers a question and continues. Policy flags do not apply to a resume. |
+
+It goes through the same checks as any platform: a key you did not expose to `local`, or a request
+its ceiling would cut, is refused before launch and names the fix. Anything above `read` (full shell,
+edits, push, an `interact` or `full` grant) is listed and asked on the terminal; without a terminal it
+needs `--yes` **and** `"unattendedEscalation": true` under `platforms.local`, so a cron line cannot
+quietly run an edit.
+
+The agent answers with a `reply` tool and asks with `ask_user`, served by a small MCP server on
+`127.0.0.1` for that run only. On a terminal you answer inline; otherwise `run` prints the question and
+exits 3, and `--resume` continues the conversation.
+
+| Exit | Meaning |
+| --- | --- |
+| 0 | done |
+| 1 | failed |
+| 2 | the agent replied with a blocker |
+| 3 | waiting for your answer |
+| 64 | usage error |
+| 75 | no free slot within `--wait`, or the daemon lock is held by something `run` cannot talk to |
+| 77 | refused by the ceiling, the exposure or consent |
+| 130 / 143 | interrupted (`ctrl-c` cancels the run within one heartbeat; a second one exits at once) |
+
+With the daemon running, `run` hands the run to it over `~/.duckhunt-runner/sockets/local.sock`
+(`0600`), so local runs share its slots, its git locks and its audit. Without one, `run` holds the daemon
+lock while it works and `start` refuses to start meanwhile. Conversations live in
+`~/.duckhunt-runner/platforms/local/`, so one can be resumed from either.
 
 ## Licence
 
