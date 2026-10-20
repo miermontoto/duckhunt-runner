@@ -1,0 +1,14 @@
+{
+  "version": "0.1.0",
+  "contentHash": "7a884d43fde76a2bf351c00031456bf259907fb9b122bd2f46fc27cbe69dd8bb",
+  "commit": "ef8bd5e48d2123d37fea2e4caf8b5f0ef088bc92",
+  "files": {
+    "index.ts": "96f1b2b8842ca39b11564338a3adee0811fed2cde988647455024b63d89a701a",
+    "aws.ts": "a5ab53967e2c463f646a3a21ab7bfe82ff8aa5dcd40db2a8f22ab8948c806243",
+    "capabilities.ts": "9d644affb3d29e6ff97195b24300aeef5d8765985d711ebb82b3fbe47a46d683",
+    "claim.ts": "e30b8f5fe2681ef0257fa43b0049c1876b69c01c835fb69fb26e8df0f6c603bc",
+    "errors.ts": "21caba41f35cc92a03fd8eaafec98c899aa99ee7af524bdfd7ad83c2a6794bf3",
+    "events.ts": "186f66ba51b0dbc2afcdd2e12ac5503b73d8ac429e83fcaa08553dabd5cda341",
+    "limits.ts": "ef843058f025cd197dbc6913359c67b3a4e2931f646031358ca42919fe67470b"
+  }
+}
