@@ -76,7 +76,11 @@
 // - plataformas (t#495, M6): todo lo que el daemon le dice a duckhunt pasa por el seam de plataforma
 //   (platforms/platform.ts): el cable legacy y su credencial viven en platforms/duckhunt42.ts y
 //   platforms/http-transport.ts, con los mismos cuerpos y respuestas (test/wire-legacy.test.ts,
-//   test/wire-responses.test.ts).
+//   test/wire-responses.test.ts). cada plataforma tiene su supervisor (platforms/supervisor.ts) con su
+//   propio poll, sus runs y su server-state; los slots de la máquina se reparten con el scheduler
+//   (platforms/scheduler.ts: pool global + cuota por plataforma, reservar antes de reclamar). una credencial
+//   muerta para SOLO esa plataforma; el daemon sale con EXIT_CODE_UNPAIRED cuando no queda ninguna usable.
+//   con una sola plataforma con todo el pool es el loop de siempre.
 
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
@@ -96,14 +100,7 @@ import {
 } from './config.js';
 import { ensureMachineId } from './machine.js';
 import { secretPathsDeny } from './secret-paths.js';
-import {
-  CLAIM_OUTCOME,
-  serverStateChanged,
-  writeServerState,
-  type KeptWorktree,
-  type RunnerBlock,
-  type ServerState,
-} from './server-state.js';
+import { CLAIM_OUTCOME } from './server-state.js';
 import { consumeStreamLine, detectClaude, newStreamState, type ClaudeInfo } from './claude.js';
 import { buildClaudeArgs } from './claude-args.js';
 import { announcedCapabilities } from './announced-capabilities.js';
@@ -130,8 +127,10 @@ import { RunLease, signalGroup } from './run-lease.js';
 import { compareRunIds } from './run-id.js';
 import { allRunConfigDirs, LEGACY_PLATFORM_ID, logsDir, scratchDir } from './paths.js';
 import { runnerVersion } from './version.js';
-import { CLAIM_RESULT, PlatformRejectedError, PROTOCOL, type ClaimAnnounce, type ClaimResult, type Platform, type PlatformFactories, type RunSegment } from './platforms/platform.js';
+import { PlatformRejectedError, PROTOCOL, type ClaimAnnounce, type Platform, type PlatformFactories, type RunSegment } from './platforms/platform.js';
 import { PLATFORM_FACTORIES } from './platforms/duckhunt42.js';
+import { Scheduler } from './platforms/scheduler.js';
+import { PLATFORM_STATE, PlatformSupervisor, type SupervisorHooks } from './platforms/supervisor.js';
 
 const execFileP = promisify(execFile);
 
@@ -171,15 +170,14 @@ export interface DaemonOptions {
 }
 
 export class RunnerDaemon {
-  // plataforma de este daemon (paths.ts): la legacy, con las rutas de siempre, hasta que haya varias (M6).
-  private readonly platformId = LEGACY_PLATFORM_ID;
-  // su cable y su credencial viva (platforms/).
-  private readonly platform: Platform;
+  // una por plataforma (platforms/supervisor.ts): hoy la legacy, con las rutas de siempre (paths.ts).
+  private readonly supervisors = new Map<string, PlatformSupervisor>();
+  // los slots de la máquina, repartidos entre plataformas.
+  private readonly scheduler = new Scheduler(() => this.slots);
+  // el poll de cada supervisor (la parada los espera).
+  private readonly polls: Promise<void>[] = [];
   private claude: ClaudeInfo = { version: null, supported: new Set() };
   private hasAws = false;
-  // runs en vuelo, uno por slot ocupado. por objeto y no por id: la misma fila re-encolada puede
-  // reclamarse mientras el segmento anterior aún cierra.
-  private readonly leases = new Set<RunLease>();
   // mapas, etiqueta y defaults: los recarga reloadConfig en cada vuelta del loop.
   private cfg: LocalConfig;
   // texto del fichero en la última recarga (undefined = aún sin leer).
@@ -192,8 +190,8 @@ export class RunnerDaemon {
   private readonly registry = new ProviderRegistry([repoProvider, awsProvider]);
   private stopping = false;
   private exitCode = 0;
+  // espera del loop principal (la parada y el cierre de los runs en vuelo).
   private wake: (() => void) | null = null;
-  private lastGcAt = 0;
   // última foto de la salud de los repos (lo que anuncia el claim; null = aún sin chequeo que haya
   // terminado: el claim no la manda, nunca un [] que el server leería como "todo sano") y su huella.
   private repoHealth: RepoIssue[] | null = null;
@@ -209,10 +207,12 @@ export class RunnerDaemon {
   private runConfigDeny: string[] = [];
   // Read negado de las rutas reales de las credenciales de la máquina: todo kit de lectura (al arrancar).
   private secretDeny: string[] = [];
-  // conversaciones que el último gc conservó por guardar trabajo (null = aún no recogió: no se anuncia).
-  private keptWorktrees: KeptWorktree[] | null = null;
-  // lo último escrito en server-state.json.
-  private serverState: ServerState | null = null;
+  // lo que cada supervisor necesita del daemon.
+  private readonly hooks: SupervisorHooks = {
+    announce: (sup) => this.announce(sup),
+    rejected: (sup, err) => this.platformRejected(sup, err),
+    commandsPending: (sup) => void this.syncRepoCommands(sup),
+  };
 
   constructor(
     cfg: RunnerConfig,
@@ -220,13 +220,39 @@ export class RunnerDaemon {
   ) {
     const { credential, local } = splitConfig(cfg);
     this.cfg = local;
-    this.platform = (opts.factories ?? PLATFORM_FACTORIES)[PROTOCOL.duckhunt42]!(this.platformId, credential);
+    this.addSupervisor((opts.factories ?? PLATFORM_FACTORIES)[PROTOCOL.duckhunt42]!(LEGACY_PLATFORM_ID, credential));
+  }
+
+  // la plataforma legacy: siempre está (su credencial vive en las claves de siempre de la config).
+  private get legacy(): PlatformSupervisor {
+    return this.supervisors.get(LEGACY_PLATFORM_ID)!;
+  }
+
+  // runs en vuelo de todas las plataformas.
+  private get leases(): RunLease[] {
+    return [...this.supervisors.values()].flatMap((sup) => [...sup.leases]);
+  }
+
+  // un supervisor nuevo; con el daemon ya en marcha, arranca su poll.
+  private addSupervisor(platform: Platform): PlatformSupervisor {
+    const sup = new PlatformSupervisor(platform.id, platform, PLATFORM_STATE.active, this.hooks);
+    this.supervisors.set(sup.id, sup);
+    if (this.running) this.polls.push(this.poll(sup));
+    return sup;
   }
 
   // slots del daemon: defaults.maxConcurrent de la config recargada.
   private get slots(): number {
     return concurrency(this.cfg.defaults);
   }
+
+  // cuota de una plataforma: hoy todo el pool.
+  private quota(_sup: PlatformSupervisor): number {
+    return this.slots;
+  }
+
+  // el loop principal ya arrancó (los supervisores nuevos arrancan su poll al crearse).
+  private running = false;
 
   private label(): string {
     return this.cfg.label ?? os.hostname();
@@ -252,7 +278,7 @@ export class RunnerDaemon {
     // lanza si la ruta no cabe en una regla de permisos: sin ese deny el daemon no arranca. cubre el
     // run-config de cada plataforma con estado en disco (hoy solo el de la legacy).
     this.runConfigDeny = allRunConfigDirs().flatMap(runConfigDeny);
-    const stale = clearRunMcpConfigs(this.platformId) + this.registry.sweep(this.platformId);
+    const stale = clearRunMcpConfigs(LEGACY_PLATFORM_ID) + this.registry.sweep(LEGACY_PLATFORM_ID);
     if (stale > 0) console.log(`[runner] ${stale} config(s) de runs anteriores borrada(s)`);
     const legacy = clearLegacyTmpConfigs();
     if (legacy > 0) console.log(`[runner] ${legacy} mcp-config(s) de daemons < 0.10.2 borrado(s) del tmpdir`);
@@ -262,27 +288,47 @@ export class RunnerDaemon {
     this.adoptMachineId();
     this.installSignalHandlers();
     console.log(
-      `[runner] duckhunt-runner ${runnerVersion() ?? '?'} · ${this.label()} → ${this.platform.identity().baseUrl} (claude ${this.claude.version}, aws cli ${this.hasAws ? 'sí' : 'no'}, ${Object.keys(this.cfg.repos).length} repos, ${Object.keys(this.cfg.aws).length} cuentas aws, capacidades ${this.capabilities().join(',')}, ${this.slots} slot${this.slots === 1 ? '' : 's'}, poll ${CLAIM_POLL_MS / 1000}s)`,
+      `[runner] duckhunt-runner ${runnerVersion() ?? '?'} · ${this.label()} → ${this.legacy.platform.identity().baseUrl} (claude ${this.claude.version}, aws cli ${this.hasAws ? 'sí' : 'no'}, ${Object.keys(this.cfg.repos).length} repos, ${Object.keys(this.cfg.aws).length} cuentas aws, capacidades ${this.capabilities().join(',')}, ${this.slots} slot${this.slots === 1 ? '' : 's'}, poll ${CLAIM_POLL_MS / 1000}s)`,
     );
     await this.refreshRepoHealth();
-    while (!this.stopping) {
+    this.running = true;
+    this.supervisors.forEach((sup) => this.polls.push(this.poll(sup)));
+    while (!this.stopping) await this.idle(CLAIM_POLL_MS);
+    await Promise.all(this.polls);
+    // parada: cada run en vuelo recibió kill('shutdown'); se espera a que reporte su cierre.
+    while (this.leases.length > 0) await this.idle(CLAIM_POLL_MS);
+    console.log('[runner] detenido');
+    return this.exitCode;
+  }
+
+  // poll de una plataforma: recargar la config → reservar un slot → gc → claim → ejecutar → repetir, hasta la
+  // parada (o hasta que el supervisor deje de ser el de su id).
+  private async poll(sup: PlatformSupervisor): Promise<void> {
+    while (!this.stopping && this.supervisors.get(sup.id) === sup) {
       // también con los slots llenos: un maxConcurrent más alto vale sin esperar a que acabe un run.
       await this.reloadConfig();
       void this.refreshRepoHealth();
-      // slots llenos: el cierre de un run despierta el loop (o el siguiente poll).
-      if (this.leases.size >= this.slots) {
-        await this.idle(CLAIM_POLL_MS);
-        continue;
-      }
-      await this.collectWorktrees();
-      const claim = this.stopping ? null : await this.claim();
-      if (claim) this.start(claim);
-      else if (!this.stopping) await this.idle(CLAIM_POLL_MS);
+      if (!(await this.pollOnce(sup)) && !this.stopping) await sup.idle(CLAIM_POLL_MS);
     }
-    // parada: cada run en vuelo recibió kill('shutdown'); se espera a que reporte su cierre.
-    while (this.leases.size > 0) await this.idle(CLAIM_POLL_MS);
-    console.log('[runner] detenido');
-    return this.exitCode;
+  }
+
+  // una vuelta del poll: con un slot reservado (pool y cuota), gc y claim. true = reclamó un run: la siguiente
+  // vuelta va en el acto. sin slot, espera a que se libere uno (o al siguiente poll).
+  private async pollOnce(sup: PlatformSupervisor): Promise<boolean> {
+    sup.blocked = false;
+    if (!sup.claiming) return false;
+    if (!this.scheduler.tryReserve(sup.id, this.quota(sup))) {
+      sup.blocked = true;
+      return false;
+    }
+    await this.collectWorktrees(sup);
+    const claim = this.stopping ? null : await sup.claim();
+    if (!claim) {
+      this.scheduler.release(sup.id);
+      return false;
+    }
+    this.start(sup, claim);
+    return true;
   }
 
   // el machine id de la config o uno nuevo que se guarda (config de 0.10). una config que no se puede
@@ -296,28 +342,35 @@ export class RunnerDaemon {
     }
   }
 
-  // la credencial ya no vale: se para (sin reintentar), se cortan los runs (duckhunt ya los canceló al
-  // desvincular; sin credencial no pueden ni latir) y se sale con EXIT_CODE_UNPAIRED.
-  private stopUnpaired(err: PlatformRejectedError): void {
-    if (this.stopping) return;
-    console.error(`[runner] ${err.message}. el daemon se detiene`);
-    this.recordServerState(CLAIM_OUTCOME.unpaired, null);
-    this.stopping = true;
-    this.exitCode = EXIT_CODE_UNPAIRED;
-    this.leases.forEach((lease) => lease.kill('cancel'));
+  // la credencial de una plataforma ya no vale: esa plataforma para (sin reintentar) y se cortan sus runs (el
+  // server ya los canceló al desvincular; sin credencial no pueden ni latir). si era la última usable, el daemon
+  // se detiene y sale con EXIT_CODE_UNPAIRED.
+  private platformRejected(sup: PlatformSupervisor, err: PlatformRejectedError): void {
+    if (this.stopping || sup.state === PLATFORM_STATE.unpaired) return;
+    const last = ![...this.supervisors.values()].some((other) => other !== sup && other.usable);
+    console.error(`[runner] ${err.message}. ${last ? 'el daemon se detiene' : `la plataforma ${sup.id} deja de reclamar`}`);
+    sup.state = PLATFORM_STATE.unpaired;
+    sup.recordServerState(CLAIM_OUTCOME.unpaired, null);
+    if (last) {
+      this.stopping = true;
+      this.exitCode = EXIT_CODE_UNPAIRED;
+    }
+    sup.leases.forEach((lease) => lease.kill('cancel'));
+    if (last) this.wakeAll();
+    else sup.wake();
+  }
+
+  // despierta todos los polls y el loop principal (parada).
+  private wakeAll(): void {
+    this.supervisors.forEach((sup) => sup.wake());
     this.wake?.();
   }
 
-  // guarda lo que el server acaba de decir de esta máquina para `status` (solo si cambió o envejeció).
-  private recordServerState(state: string | null, runner: RunnerBlock | null): void {
-    const next: ServerState = { at: Date.now(), ...this.platform.identity(), state, runner, kept: this.keptWorktrees };
-    if (!serverStateChanged(this.serverState, next)) return;
-    try {
-      writeServerState(next, this.platformId);
-      this.serverState = next;
-    } catch (err) {
-      console.error(`[runner] no se pudo guardar el estado del server: ${(err as Error).message}`);
-    }
+  // un slot libre: lo prueba en el acto su plataforma y cualquiera que esperara slot (y la parada, si espera).
+  private slotFreed(sup: PlatformSupervisor): void {
+    sup.wake();
+    this.supervisors.forEach((other) => other.blocked && other.wake());
+    this.wake?.();
   }
 
   // espera interrumpible por una señal de parada.
@@ -346,9 +399,10 @@ export class RunnerDaemon {
       if (this.stopping) forceExit();
       this.stopping = true;
       this.exitCode = code;
-      console.log(`[runner] ${signal}: deteniendo${this.leases.size > 0 ? ` ${this.leases.size} run(s) en curso` : ''} (otra señal fuerza la salida)`);
-      this.leases.forEach((lease) => lease.kill('shutdown'));
-      this.wake?.();
+      const leases = this.leases;
+      console.log(`[runner] ${signal}: deteniendo${leases.length > 0 ? ` ${leases.length} run(s) en curso` : ''} (otra señal fuerza la salida)`);
+      leases.forEach((lease) => lease.kill('shutdown'));
+      this.wakeAll();
       setTimeout(forceExit, SHUTDOWN_GRACE_MS).unref();
     };
     process.on('SIGINT', () => onSignal('SIGINT', EXIT_CODE_SIGINT));
@@ -357,13 +411,14 @@ export class RunnerDaemon {
 
   // --- claim ---
 
-  // lo que esta máquina anuncia en cada claim (platforms/platform.ts::ClaimAnnounce).
-  private announce(): ClaimAnnounce {
+  // lo que esta máquina anuncia a una plataforma en su claim (platforms/platform.ts::ClaimAnnounce): sus slots
+  // son su cuota (nunca los libres del pool, que dirían cuánto trabajo traen las demás).
+  private announce(sup: PlatformSupervisor): ClaimAnnounce {
     return {
       label: this.label(),
       machineId: this.cfg.machineId ?? null,
       capabilities: this.capabilities(),
-      slots: this.slots,
+      slots: this.quota(sup),
       version: runnerVersion(),
       claudeVersion: this.claude.version,
       repos: Object.keys(this.cfg.repos),
@@ -371,40 +426,25 @@ export class RunnerDaemon {
       repoCandidates: this.repoChoices,
       // solo ids de cuenta: `default` (y cualquier otra clave) no es una cuenta que duckhunt conozca.
       awsAccounts: Object.keys(this.cfg.aws).filter((key) => AWS_ACCOUNT_ID_RE.test(key)),
-      kept: this.keptWorktrees,
+      kept: sup.keptWorktrees,
     };
   }
 
-  private async claim(): Promise<ClaimResponse | null> {
-    let result: ClaimResult;
-    try {
-      result = await this.platform.claim(this.announce());
-    } catch (err) {
-      if (!(err instanceof PlatformRejectedError)) throw err;
-      this.stopUnpaired(err);
-      return null;
-    }
-    if (result.commandsPending) void this.syncRepoCommands();
-    if (result.kind === CLAIM_RESULT.unavailable) return null;
-    this.recordServerState(result.said.state, result.said.runner);
-    if (result.kind === CLAIM_RESULT.invalid && result.runId !== null) await this.platform.result(result.runId, { status: 'failed', error: result.error });
-    return result.kind === CLAIM_RESULT.run ? result.claim : null;
-  }
-
-  // registra el run en su slot y lo ejecuta en segundo plano; al terminar libera el slot y despierta
-  // el loop para reclamar el siguiente sin esperar al poll.
-  private start(claim: ClaimResponse): void {
+  // registra el run en el slot que reservó su plataforma y lo ejecuta en segundo plano; al terminar libera el
+  // slot y despierta el poll para reclamar el siguiente sin esperar.
+  private start(sup: PlatformSupervisor, claim: ClaimResponse): void {
     const lease = new RunLease(claim.run.id);
-    this.leases.add(lease);
+    sup.leases.add(lease);
     // la conversación vuelve a trabajar en su worktree («pedir commit» o cualquier mensaje): deja de
     // anunciarse como conservada, o su hilo volvería a enseñar los recuentos viejos hasta el siguiente gc.
-    if (this.keptWorktrees?.some((k) => k.runId === claim.run.id)) this.keptWorktrees = this.keptWorktrees.filter((k) => k.runId !== claim.run.id);
+    if (sup.keptWorktrees?.some((k) => k.runId === claim.run.id)) sup.keptWorktrees = sup.keptWorktrees.filter((k) => k.runId !== claim.run.id);
     if (this.stopping) lease.kill('shutdown');
-    void this.executeRun(claim, lease)
+    void this.executeRun(sup, claim, lease)
       .catch((err) => console.error(`[runner] run ${lease.runId} reventó: ${(err as Error).message}`))
       .finally(() => {
-        this.leases.delete(lease);
-        this.wake?.();
+        sup.leases.delete(lease);
+        this.scheduler.release(sup.id);
+        this.slotFreed(sup);
       });
   }
 
@@ -446,11 +486,11 @@ export class RunnerDaemon {
 
   // comandos de repos pendientes (los avisa la cabecera del claim): pedir, aplicar en orden sobre el
   // mapa, guardar UNA vez, re-chequear y reportar. con las ediciones remotas apagadas se rechazan.
-  private async syncRepoCommands(): Promise<void> {
+  private async syncRepoCommands(sup: PlatformSupervisor): Promise<void> {
     if (this.repoCommandsInFlight) return;
     this.repoCommandsInFlight = true;
     try {
-      const commands = await this.platform.commands(this.label());
+      const commands = await sup.platform.commands(this.label());
       if (!commands || commands.length === 0) return;
       const env = scrubEnv(process.env);
       const disabled = this.cfg.defaults.remoteRepoEdits === false;
@@ -475,8 +515,8 @@ export class RunnerDaemon {
         this.cfg = { ...this.cfg, repos: saveConfig((current) => ({ repos: mergeEntries(current.repos, before, after) })).repos };
         await this.refreshRepoHealth(true);
       }
-      await this.platform.ackCommands(results);
-      this.wake?.();
+      await sup.platform.ackCommands(results);
+      sup.wake();
     } catch (err) {
       console.error(`[runner] repos: comandos de duckhunt fallaron: ${(err as Error).message}`);
     } finally {
@@ -511,7 +551,7 @@ export class RunnerDaemon {
       return;
     }
     const { credential, local } = splitConfig(next);
-    this.platform.observe(credential);
+    this.legacy.platform.observe(credential);
     if (JSON.stringify(local) === JSON.stringify(this.cfg)) return;
     const reposChanged = JSON.stringify(local.repos) !== JSON.stringify(this.cfg.repos);
     this.cfg = local;
@@ -521,20 +561,21 @@ export class RunnerDaemon {
 
   // --- gc de worktrees (en el loop de claim, throttled) ---
 
-  private async collectWorktrees(): Promise<void> {
-    if (Date.now() - this.lastGcAt < CONVERSATION_GC_INTERVAL_MS) return;
-    this.lastGcAt = Date.now();
+  // los worktrees de una plataforma (su espacio en cada checkout), con lo que su server dice abierto.
+  private async collectWorktrees(sup: PlatformSupervisor): Promise<void> {
+    if (Date.now() - sup.lastGcAt < CONVERSATION_GC_INTERVAL_MS) return;
+    sup.lastGcAt = Date.now();
     try {
-      const candidates = listWorktreeCandidates(Object.values(this.cfg.repos).map((r) => r.path), this.platformId);
+      const candidates = listWorktreeCandidates(Object.values(this.cfg.repos).map((r) => r.path), sup.id);
       if (candidates.length === 0) {
-        this.keptWorktrees = [];
+        sup.keptWorktrees = [];
         return;
       }
-      const open = await this.platform.openConversations(candidates.filter((c) => c.kind === 'conversation').map((c) => c.runId));
-      const inFlight = new Set([...this.leases].map((lease) => lease.runId));
+      const open = await sup.platform.openConversations(candidates.filter((c) => c.kind === 'conversation').map((c) => c.runId));
+      const inFlight = new Set([...sup.leases].map((lease) => lease.runId));
       const targets = selectForRemoval(candidates, open, Date.now(), inFlight);
       if (targets.length === 0) {
-        this.keptWorktrees = [];
+        sup.keptWorktrees = [];
         return;
       }
       const env = scrubEnv(process.env);
@@ -544,7 +585,7 @@ export class RunnerDaemon {
       );
       const removed = collected.reduce((n, c) => n + c.removed, 0);
       // lo que se anuncia al server: recuentos por conversación, nunca paths (worktree_report).
-      this.keptWorktrees = collected.flatMap((c) => c.kept).sort((a, b) => compareRunIds(a.runId, b.runId));
+      sup.keptWorktrees = collected.flatMap((c) => c.kept).sort((a, b) => compareRunIds(a.runId, b.runId));
       if (removed > 0) console.log(`[runner] gc: ${removed} worktree(s) recogido(s)`);
     } catch (err) {
       console.error(`[runner] gc de worktrees falló: ${(err as Error).message}`);
@@ -563,10 +604,10 @@ export class RunnerDaemon {
 
   // latido del run desde el claim hasta el cierre: transporta el soft-cancel del server (y refresca
   // la presencia del runner). el run muere si ya no es suyo (platforms/platform.ts::heartbeat).
-  private startHeartbeat(lease: RunLease, heartbeatMs: number, seg: RunSegment): NodeJS.Timeout {
+  private startHeartbeat(sup: PlatformSupervisor, lease: RunLease, heartbeatMs: number, seg: RunSegment): NodeJS.Timeout {
     const runId = lease.runId;
     return setInterval(() => {
-      void this.platform
+      void sup.platform
         .heartbeat(runId, seg)
         .then((verdict) => {
           if (!verdict.stop) return;
@@ -575,7 +616,7 @@ export class RunnerDaemon {
         })
         .catch((err: Error) => {
           // con los slots llenos el loop no reclama: el latido es quien se entera de que la credencial murió.
-          if (err instanceof PlatformRejectedError) this.stopUnpaired(err);
+          if (err instanceof PlatformRejectedError) this.platformRejected(sup, err);
           else console.error(`[runner] heartbeat del run ${runId} falló: ${err.message}`);
         });
     }, Math.max(MIN_HEARTBEAT_MS, heartbeatMs));
@@ -583,7 +624,7 @@ export class RunnerDaemon {
 
   // --- ejecución ---
 
-  private async executeRun(claim: ClaimResponse, lease: RunLease): Promise<void> {
+  private async executeRun(sup: PlatformSupervisor, claim: ClaimResponse, lease: RunLease): Promise<void> {
     const { run } = claim;
     const tag = `run ${run.id}`;
     console.log(
@@ -594,18 +635,18 @@ export class RunnerDaemon {
     const env = { ...scrubEnv(process.env), AWS_PAGER: '' };
     // identidad del proceso en cada llamada del run (servers anteriores a los segmentos: nada).
     const seg = run.segment !== null ? { segment: run.segment } : {};
-    const heartbeat = this.startHeartbeat(lease, claim.heartbeatMs, seg);
-    const feed = claim.events?.enabled ? new EventUploader((events) => this.platform.events(run.id, events, seg), claim.events, tag) : null;
+    const heartbeat = this.startHeartbeat(sup, lease, claim.heartbeatMs, seg);
+    const feed = claim.events?.enabled ? new EventUploader((events) => sup.platform.events(run.id, events, seg), claim.events, tag) : null;
 
     let res: MaterializedRun;
     try {
       // solo un claim toolset_v1 aísla lo que no pide (la aws de la máquina); uno legacy, nunca.
       const plan = this.registry.plan(legacyRequests(run), (type, key) => this.refOf(type, key), claim.toolset !== null);
-      res = await materializeRun(plan, { platform: this.platformId, runId: run.id, env, gitLocks: this.gitLocks }, { dir: () => scratchDir(this.platformId), exclusive: legacyScratchExclusive(run) });
+      res = await materializeRun(plan, { platform: sup.id, runId: run.id, env, gitLocks: this.gitLocks }, { dir: () => scratchDir(sup.id), exclusive: legacyScratchExclusive(run) });
     } catch (err) {
       clearInterval(heartbeat);
       await feed?.close();
-      await this.platform.result(run.id, { status: 'failed', error: legacyResourceError(err), ...seg });
+      await sup.platform.result(run.id, { status: 'failed', error: legacyResourceError(err), ...seg });
       return;
     }
     const ctx: FeedContext = {
@@ -627,8 +668,8 @@ export class RunnerDaemon {
     let mcpFile: string | null = null;
     let report: StatusReport;
     try {
-      mcpFile = writeRunMcpConfig(run.id, claim.mcp, this.platformId);
-      report = await this.runAttempts(claim, lease, res, mcpFile, feed, ctx, note);
+      mcpFile = writeRunMcpConfig(run.id, claim.mcp, sup.id);
+      report = await this.runAttempts(sup, claim, lease, res, mcpFile, feed, ctx, note);
     } catch (err) {
       report = { status: 'failed', error: (err as Error).message };
     } finally {
@@ -641,13 +682,14 @@ export class RunnerDaemon {
     releaseLocks();
 
     await feed?.close();
-    await this.platform.result(run.id, { ...report, ...seg });
+    await sup.platform.result(run.id, { ...report, ...seg });
     console.log(`[runner] ${tag} terminado (${report.status}${report.error ? `: ${report.error}` : ''})`);
   }
 
   // uno o dos intentos: reanudación fallida antes de que el asistente hablara (sesión inexistente
   // en esta máquina, borrada, de otro daemon) → un solo reintento desde cero con el prompt de respaldo.
   private async runAttempts(
+    sup: PlatformSupervisor,
     claim: ClaimResponse,
     lease: RunLease,
     res: MaterializedRun,
@@ -691,12 +733,12 @@ export class RunnerDaemon {
       });
     // reanudar o no lo decide el server: manda sessionId solo cuando hay sesión que retomar.
     const resume = run.sessionId;
-    let attempt = await this.spawnClaude(claim, lease, args(claim.prompt, resume), res, feed, ctx);
+    let attempt = await this.spawnClaude(sup, claim, lease, args(claim.prompt, resume), res, feed, ctx);
     let resumed: boolean | undefined = resume ? true : undefined;
     if (resume && attempt.killedBy === null && attempt.exitCode !== 0 && !attempt.stream.sawAssistant && claim.fallbackPrompt) {
       console.log(`[runner] run ${run.id}: la sesión ${resume} no se pudo reanudar`);
       note('la sesión anterior no se pudo reanudar en este runner: reintento desde cero');
-      attempt = await this.spawnClaude(claim, lease, args(claim.fallbackPrompt, null), res, feed, ctx);
+      attempt = await this.spawnClaude(sup, claim, lease, args(claim.fallbackPrompt, null), res, feed, ctx);
       resumed = false;
     }
     return reportFor(attempt, resumed);
@@ -706,6 +748,7 @@ export class RunnerDaemon {
   // y stderr (tail), bombea el progreso y aplica el timeout wall-clock. si el run ya murió (cancel o
   // parada mientras esperaba turno) no lo lanza. resuelve siempre (nunca rechaza).
   private spawnClaude(
+    sup: PlatformSupervisor,
     claim: ClaimResponse,
     lease: RunLease,
     args: string[],
@@ -725,7 +768,7 @@ export class RunnerDaemon {
       let logFile: number | null = null;
       if (this.opts.verboseLog) {
         try {
-          logFile = fs.openSync(path.join(logsDir(this.platformId), `${runId}.jsonl`), 'a');
+          logFile = fs.openSync(path.join(logsDir(sup.id), `${runId}.jsonl`), 'a');
         } catch (err) {
           console.error(`[runner] no se pudo abrir el log del run: ${(err as Error).message}`);
         }
@@ -760,7 +803,7 @@ export class RunnerDaemon {
       });
 
       // progreso: tool calls del segmento (throttled) + la nota de workdir en el primer envío.
-      this.postProgress(runId, 0, seg, clip(res.note, WORKDIR_MAX_CHARS));
+      this.postProgress(sup, runId, 0, seg, clip(res.note, WORKDIR_MAX_CHARS));
       let reportedToolCalls = 0;
       let lastProgressAt = Date.now();
       const progress = setInterval(() => {
@@ -768,7 +811,7 @@ export class RunnerDaemon {
         if (stream.toolCalls === reportedToolCalls || now - lastProgressAt < PROGRESS_MIN_INTERVAL_MS) return;
         reportedToolCalls = stream.toolCalls;
         lastProgressAt = now;
-        this.postProgress(runId, reportedToolCalls, seg);
+        this.postProgress(sup, runId, reportedToolCalls, seg);
       }, PROGRESS_TICK_MS);
 
       const timeout = setTimeout(() => {
@@ -799,7 +842,7 @@ export class RunnerDaemon {
   }
 
   // progreso del segmento: fuego y olvido (el siguiente envío lo corrige).
-  private postProgress(runId: string, toolCalls: number, seg: RunSegment, workdir?: string): void {
-    void this.platform.progress(runId, toolCalls, seg, workdir).catch((err) => console.error(`[runner] progress falló: ${(err as Error).message}`));
+  private postProgress(sup: PlatformSupervisor, runId: string, toolCalls: number, seg: RunSegment, workdir?: string): void {
+    void sup.platform.progress(runId, toolCalls, seg, workdir).catch((err) => console.error(`[runner] progress falló: ${(err as Error).message}`));
   }
 }

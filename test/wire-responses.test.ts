@@ -10,12 +10,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { after, afterEach, before, beforeEach, test } from 'node:test';
 import { configPath, loadConfig, type RunnerConfig } from '../src/config.js';
-import { EXIT_CODE_UNPAIRED, RunnerDaemon } from '../src/daemon.js';
+import { EXIT_CODE_UNPAIRED } from '../src/daemon.js';
 import { RunLease } from '../src/run-lease.js';
 import { readServerState } from '../src/server-state.js';
 import { LEGACY_PLATFORM_ID } from '../src/paths.js';
 import type { StatusReport } from '../src/status-report.js';
-import type { Platform } from '../src/platforms/platform.js';
+import { internals, legacyOf } from './daemon-harness.js';
 
 const BASE = 'https://duckhunt.test';
 const API = `${BASE}/api/runner`;
@@ -72,25 +72,16 @@ interface Wire {
   exitCode: number;
 }
 
-interface DaemonInternals {
-  reloadConfig(): Promise<void>;
-  claim(): Promise<unknown>;
-  startHeartbeat(lease: RunLease, heartbeatMs: number, seg: { segment?: number }): NodeJS.Timeout;
-  platform: Platform;
-  leases: Set<RunLease>;
-  stopping: boolean;
-  exitCode: number;
-}
-
 async function wire(leases: RunLease[] = []): Promise<Wire> {
-  const d = new RunnerDaemon(loadConfig()!) as unknown as DaemonInternals;
+  const d = internals(loadConfig()!);
   await d.reloadConfig();
-  leases.forEach((lease) => d.leases.add(lease));
+  const sup = legacyOf(d);
+  leases.forEach((lease) => sup.leases.add(lease));
   return {
-    claim: () => d.claim(),
-    startHeartbeat: (lease, ms, seg) => d.startHeartbeat(lease, ms, seg),
-    postStatus: (runId, report) => d.platform.result(runId, report),
-    openConversations: (ids) => d.platform.openConversations(ids),
+    claim: () => sup.claim(),
+    startHeartbeat: (lease, ms, seg) => d.startHeartbeat(sup, lease, ms, seg),
+    postStatus: (runId, report) => sup.platform.result(runId, report),
+    openConversations: (ids) => sup.platform.openConversations(ids),
     get stopping() {
       return d.stopping;
     },
