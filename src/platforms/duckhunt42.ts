@@ -91,6 +91,8 @@ export class Duckhunt42Platform implements Platform {
         ...(replacesClientId ? { replacesClientId } : {}),
         // el cable legacy lleva ids numéricos: uno opaco no se anuncia (ese server no lo conocería).
         ...(a.kept ? { keptWorktrees: a.kept.filter((k) => isLegacyRunId(k.runId)).map((k) => ({ ...k, runId: legacyWireRunId(k.runId) })) } : {}),
+        // al final: lo de antes no cambia de orden.
+        ...(a.awsDefault !== null ? { awsDefault: a.awsDefault } : {}),
       });
     } catch (err) {
       if (err instanceof PlatformRejectedError) throw err;

@@ -53,6 +53,9 @@ export interface ClaimAnnounce {
   awsAccounts: readonly string[];
   // todas las claves aws expuestas, `default` incluida (las anuncia el cable v0 como recursos).
   awsKeys: readonly string[];
+  // expone su identidad aws por defecto (el cable legacy la anuncia aparte, LegacyClaimAwsDefault del protocolo).
+  // null = no se anuncia (el interruptor del flip de toolset_v1: el cable de 0.13.0).
+  awsDefault: boolean | null;
   // null = el gc aún no recogió: no se anuncia.
   kept: readonly KeptWorktree[] | null;
 }

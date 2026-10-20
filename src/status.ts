@@ -205,7 +205,7 @@ export async function statusCommand(args: string[] = []): Promise<void> {
   console.log(`aws cli:    ${aws ?? 'no instalada (los runs no podrán consultar aws)'}`);
   // las que anunciaría el daemon con este kit (model solo si el cli lista --model).
   if (claude.version) {
-    console.log(`capacidades: ${announcedCapabilities({ hasAws: aws !== null, supported: claude.supported, remoteRepoEdits: cfg?.defaults.remoteRepoEdits }).join(' ')}`);
+    console.log(`capacidades: ${announcedCapabilities({ hasAws: aws !== null, supported: claude.supported, remoteRepoEdits: cfg?.defaults.remoteRepoEdits, toolsetRender: cfg?.defaults.toolsetRender }).join(' ')}`);
   }
   console.log(`scratch:    ${scratchDir(LEGACY_PLATFORM_ID)}`);
   if (!cfg) return;

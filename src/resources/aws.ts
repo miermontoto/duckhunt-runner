@@ -57,6 +57,17 @@ const AWS_CREDENTIAL_VARS = [
   'AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE',
 ];
 
+// ficheros de la aws cli que la apuntan a otra config (además de ~/.aws/config y ~/.aws/credentials).
+const AWS_FILE_VARS = ['AWS_CONFIG_FILE', 'AWS_SHARED_CREDENTIALS_FILE'];
+const AWS_HOME_DIR = '.aws';
+
+/** ¿esta máquina tiene aws configurada? la aws cli instalada, credenciales en el env o sus ficheros de config. es lo
+ *  que un run sin cuenta heredaba antes del flip de toolset_v1 (t#495, M5): el aviso del arranque (daemon.ts). */
+export function machineHasAws(env: NodeJS.ProcessEnv, cli: boolean, home: string): boolean {
+  if (cli || [...AWS_CREDENTIAL_VARS, ...AWS_FILE_VARS].some((key) => env[key])) return true;
+  return [AWS_CONFIG, AWS_CREDENTIALS].some((file) => fs.existsSync(path.join(home, AWS_HOME_DIR, file)));
+}
+
 /** la cuenta y región aws que trae el claim de un run (null = sin aws). */
 export type RunAws = { accountId: string | null; region: string | null } | null;
 

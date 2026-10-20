@@ -1,0 +1,99 @@
+{
+  "capabilities": [
+    "prompt",
+    "events",
+    "checkout",
+    "read_shell",
+    "native_memory",
+    "repo_edit",
+    "toolset_v1"
+  ],
+  "awsDefault": true,
+  "toolset": {
+    "v": 1,
+    "shell": "read",
+    "fsWrite": false,
+    "memory": true,
+    "web": false,
+    "vcsPush": true,
+    "grants": [
+      {
+        "type": "repo",
+        "key": "okt/api",
+        "access": "read"
+      }
+    ],
+    "platformTools": [
+      "duckhunt-entry-get",
+      "duckhunt-entry-list",
+      "duckhunt-entry-comments",
+      "duckhunt-search",
+      "duckhunt-list-monitors",
+      "duckhunt-target-get",
+      "duckhunt-code-commits",
+      "duckhunt-code-diff",
+      "duckhunt-note-list",
+      "duckhunt-agent-run-get",
+      "duckhunt-run-reply",
+      "duckhunt-ask-user",
+      "duckhunt-entry-suggestions",
+      "duckhunt-pipeline-status",
+      "duckhunt-run-propose-edit"
+    ]
+  },
+  "tools": {
+    "allowed": [
+      "Read",
+      "Grep",
+      "Glob",
+      "mcp__duckhunt__duckhunt-entry-get",
+      "mcp__duckhunt__duckhunt-entry-list",
+      "mcp__duckhunt__duckhunt-entry-comments",
+      "mcp__duckhunt__duckhunt-search",
+      "mcp__duckhunt__duckhunt-list-monitors",
+      "mcp__duckhunt__duckhunt-target-get",
+      "mcp__duckhunt__duckhunt-code-commits",
+      "mcp__duckhunt__duckhunt-code-diff",
+      "mcp__duckhunt__duckhunt-note-list",
+      "mcp__duckhunt__duckhunt-agent-run-get",
+      "mcp__duckhunt__duckhunt-run-reply",
+      "mcp__duckhunt__duckhunt-ask-user",
+      "mcp__duckhunt__duckhunt-entry-suggestions",
+      "mcp__duckhunt__duckhunt-pipeline-status",
+      "mcp__duckhunt__duckhunt-run-propose-edit"
+    ],
+    "disallowed": [
+      "NotebookEdit",
+      "WebFetch",
+      "WebSearch",
+      "Bash(aws secretsmanager get-secret-value*)",
+      "Bash(aws secretsmanager batch-get-secret-value*)",
+      "Bash(aws ssm get-parameter*)",
+      "Bash(aws ecr get-login-password*)",
+      "Bash(aws ecr get-authorization-token*)",
+      "Bash(aws eks get-token*)",
+      "Bash(aws redshift get-cluster-credentials*)",
+      "Bash(aws ec2 get-password-data*)",
+      "Bash(aws cognito-idp describe-user-pool-client*)",
+      "Bash(aws apigateway get-api-key*)",
+      "Bash(aws appsync list-api-keys*)",
+      "Bash(aws glue get-connection*)",
+      "Bash(aws s3api get-object*)",
+      "Bash(aws apigateway get-export*)",
+      "Bash(aws apigateway get-sdk*)",
+      "Bash(aws appsync get-introspection-schema*)",
+      "Bash(aws cloudfront get-function*)",
+      "Read(~/.aws/**)",
+      "Read(~/.ssh/**)",
+      "Read(~/.duckhunt-runner.json)",
+      "Read(~/.claude/.credentials.json)",
+      "Read(~/.config/gh/**)",
+      "Read(~/.netrc)",
+      "Read(~/.git-credentials)",
+      "Read(~/.docker/config.json)",
+      "Read(//tmp/duckhunt-runner-*)"
+    ]
+  },
+  "permissionMode": "dontAsk",
+  "mcpServerName": "duckhunt"
+}

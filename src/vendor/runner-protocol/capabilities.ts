@@ -47,5 +47,9 @@ export const RUNNER_CAPABILITY = {
   // sombra y devuelve toolsetShadow en el status del segmento. sin ella el claim no lleva la clave (el cable de
   // siempre, byte a byte). las listas siguen mandando hasta el flip.
   toolsetV1: 'toolset_v1',
+  // t#495, M5 (el flip): el daemon lanza el run con las listas que renderiza él mismo desde `toolset` (cortado con
+  // el techo que el usuario le puso a la plataforma). las listas de `tools` el server las sigue mandando igual: pasan
+  // a ser la entrada de la comparación que el daemon devuelve en toolsetShadow. solo con toolset_v1.
+  toolsetRender: 'toolset_render',
 } as const;
 export type RunnerCapability = (typeof RUNNER_CAPABILITY)[keyof typeof RUNNER_CAPABILITY];

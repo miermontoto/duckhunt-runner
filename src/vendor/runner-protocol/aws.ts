@@ -1,6 +1,12 @@
 // aws cli en lectura (t#385, daemon con capability read_shell): lo que el server compone como
 // `Bash(aws <servicio> <operación>*)` en un run de lectura y lo que el daemon acepta de esos patrones.
 
+// identidad aws por defecto de la máquina (t#495, M5): una clave que el usuario expone a mano en el daemon (`resource
+// add aws default`), nunca implícita. el daemon la anuncia (LegacyClaimAwsDefault en el cable legacy, una clave más de
+// `aws` en los resources[] de v0) y el toolset_v1 la concede a un run SIN cuenta: read en uno de lectura con la aws en
+// lectura, full en uno con Bash entero. una cuenta del run que la máquina no anuncia no cae en ella (aws_strict).
+export const RUNNER_AWS_DEFAULT_KEY = 'default';
+
 // read quita el deny de Bash entero y permite SOLO `aws <servicio> <verbo de lectura>*`. verificado
 // con el cli 2.1.282: un patrón fijado en servicio + operación aguanta `;` `&&` `&` `$()` `<()`,
 // redirecciones, pipes a comandos no aprobados y `VAR=… aws`. un comodín ANTES de la operación NO
