@@ -73,6 +73,10 @@
 //   (resources/lifecycle.ts) con las peticiones que se derivan del claim legacy (resources/legacy.ts): todo o
 //   nada, al revés al soltar, y los turnos exclusivos ordenados. el plan que ve claude es el de siempre
 //   (test/spawn-plan.test.ts lo fija byte a byte).
+// - toolset_v1 en sombra (t#495, M5): con `toolset_v1` anunciado, el claim puede traer `toolset`. el daemon lo corta
+//   con el techo de la plataforma, lo renderiza (toolset/) y lo compara con las listas del claim, que siguen
+//   mandando; el resultado va en el status del segmento (toolsetShadow) y lo que no casa, al log. claim.toolset
+//   sigue null: un toolset en sombra no aísla la aws ni cambia nada del spawn.
 // - plataformas (t#495, M6): todo lo que el daemon le dice a duckhunt pasa por el seam de plataforma
 //   (platforms/platform.ts): el cable legacy y su credencial viven en platforms/duckhunt42.ts y
 //   platforms/http-transport.ts, con los mismos cuerpos y respuestas (test/wire-legacy.test.ts,
@@ -144,7 +148,8 @@ import { EXPOSE_ALL, isExposed, PLATFORM_DEFAULT_SLOTS, type PlatformConfig } fr
 import { PLATFORM_FACTORIES } from './platforms/duckhunt42.js';
 import { Scheduler } from './platforms/scheduler.js';
 import { PLATFORM_STATE, PlatformSupervisor, type SupervisorHooks } from './platforms/supervisor.js';
-import { RUNNER_LABEL_MAX_CHARS } from './vendor/runner-protocol/index.js';
+import { RUNNER_LABEL_MAX_CHARS, type ToolsetShadow } from './vendor/runner-protocol/index.js';
+import { shadowOf } from './toolset/shadow.js';
 
 const execFileP = promisify(execFile);
 
@@ -787,6 +792,9 @@ export class RunnerDaemon {
     const seg = run.segment !== null ? { segment: run.segment } : {};
     const heartbeat = this.startHeartbeat(sup, lease, claim.heartbeatMs, seg);
     const feed = claim.events?.enabled ? new EventUploader((events) => sup.platform.events(run.id, events, seg), claim.events, tag) : null;
+    // toolset_v1 en sombra: viaja en todo status de este segmento (nada si el claim no lo trajo).
+    const shadow = this.toolsetShadow(sup, claim, tag);
+    const withShadow = shadow !== null ? { toolsetShadow: shadow } : {};
 
     let res: MaterializedRun;
     try {
@@ -799,7 +807,7 @@ export class RunnerDaemon {
     } catch (err) {
       clearInterval(heartbeat);
       await feed?.close();
-      await sup.platform.result(run.id, { status: 'failed', error: legacyResourceError(err), ...seg });
+      await sup.platform.result(run.id, { status: 'failed', error: legacyResourceError(err), ...withShadow, ...seg });
       return;
     }
     const ctx: FeedContext = {
@@ -835,8 +843,24 @@ export class RunnerDaemon {
     releaseLocks();
 
     await feed?.close();
-    await sup.platform.result(run.id, { ...report, ...seg });
+    await sup.platform.result(run.id, { ...report, ...withShadow, ...seg });
     console.log(`[runner] ${tag} terminado (${report.status}${report.error ? `: ${report.error}` : ''})`);
+  }
+
+  // toolset_v1 en sombra de un claim (t#495, M5): su toolset ∩ el techo de la plataforma, renderizado y comparado
+  // con las listas que mandan (toolset/shadow.ts). lo que el techo recorta y lo que no casa, al log: aviso si la
+  // diferencia no es la buscada. null = el claim no trajo toolset.
+  private toolsetShadow(sup: PlatformSupervisor, claim: ClaimResponse, tag: string): ToolsetShadow | null {
+    if (claim.toolsetShadow === null) return null;
+    const ceiling = this.platformsCfg[sup.id]?.ceiling ?? legacyPlatform().ceiling;
+    const { shadow, explained, narrowed } = shadowOf(claim.toolsetShadow, ceiling, { mcpServerName: claim.mcp.serverName, awsCli: this.hasAws });
+    if (narrowed.length > 0) console.log(`[runner] ${tag}: toolset_v1 acotado por el techo de ${sup.id}: ${narrowed.join(', ')}`);
+    if (!shadow.match) {
+      const known = shadow.known.length > 0 ? ` (${shadow.known.join(', ')})` : '';
+      if (explained) console.log(`[runner] ${tag}: toolset_v1 en sombra: solo la diferencia buscada${known}`);
+      else console.warn(`[runner] ${tag}: toolset_v1 en sombra no casa con las listas del server${known}`);
+    }
+    return shadow;
   }
 
   // uno o dos intentos: reanudación fallida antes de que el asistente hablara (sesión inexistente

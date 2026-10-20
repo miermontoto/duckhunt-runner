@@ -44,11 +44,14 @@ import {
   AGENT_RUN_KIND,
   AGENT_RUN_SEED,
   RUNNER_CAPABILITY,
+  TOOLSET_V1,
   type AgentPromptProfile,
   type AgentRunIsolation,
   type AgentRunSeed,
   type RunnerCapability,
 } from './vendor/runner-protocol/index.js';
+import { parseToolsetV1 } from './toolset/parse.js';
+import type { ShadowSource } from './toolset/shadow.js';
 
 // capacidades que el daemon anuncia en el claim: sus ids y lo que el server hace con cada una vienen del
 // protocolo vendorizado (vendor/runner-protocol, t#495 M3). el server entrega kind=prompt solo a quien
@@ -219,10 +222,10 @@ export interface EventsConfig {
   toolArgMaxChars: number;
 }
 
-// marca de un claim con la política neutra toolset_v1 (t#495, M5): hoy ningún server la manda y parseClaim no la
-// lee aún. separa un claim toolset_v1 de uno legacy donde el runner se comporta distinto (aislar la aws de la
-// máquina, resources/aws.ts).
-export const TOOLSET_V1 = 1;
+// marca de un claim que MANDA con la política neutra toolset_v1 (t#495, M5): separa un claim toolset_v1 de uno
+// legacy donde el runner se comporta distinto (aislar la aws de la máquina, resources/aws.ts). hoy nunca se pone:
+// el toolset del cable legacy va en sombra (toolsetShadow) y las listas de tools siguen mandando.
+export { TOOLSET_V1 };
 export interface ToolsetV1 {
   v: typeof TOOLSET_V1;
 }
@@ -248,6 +251,9 @@ export interface ClaimResponse {
   warnings: string[];
   // null = claim legacy (todo claim de hoy).
   toolset: ToolsetV1 | null;
+  // toolset_v1 en sombra (daemon con `toolset_v1`): el toolset y las listas del server tal cual llegaron, para
+  // comparar con el render del daemon (toolset/shadow.ts). null = el claim no lo trajo (o no era válido).
+  toolsetShadow: ShadowSource | null;
 }
 
 type Obj = Record<string, unknown>;
@@ -350,7 +356,8 @@ export function parseClaim(raw: unknown): ClaimResponse {
   const unknownAws = readPrompt ? serverAllowed.filter((t) => t.startsWith(`${BASH_TOOL}(`) && !isAwsReadPattern(t)) : [];
   if (unknownAws.length > 0) warnings.push(`aws descartada en lectura (no es una lectura que este runner reconozca): ${unknownAws.join(', ')}`);
   const allowed = serverAllowed.filter((t) => !unknownAws.includes(t));
-  const disallowed = Array.from(new Set([...toolList(tools.disallowed, 'tools.disallowed'), ...(readPrompt ? READ_FORCED_DENY : [])]));
+  const serverDisallowed = toolList(tools.disallowed, 'tools.disallowed');
+  const disallowed = Array.from(new Set([...serverDisallowed, ...(readPrompt ? READ_FORCED_DENY : [])]));
   const mcp = isObj(raw.mcp) ? raw.mcp : {};
   const serverName = str(mcp.serverName) ?? '';
   const url = str(mcp.url) ?? '';
@@ -393,5 +400,21 @@ export function parseClaim(raw: unknown): ClaimResponse {
     mcp: { serverName, url, token, expiresAt: numOrNull(mcp.expiresAt) ?? 0 },
     warnings,
     toolset: null,
+    // las listas antes del filtro de aws y del deny forzado de arriba: las que mandó el server.
+    toolsetShadow:
+      raw.toolset === undefined || raw.toolset === null
+        ? null
+        : shadowSourceOf(raw.toolset, { allowed: serverAllowed, disallowed: serverDisallowed, permissionMode }, id),
   };
+}
+
+// el toolset_v1 de un claim para la sombra; uno mal formado no tumba el claim (las listas mandan): se ignora con un
+// aviso en el log, sin sombra.
+function shadowSourceOf(raw: unknown, server: ShadowSource['server'], runId: string): ShadowSource | null {
+  try {
+    return { toolset: parseToolsetV1(raw), server };
+  } catch (err) {
+    console.warn(`[runner] run ${runId}: ${(err as Error).message}: sin sombra de toolset_v1`);
+    return null;
+  }
 }

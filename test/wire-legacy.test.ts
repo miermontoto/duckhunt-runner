@@ -121,7 +121,7 @@ test('cuerpos del cable legacy byte a byte iguales a los del daemon con ids num√
   // la versi√≥n solo viaja si se puede leer (en dist-test no hay package.json al lado): como en el daemon.
   const version = runnerVersion() ? `"version":"${runnerVersion()}",` : '';
   assert.deepEqual(calls, [
-    `/claim {"runnerLabel":"fa","repos":["acme/api"],"awsAccounts":["123456789012"],"capabilities":["events","checkout","repo_edit","secret_paths","seed_budget","aws_strict","worktree_report","logout"],"slots":2,${version}"machine":{"id":"${MACHINE}"},"keptWorktrees":[{"runId":3,"dirtyFiles":2,"unpushedCommits":0},{"runId":12,"dirtyFiles":0,"unpushedCommits":1}]}`,
+    `/claim {"runnerLabel":"fa","repos":["acme/api"],"awsAccounts":["123456789012"],"capabilities":["events","checkout","repo_edit","secret_paths","seed_budget","aws_strict","worktree_report","logout","toolset_v1"],"slots":2,${version}"machine":{"id":"${MACHINE}"},"keptWorktrees":[{"runId":3,"dirtyFiles":2,"unpushedCommits":0},{"runId":12,"dirtyFiles":0,"unpushedCommits":1}]}`,
     '/conversations {"runIds":[12,34]}',
     '/runs/88/events {"events":[{"seq":5,"kind":"text","body":"hola"}],"segment":3}',
     '/runs/88/status {"status":"done","result":"listo","costUsd":0.25,"numTurns":2,"toolCalls":3,"sessionId":"s-1","model":"opus","resumed":true,"segment":3}',

@@ -43,9 +43,9 @@ test('capacidades: model solo si el cli lista --model; prompt y las suyas solo c
     announcedCapabilities({ hasAws: true, supported: supportedFlags(help), ...over });
   const full = caps(HELP);
   assert.ok(full.includes('model'));
-  assert.equal(full.at(-1), 'model', 'al final: las de antes no cambian de orden');
+  assert.deepEqual(full.slice(-2), ['model', 'toolset_v1'], 'al final: las de antes no cambian de orden');
   assert.ok(['aws', 'prompt', 'read_shell', 'native_memory', 'events', 'checkout', 'repo_edit', 'secret_paths', 'seed_budget', 'aws_strict', 'worktree_report', 'logout'].every((c) => full.includes(c)));
-  // sin --model, exactamente lo que anunciaba 0.11.0.
+  // sin --model, exactamente lo que anunciaba 0.11.0 más toolset_v1 al final (t#495, M5).
   assert.deepEqual(caps(withoutModel), [
     'aws',
     'prompt',
@@ -59,6 +59,7 @@ test('capacidades: model solo si el cli lista --model; prompt y las suyas solo c
     'aws_strict',
     'worktree_report',
     'logout',
+    'toolset_v1',
   ]);
   const old = caps('  --model <model>\n  --permission-mode <mode>', { hasAws: false, remoteRepoEdits: false });
   assert.ok(old.includes('model') && !old.includes('prompt') && !old.includes('aws') && !old.includes('repo_edit'));

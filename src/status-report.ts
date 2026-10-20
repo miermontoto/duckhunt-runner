@@ -5,6 +5,7 @@
 import { configPath } from './config.js';
 import { maskSecrets } from './secret-mask.js';
 import type { StreamState } from './claude.js';
+import type { ToolsetShadow } from './vendor/runner-protocol/index.js';
 
 // por qué el daemon mató al proceso: cancel del server, timeout wall clock o parada del daemon.
 export type KillReason = 'cancel' | 'timeout' | 'shutdown';
@@ -24,6 +25,8 @@ export interface StatusReport {
   stderrTail?: string;
   // segmento del claim: el server rechaza (409) el informe de un segmento que ya no es el suyo.
   segment?: number;
+  // toolset_v1 en sombra (t#495, M5): solo si el claim trajo toolset; ya recortado (toolset/shadow.ts).
+  toolsetShadow?: ToolsetShadow;
 }
 
 // resultado de una ejecución de claude (un intento).
