@@ -1,15 +1,16 @@
 {
-  "version": "0.2.0",
-  "contentHash": "a723233837e4bf89364cbd19d6c13df73b63235222349ac56e855fe25e3f2541",
-  "commit": "18dff00b0046e4a9eabfd493a81f5c9878d9906f",
+  "version": "0.3.0",
+  "contentHash": "64683f8e1bc47d49f2047c5574c9336f639698af68b577130cc23145b9a5e664",
+  "commit": "783969f4f701e7f6438fe27977334c8c5911d63f",
   "files": {
-    "index.ts": "a75289d2ec92acec33f267db11caa32be4004e39af9d7cb018d31386e7aa4458",
+    "index.ts": "85e0c2f00bb44328ee0c81cccb1ebac9421fbc058f6f18d9aaa5945981147160",
     "aws.ts": "a5ab53967e2c463f646a3a21ab7bfe82ff8aa5dcd40db2a8f22ab8948c806243",
     "capabilities.ts": "c4028d95011e2a4b1c9bed6e7b658fe0f47ad4d4c6d7ab191ab5630351a12d8a",
     "claim.ts": "016c9f095f93a26ebad7873fdd4c70a604fb7678145120eeb7139645f0fda1b5",
     "errors.ts": "21caba41f35cc92a03fd8eaafec98c899aa99ee7af524bdfd7ad83c2a6794bf3",
     "events.ts": "186f66ba51b0dbc2afcdd2e12ac5503b73d8ac429e83fcaa08553dabd5cda341",
     "limits.ts": "9fed498e91673c85ba6aec3ee953fcdeabcde6535e5cdb3dc296d7f19c76f73c",
-    "toolset.ts": "58226e598eed55ebc9910608e59af026ad8d4e2dea03f910ecdfcf319c865164"
+    "toolset.ts": "58226e598eed55ebc9910608e59af026ad8d4e2dea03f910ecdfcf319c865164",
+    "v0.ts": "72bc0457da0db0c6f3022d9f2f4c512a607f90f379a3dd31d53756478dcd11d7"
   }
 }

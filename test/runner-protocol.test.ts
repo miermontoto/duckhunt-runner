@@ -10,11 +10,11 @@ import fs from 'node:fs';
 import { test } from 'node:test';
 
 // versión mínima del protocolo que este daemon entiende: vendorizar una anterior es un error.
-const MIN_PROTOCOL = '0.2.0';
+const MIN_PROTOCOL = '0.3.0';
 const FIXTURES = new URL('../../test/fixtures/', import.meta.url);
 const VENDOR = new URL('../../src/vendor/runner-protocol/', import.meta.url);
 // los que cubre el manifiesto del paquete (su src/fixtures.ts::FIXTURE_SUBDIRS).
-const FIXTURE_SUBDIRS: readonly string[] = ['claim-kits', 'claims', 'toolset-v1'];
+const FIXTURE_SUBDIRS: readonly string[] = ['claim-kits', 'claims', 'toolset-v1', 'v0'];
 const RECORD_FILE = 'vendor.json';
 const MODULE_EXT = '.ts';
 
