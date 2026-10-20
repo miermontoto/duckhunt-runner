@@ -82,7 +82,7 @@ export interface RunnerDefaults {
   // días que se guarda la auditoría local de cada plataforma (audit.ts, t#495 M6.6). ausente = 180.
   auditRetentionDays?: number;
   // el flip de toolset_v1 (t#495, M5): los runs de duckhunt que traen `toolset` se lanzan con el render del daemon
-  // (toolset/legacy-render.ts). ausente = encendido; false = el interruptor: solo en sombra, como 0.13.0.
+  // (toolset/legacy-render.ts). ausente = encendido; false = el interruptor: solo en sombra, sin el flip.
   toolsetRender?: boolean;
 }
 

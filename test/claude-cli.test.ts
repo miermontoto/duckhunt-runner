@@ -62,7 +62,7 @@ test('capacidades: model solo si el cli lista --model; prompt y las suyas solo c
     'toolset_v1',
     'toolset_render',
   ]);
-  // el interruptor del flip (defaults.toolsetRender: false): las de 0.13.0, sin toolset_render.
+  // el interruptor del flip (defaults.toolsetRender: false): las de la sombra, sin toolset_render.
   assert.deepEqual(caps(HELP, { toolsetRender: false }), full.filter((c) => c !== 'toolset_render'));
   const old = caps('  --model <model>\n  --permission-mode <mode>', { hasAws: false, remoteRepoEdits: false });
   assert.ok(old.includes('model') && !old.includes('prompt') && !old.includes('aws') && !old.includes('repo_edit'));

@@ -79,7 +79,7 @@
 //   sigue null: un toolset en sombra no aísla la aws ni cambia nada del spawn.
 // - el flip (t#495, M5, `toolset_render`): por defecto ese toolset MANDA (enforceToolset → toolset/legacy-render.ts):
 //   las listas del render, los recursos de sus grants y la aws aislada sin grant; las del server pasan a ser la
-//   comparación. `defaults.toolsetRender: false` vuelve a la sombra de arriba (el cable y los runs de 0.13.0). al
+//   comparación. `defaults.toolsetRender: false` vuelve a la sombra de arriba (el cable y los runs sin el flip). al
 //   arrancar avisa si la máquina tiene aws y duckhunt no ve su identidad por defecto (`resource add aws default`):
 //   un run sin cuenta ya no la hereda.
 // - plataformas (t#495, M6): todo lo que el daemon le dice a duckhunt pasa por el seam de plataforma
@@ -506,7 +506,7 @@ export class RunnerDaemon {
   /** loop principal: gc → claim → ejecutar en un slot libre → repetir, hasta SIGINT/SIGTERM.
    *  devuelve el exit code tras esperar el cierre de los runs en vuelo. */
   // el flip de toolset_v1 (t#495, M5): los runs de duckhunt-42 que traen `toolset` se lanzan con el render del daemon,
-  // salvo el interruptor de la config (defaults.toolsetRender: false = solo en sombra, como 0.13.0).
+  // salvo el interruptor de la config (defaults.toolsetRender: false = solo en sombra, sin el flip).
   private get toolsetRender(): boolean {
     return this.cfg.defaults.toolsetRender !== false;
   }
@@ -763,7 +763,7 @@ export class RunnerDaemon {
       awsAccounts: Object.keys(this.cfg.aws).filter((key) => AWS_ACCOUNT_ID_RE.test(key) && seen(RESOURCE_TYPE.aws)(key)),
       // el cable v0 anuncia recursos por clave: también `default` si el usuario la expone.
       awsKeys: Object.keys(this.cfg.aws).filter(seen(RESOURCE_TYPE.aws)),
-      // el legacy, aparte y solo con el flip: con el interruptor, el cable de 0.13.0.
+      // el legacy, aparte y solo con el flip: con el interruptor, el cable sin el flip.
       awsDefault: this.toolsetRender ? this.awsDefaultExposed(sup) : null,
       browsers: this.browsersFor(sup),
       kept: sup.keptWorktrees,
@@ -771,7 +771,7 @@ export class RunnerDaemon {
   }
 
   // las sesiones de navegador expuestas a una plataforma y su salud (t#495, M7): solo con el flip (el interruptor deja
-  // el cable de 0.13.0, que no las conoce) y alguna expuesta; si no, null y el claim de siempre.
+  // el cable sin el flip, que no las conoce) y alguna expuesta; si no, null y el claim de siempre.
   private browsersFor(sup: PlatformSupervisor): ClaimAnnounce['browsers'] {
     if (!this.toolsetRender) return null;
     const keys = Object.keys(this.browserRefs).filter((key) => isExposed(this.exposure(sup), RESOURCE_TYPE.browser, key));

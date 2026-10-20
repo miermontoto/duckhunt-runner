@@ -174,7 +174,7 @@ test('la etiqueta viaja dentro de lo que acepta el server: recortada y sin pasar
   assert.equal(await labelOf('   '), os.hostname().slice(0, 100));
 });
 
-test('el flip anuncia toolset_render y si duckhunt ve la aws por defecto; el interruptor deja el cable de 0.13.0 (t#495, M5)', async (t) => {
+test('el flip anuncia toolset_render y si duckhunt ve la aws por defecto; el interruptor deja el cable sin el flip (t#495, M5)', async (t) => {
   t.mock.method(console, 'log', () => {});
   const withDefault = { ...cfg, aws: { ...cfg.aws, default: { profile: 'personal' } } };
   fs.writeFileSync(configPath(), JSON.stringify(withDefault), { mode: 0o600 });
@@ -185,7 +185,7 @@ test('el flip anuncia toolset_render y si duckhunt ve la aws por defecto; el int
   fs.writeFileSync(configPath(), JSON.stringify({ ...withDefault, defaults: { ...withDefault.defaults, toolsetRender: false } }), { mode: 0o600 });
   const off = capture();
   await (await daemon()).claim();
-  assert.ok(!off[0]!.includes('toolset_render') && !off[0]!.includes('awsDefault'), `el cable de 0.13.0: ${off[0]}`);
+  assert.ok(!off[0]!.includes('toolset_render') && !off[0]!.includes('awsDefault'), `el cable sin el flip: ${off[0]}`);
 });
 
 test('al arrancar avisa una vez si la máquina tiene aws y duckhunt no ve su `default`; con ella o con el interruptor, nada (t#495, M5)', async (t) => {
@@ -234,5 +234,5 @@ test('las sesiones de navegador solo se anuncian expuestas a duckhunt y con el f
   // sin sesión guardada en el vault: su salud lo dice.
   assert.match(shown, /,"resources":\[\{"type":"browser","keys":\["jira"\]\}\],"health":\[\{"type":"browser","key":"jira","kind":"missing"\}\]\}$/);
   const off = await announce({ ...browser, ...exposed, defaults: { ...cfg.defaults, toolsetRender: false } });
-  assert.ok(!off.includes('"resources"') && !off.includes('"browser"'), `el interruptor: el cable de 0.13.0: ${off}`);
+  assert.ok(!off.includes('"resources"') && !off.includes('"browser"'), `el interruptor: el cable sin el flip: ${off}`);
 });

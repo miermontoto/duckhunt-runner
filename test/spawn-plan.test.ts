@@ -480,10 +480,10 @@ test('dos plataformas: cada run niega el scratch de la otra; el de la nueva no v
 });
 
 // fuera del golden: toolset_v1 en sombra (t#495, M5).
-// el interruptor del flip (defaults.toolsetRender: false): la config de un caso que vuelve a la sombra de 0.13.0.
+// el interruptor del flip (defaults.toolsetRender: false): la config de un caso que vuelve a la sombra sin el flip.
 const renderOff = (c: RunnerConfig): RunnerConfig => ({ ...c, defaults: { ...c.defaults, toolsetRender: false } });
 
-test('el interruptor del flip (toolsetRender: false): la sombra de 0.13.0, el spawn de siempre y solo el status lleva toolsetShadow', async (t) => {
+test('el interruptor del flip (toolsetRender: false): la sombra sin el flip, el spawn de siempre y solo el status lleva toolsetShadow', async (t) => {
   t.mock.method(console, 'log', () => {});
   t.mock.method(console, 'warn', () => {});
   t.mock.method(console, 'error', () => {});
