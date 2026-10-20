@@ -17,7 +17,7 @@ import { scrubEnv } from './scrub-env.js';
 const USAGE = `uso:
   duckhunt-runner resource list [repo|aws]
   duckhunt-runner resource add repo <workspace/slug> <path>
-  duckhunt-runner resource add aws <account-id|default> <profile> [region]
+  duckhunt-runner resource add aws <account-id|default> <profile> [region] [--s3-read [bucket[/prefijo]]…]
   duckhunt-runner resource remove repo|aws <clave>
   duckhunt-runner resource check [repo|browser]
   duckhunt-runner resource add browser <clave> <url> [--origin <patrón> …] (es \`browser login\`)

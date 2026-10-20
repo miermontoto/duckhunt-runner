@@ -17,13 +17,17 @@
 //   la crea sola, y un claim legacy sin cuenta sigue con el env del usuario tal cual.
 // - aislar (isolate): un claim toolset_v1 sin grant de aws corre con la aws vacía, sin región. un claim legacy
 //   nunca se aísla: lo decide quien hace el plan (registry.ts, solo con toolset_v1).
+// - lectura de objetos s3 (0.13.0, s3-read.ts): una clave mapeada con `s3Read` pone además su servidor mcp
+//   (res_aws_<clave>, la tool s3_read) con la aws del run, solo en un claim que manda con toolset_v1; con las listas
+//   del server, una nota y nada más.
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { AwsAccountConfig } from '../config.js';
 import { runConfigDir } from '../paths.js';
-import { PHASE, RESOURCE_TYPE, type ResourceProvider, type RunContext } from './types.js';
+import { describeS3Scope, S3_READ_TOOL, s3ReadScopeOf, s3ReadServer } from './s3-read.js';
+import { PHASE, RESOURCE_TYPE, type Materialized, type ResourceProvider, type RunContext } from './types.js';
 
 export const AWS_TYPE = RESOURCE_TYPE.aws;
 // identidad aws por defecto de la máquina: una clave que solo existe si el usuario la expone.
@@ -146,6 +150,15 @@ function emptyDirOf(ctx: RunContext): { create: () => string; drop: () => Promis
   };
 }
 
+// la lectura s3 de una clave mapeada (ver cabecera): su servidor mcp y, si no se ofrece, por qué.
+function s3ReadOf(key: string | null, ref: AwsAccountConfig | null, env: NodeJS.ProcessEnv, ctx: RunContext): Pick<Materialized, 'mcp'> & { warnings: string[] } {
+  const scope = key !== null && ref ? s3ReadScopeOf(ref.s3Read) : null;
+  if (scope === null) return { warnings: [] };
+  if (scope === 'invalid') return { warnings: [`aws ${key}: s3Read de la config no se entiende (true o una lista de bucket[/prefijo]): sin lectura de objetos s3`] };
+  if (!ctx.toolset) return { warnings: [`la lectura de objetos s3 de ${key} no se ofrece: solo con el render del daemon (defaults.toolsetRender)`] };
+  return { mcp: async () => ({ server: s3ReadServer(scope, env), tools: [S3_READ_TOOL], denied: [] }), warnings: [`lectura de objetos s3 de ${key}: ${describeS3Scope(scope)}`] };
+}
+
 export const awsProvider: ResourceProvider<AwsAccountConfig> = {
   type: AWS_TYPE,
   phase: PHASE.env,
@@ -154,7 +167,8 @@ export const awsProvider: ResourceProvider<AwsAccountConfig> = {
     const empty = emptyDirOf(ctx);
     const map = req.key !== null && ref ? { [req.key]: ref } : {};
     const { env, unmapped } = runAwsEnv(ctx.env, { accountId: req.key, region: req.params[AWS_PARAM.region] ?? null }, map, empty.create);
-    return { env: envDiff(ctx.env, env), warnings: unmapped ? [unmappedAwsWarning(unmapped)] : [], release: empty.drop };
+    const s3 = unmapped ? { warnings: [] } : s3ReadOf(req.key, ref, env, ctx);
+    return { env: envDiff(ctx.env, env), warnings: [...(unmapped ? [unmappedAwsWarning(unmapped)] : []), ...s3.warnings], ...(s3.mcp ? { mcp: s3.mcp } : {}), release: empty.drop };
   },
 
   async isolate(ctx) {

@@ -98,6 +98,16 @@ function browserSummary(name: string, args: Args): string | null {
   return summary ? summary(args) : null;
 }
 
+// la lectura de objetos s3 de la aws del run (t#495, 0.13.0, mcp__res_aws_<clave>__s3_read): qué objeto y qué
+// ventana de bytes se pidió, nunca su contenido (el resultado de una tool no llega nunca al feed).
+const S3_READ_TOOL_PREFIX = `${MCP_PREFIX}res_aws_`;
+const S3_READ_TOOL_SUFFIX = `${MCP_SEPARATOR}s3_read`;
+function s3ReadSummary(name: string, args: Args): string | null {
+  if (!name.startsWith(S3_READ_TOOL_PREFIX) || !name.endsWith(S3_READ_TOOL_SUFFIX)) return null;
+  const window = ['offset', 'maxBytes'].filter((k) => typeof args[k] === 'number').map((k) => `${k}=${args[k] as number}`);
+  return [`s3://${browserArg(args, 'bucket')}/${browserArg(args, 'key')}`, ...window].join(' ');
+}
+
 // tools internas del cli (carga diferida de otras tools): no son trabajo del agente, fuera del feed.
 const INTERNAL_TOOLS: ReadonlySet<string> = new Set(['ToolSearch']);
 
@@ -200,7 +210,7 @@ export function summarizeToolUse(name: string, input: unknown, ctx: FeedContext)
     if (name === 'WebSearch') return str('query') ?? '';
     if (name === 'Task' || name === 'Agent') return str('description') ?? '';
     if (name === 'TodoWrite') return Array.isArray(args.todos) ? `${args.todos.length} tareas` : '';
-    return browserSummary(name, args) ?? summarizeArgs(args, !isPlatformTool(name, ctx));
+    return browserSummary(name, args) ?? s3ReadSummary(name, args) ?? summarizeArgs(args, !isPlatformTool(name, ctx));
   })();
   return sanitize(oneLine(raw), ctx, ctx.toolArgMaxChars);
 }
