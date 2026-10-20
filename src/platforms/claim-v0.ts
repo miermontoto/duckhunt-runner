@@ -242,6 +242,7 @@ export function claimOfV0(raw: unknown, e: V0Enforcement): AdaptedClaim {
       toolsetShadow: server ? { toolset: requested, server } : null,
       resources: toolset.grants.map((g) => requestOf(g, params.get(grantId(g)) ?? {}, claim)),
       extraMcp: extra,
+      policyAudit: { requested, effective: toolset, narrowed: [...ceiled.narrowed, ...byProfile] },
     },
     narrowed: [...ceiled.narrowed, ...byProfile],
   };

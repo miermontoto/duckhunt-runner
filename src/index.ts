@@ -16,6 +16,7 @@ import { reposCommand } from './repos.js';
 import { awsCommand } from './aws.js';
 import { resourceCommand } from './resource.js';
 import { statusCommand } from './status.js';
+import { auditCommand } from './audit-cli.js';
 import { runnerVersion } from './version.js';
 
 const USAGE = `duckhunt-runner — daemon local de agent runs
@@ -25,10 +26,12 @@ uso:
                                             sin base-url apunta a ${DEFAULT_BASE_URL}
   duckhunt-runner logout                     desvincula esta máquina de duckhunt y borra su credencial
   duckhunt-runner status                     kit de esta máquina y lo que duckhunt dice de ella
+  duckhunt-runner status --platforms         cada plataforma: estado, cuota, techo, lo expuesto y su auditoría
   duckhunt-runner start [--verbose]          arranca el daemon
   duckhunt-runner repos list|add|remove|discover
   duckhunt-runner aws list|add|remove
   duckhunt-runner resource list|add|remove|check [repo|aws]   los recursos de la máquina por tipo
+  duckhunt-runner audit [--platform <id>] [--since 7d|<fecha>] [--json]   lo que corrió cada plataforma
   duckhunt-runner --version
 
 config en ~/.duckhunt-runner.json (otra con DUCKHUNT_RUNNER_CONFIG=<fichero>); scratch, logs y
@@ -52,7 +55,7 @@ async function main(): Promise<void> {
     return;
   }
   if (cmd === 'status') {
-    await statusCommand();
+    await statusCommand(rest);
     return;
   }
   if (cmd === 'repos') {
@@ -61,6 +64,10 @@ async function main(): Promise<void> {
   }
   if (cmd === 'aws') {
     awsCommand(rest);
+    return;
+  }
+  if (cmd === 'audit') {
+    auditCommand(rest);
     return;
   }
   if (cmd === 'resource') {

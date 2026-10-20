@@ -166,7 +166,7 @@ test('cada plataforma guarda lo que su server dijo en su directorio; la legacy, 
   assert.equal(fs.existsSync(serverStatePath('duckhunt')), false);
 });
 
-test('cada una ve de la máquina lo que expone: repos, cuentas aws y su salud; sin machine id ni candidatos si no es la legacy', async (t) => {
+test('cada una ve de la máquina lo que expone: repos, cuentas aws y su salud; sin candidatos y con su machine id derivado si no es la legacy', async (t) => {
   quiet(t);
   const { d, created } = await daemon({ beta: { protocol: 'duckhunt-42', trusted: true, credential: credential('b1'), expose: { repo: ['acme/web'], aws: ['210987654321'] } } });
   (d as unknown as { repoHealth: unknown; repoChoices: unknown }).repoHealth = [
@@ -178,7 +178,10 @@ test('cada una ve de la máquina lo que expone: repos, cuentas aws y su salud; s
   await d.pollOnce(d.supervisors.get('beta')!);
   const [legacy, beta] = [created.get('duckhunt')!.announces[0]!, created.get('beta')!.announces[0]!];
   assert.deepEqual([legacy.repos, legacy.awsAccounts, legacy.machineId, legacy.repoIssues?.length, legacy.repoCandidates?.length], [['acme/api', 'acme/web'], ['123456789012', '210987654321'], 'm-1', 2, 1]);
-  assert.deepEqual([beta.repos, beta.awsAccounts, beta.machineId, beta.repoIssues, beta.repoCandidates], [['acme/web'], ['210987654321'], null, [{ repo: 'acme/web', kind: 'invalid' }], null]);
+  assert.deepEqual([beta.repos, beta.awsAccounts, beta.repoIssues, beta.repoCandidates], [['acme/web'], ['210987654321'], [{ repo: 'acme/web', kind: 'invalid' }], null]);
+  // M6.5: el de la máquina no; uno derivado de su emisor (machine.ts).
+  assert.match(beta.machineId ?? '', /^[0-9a-f]{64}$/);
+  assert.notEqual(beta.machineId, 'm-1');
   const refOf = (d as unknown as { refOf(s: unknown, type: string, key: string): unknown }).refOf.bind(d);
   assert.equal(refOf(d.supervisors.get('beta'), 'repo', 'acme/api'), null, 'un run suyo no usa lo que no le expone');
   assert.deepEqual(refOf(d.supervisors.get('beta'), 'repo', 'acme/web'), { path: '/dev/web' });

@@ -12,6 +12,9 @@ import { promisify } from 'node:util';
 
 const execFileP = promisify(execFile);
 
+// nombre con el que se cuenta un tool_use sin nombre (salida rara del cli).
+const UNNAMED_TOOL = '?';
+
 // flags que el daemon quiere pasar pero que no todas las versiones del cli aceptan; un flag
 // desconocido aborta el proceso, así que se detectan una vez por arranque.
 export const OPTIONAL_FLAGS = [
@@ -71,6 +74,8 @@ export interface StreamResult {
 
 export interface StreamState {
   toolCalls: number;
+  // tool calls por nombre de tool (la auditoría local, audit.ts): solo nombres, nunca sus argumentos.
+  toolsByName: Record<string, number>;
   // se vio algún mensaje del asistente: distingue un fallo de arranque (sesión inexistente al
   // reanudar, mcp caído) de un fallo a mitad de run.
   sawAssistant: boolean;
@@ -81,7 +86,7 @@ export interface StreamState {
 }
 
 export function newStreamState(): StreamState {
-  return { toolCalls: 0, sawAssistant: false, sessionId: null, initModel: null, result: null };
+  return { toolCalls: 0, toolsByName: {}, sawAssistant: false, sessionId: null, initModel: null, result: null };
 }
 
 // bloque de contenido de un mensaje del stream: text (prosa), tool_use (name + input),
@@ -140,7 +145,12 @@ export function consumeStreamLine(state: StreamState, line: string): StreamLine 
   if (ev.type === 'assistant') {
     state.sawAssistant = true;
     const content = ev.message?.content;
-    if (Array.isArray(content)) state.toolCalls += content.filter((c) => c?.type === 'tool_use').length;
+    const uses = Array.isArray(content) ? content.filter((c) => c?.type === 'tool_use') : [];
+    state.toolCalls += uses.length;
+    uses.forEach((c) => {
+      const name = typeof c.name === 'string' && c.name ? c.name : UNNAMED_TOOL;
+      state.toolsByName[name] = (state.toolsByName[name] ?? 0) + 1;
+    });
     return ev;
   }
   if (ev.type === 'result') {

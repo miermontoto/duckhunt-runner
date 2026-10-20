@@ -92,8 +92,18 @@
 //   (la legacy, todo el pool; una nueva, PLATFORM_DEFAULT_SLOTS) y lo que ve de la máquina, su `expose` (lo que
 //   anuncia y lo que un run suyo puede usar; la legacy, todo). una que no es la legacy corre con la aws aislada,
 //   sin machine id (M6.5) y sin comandos de repos.
-// - deny de todo kit por segmento (t#495): el run-config de todas las plataformas con estado en disco y el scratch
-//   de las demás, recalculados al lanzar cada segmento: una plataforma añadida en caliente queda cubierta.
+// - deny de todo kit por segmento (t#495): el run-config de todas las plataformas con estado en disco, el scratch
+//   de las demás y lo privado de las demás (su estado y su auditoría), recalculados al lanzar cada segmento y
+//   añadidos detrás del deny de siempre: una plataforma añadida en caliente queda cubierta y, con una sola, el deny
+//   de la legacy no cambia.
+// - reparto justo (t#495, M6.5): un slot que se libera se ofrece a la siguiente plataforma en round-robin de las que
+//   esperan uno (platforms/scheduler.ts), y una sin trabajo pasa el turno en el acto. a una plataforma que no es la
+//   legacy se le anuncia un machine id derivado (machine.ts: HMAC del secreto de la máquina y su emisor) y su
+//   etiqueta propia si la tiene. sus líneas del log van con `[runner:<id>]`; las de la legacy, como siempre.
+// - auditoría local (t#495, M6.6, audit.ts): claimed, rejected y closed de cada plataforma en
+//   <runnerHome>/audit/<id>/, sin prompts, resultados, argumentos, paths ni tokens; podada al arrancar y a diario.
+//   la cuota diaria de una plataforma (budgetUsdPerDay, runsPerDay) se cuenta ahí: agotada, no reclama hasta
+//   medianoche (estado budget).
 
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
@@ -114,8 +124,8 @@ import {
   type RunnerConfigV2,
   type RunnerCredential,
 } from './config.js';
-import { ensureMachineId } from './machine.js';
-import { otherScratchDeny, secretPathsDeny } from './secret-paths.js';
+import { derivedMachineId, ensureMachineId, ensureMachineSecret } from './machine.js';
+import { otherPlatformsDeny, otherScratchDeny, secretPathsDeny } from './secret-paths.js';
 import { CLAIM_OUTCOME } from './server-state.js';
 import { consumeStreamLine, detectClaude, newStreamState, type ClaudeInfo } from './claude.js';
 import { buildClaudeArgs } from './claude-args.js';
@@ -126,6 +136,7 @@ import { EventUploader } from './event-uploader.js';
 import { clip, feedEventsFromStream, systemEvent, type FeedContext } from './feed.js';
 import { scrubEnv } from './scrub-env.js';
 import { reportFor, type Attempt, type KillReason, type StatusReport } from './status-report.js';
+import { AuditLog, AUDIT_OUTCOME, claimedRecord, closedRecord, DAY_MS, nextMidnight, outcomeCode, pruneAudit, rejectedRecord, retentionDays, toolsetSummary, type AttemptFacts, type AuditSubject, type ClaimedRecord } from './audit.js';
 import { readShellGuard, readShellLog, readShellNote } from './read-shell-guard.js';
 import { clearLegacyTmpConfigs, clearRunMcpConfigs, runConfigDeny, writeRunMcpConfig } from './run-mcp-config.js';
 import { CONVERSATION_GC_INTERVAL_MS, listWorktreeCandidates, removeWorktrees, selectForRemoval, type WorktreeCandidate } from './resources/repo/gc.js';
@@ -137,19 +148,22 @@ import { legacyRequests, legacyResourceError, legacyScratchExclusive } from './r
 import { repoProvider } from './resources/repo/provider.js';
 import { AWS_ACCOUNT_ID_RE, awsProvider } from './resources/aws.js';
 import { LEGACY_RESOURCE_KEYS, legacyPlatform } from './config-legacy.js';
-import { RELEASE, RESOURCE_TYPE, type ReleaseOutcome } from './resources/types.js';
+import { RELEASE, RESOURCE_TYPE, ResourceUnavailableError, type ReleaseOutcome } from './resources/types.js';
 import { applyRepoCommand, type RepoCommandResult } from './repo-commands.js';
 import { RunLease, signalGroup } from './run-lease.js';
 import { compareRunIds } from './run-id.js';
 import { allRunConfigDirs, LEGACY_PLATFORM_ID, logsDir, runConfigDir, scratchDir } from './paths.js';
 import { runnerVersion } from './version.js';
 import { PlatformRejectedError, PROTOCOL, type ClaimAnnounce, type Platform, type PlatformContext, type PlatformFactories, type Protocol, type RunSegment } from './platforms/platform.js';
-import { DEFAULT_CEILING, EXPOSE_ALL, isExposed, PLATFORM_DEFAULT_SLOTS, type PlatformConfig } from './platforms/types.js';
+import { DEFAULT_CEILING, EXPOSE_ALL, isExposed, issuerOf, PLATFORM_DEFAULT_SLOTS, type PlatformConfig } from './platforms/types.js';
 import { PLATFORM_FACTORIES } from './platforms/factories.js';
 import { Scheduler } from './platforms/scheduler.js';
 import { PLATFORM_STATE, PlatformSupervisor, type SupervisorHooks } from './platforms/supervisor.js';
 import { RUNNER_LABEL_MAX_CHARS, type ToolsetShadow } from './vendor/runner-protocol/index.js';
 import { shadowOf } from './toolset/shadow.js';
+import { intersectToolset } from './toolset/intersect.js';
+import { v0Announce } from './platforms/v0.js';
+import { CLAIM_REJECT } from './platforms/claim-v0.js';
 
 const execFileP = promisify(execFile);
 
@@ -174,6 +188,20 @@ const EXIT_CODE_SIGTERM = 143;
 export const EXIT_CODE_UNPAIRED = 78;
 // tope de la nota de workdir.
 const WORKDIR_MAX_CHARS = 300;
+// prefijo del log del daemon; el de una plataforma que no es la legacy lleva su id (`[runner:<id>]`).
+const LOG_PREFIX = 'runner';
+// el código de un claim rechazado por el runner (platforms/claim-v0.ts): `claim rechazado por el runner (<código>: …)`.
+const REJECT_CODE_RE = /\(([a-z_]+):/;
+const REJECT_CODES: ReadonlySet<string> = new Set(Object.values(CLAIM_REJECT));
+
+// el código de un claim que no se aceptó: el del runner si lo lleva; si no (un claim legacy que no parsea), inválido.
+function rejectCode(error: string): string {
+  const code = REJECT_CODE_RE.exec(error)?.[1];
+  return code !== undefined && REJECT_CODES.has(code) ? code : CLAIM_REJECT.invalid;
+}
+
+// lo que la auditoría sabe del intento que cerró un segmento: cómo acabó, nunca su salida.
+const attemptFacts = (a: Attempt): AttemptFacts => ({ killedBy: a.killedBy, exitCode: a.exitCode, isError: a.stream.result?.isError ?? false, subtype: a.stream.result?.subtype ?? null });
 
 // cómo suelta sus recursos un run según su cierre.
 const RELEASE_BY_STATUS: Readonly<Record<StatusReport['status'], ReleaseOutcome>> = {
@@ -232,11 +260,17 @@ export class RunnerDaemon {
   private repoHealthRun: Promise<void> | null = null;
   // Read negado de las rutas reales de las credenciales de la máquina: todo kit de lectura (al arrancar).
   private secretDeny: string[] = [];
+  // auditoría local de cada plataforma (audit.ts) y cuándo se podó por última vez.
+  private readonly audit = new AuditLog();
+  private lastAuditPruneAt = 0;
+  // secreto de la máquina para los machine id por plataforma (undefined = aún sin pedir; null = no se pudo guardar).
+  private machineSecret: string | null | undefined;
   // lo que cada supervisor necesita del daemon.
   private readonly hooks: SupervisorHooks = {
     announce: (sup) => this.announce(sup),
     rejected: (sup, err) => this.platformRejected(sup, err),
     commandsPending: (sup) => void this.syncRepoCommands(sup),
+    rejectedClaim: (sup, runId, error) => this.audit.append(rejectedRecord(this.auditSubject(sup), runId, rejectCode(error))),
   };
 
   constructor(
@@ -302,9 +336,36 @@ export class RunnerDaemon {
   private running = false;
 
   // la etiqueta que se anuncia, dentro de lo que el server acepta: recortada, sin quedarse vacía y como mucho
-  // RUNNER_LABEL_MAX_CHARS. una más larga (o en blanco) tumbaba cada claim con un 400.
-  private label(): string {
-    return clip(this.cfg.label?.trim() || os.hostname(), RUNNER_LABEL_MAX_CHARS);
+  // RUNNER_LABEL_MAX_CHARS. una más larga (o en blanco) tumbaba cada claim con un 400. una plataforma puede tener la
+  // suya (M6.5); si no, la de la máquina.
+  private label(sup?: PlatformSupervisor): string {
+    const own = sup ? this.platformsCfg[sup.id]?.label?.trim() : undefined;
+    return clip(own || this.cfg.label?.trim() || os.hostname(), RUNNER_LABEL_MAX_CHARS);
+  }
+
+  // el machine id que se anuncia a una plataforma: el de siempre a la legacy (su adopción de la fila sigue igual) y a
+  // otra uno derivado de su emisor (machine.ts). sin secreto guardable (config de solo lectura), ninguno.
+  private machineIdFor(sup: PlatformSupervisor): string | null {
+    if (sup.id === LEGACY_PLATFORM_ID) return this.cfg.machineId ?? null;
+    if (this.machineSecret === undefined) {
+      try {
+        this.machineSecret = ensureMachineSecret();
+      } catch (err) {
+        console.warn(`${this.tagOf(sup)} no se pudo guardar el secreto de la máquina en la config: ${(err as Error).message} — reclamo sin machine id`);
+        this.machineSecret = null;
+      }
+    }
+    return this.machineSecret === null ? null : derivedMachineId(this.machineSecret, issuerOf(this.platformsCfg[sup.id], sup.platform.identity().baseUrl));
+  }
+
+  // prefijo del log de una plataforma: el de siempre para la legacy, con su id para las demás.
+  private tagOf(sup: PlatformSupervisor): string {
+    return sup.id === LEGACY_PLATFORM_ID ? `[${LOG_PREFIX}]` : `[${LOG_PREFIX}:${sup.id}]`;
+  }
+
+  // de qué plataforma es un registro de la auditoría, ahora.
+  private auditSubject(sup: PlatformSupervisor): AuditSubject {
+    return { platform: sup.id, protocol: sup.platform.protocol, at: Date.now() };
   }
 
   // capacidades que se anuncian: prompt solo si el cli puede cumplir su perfil (permission mode
@@ -335,6 +396,7 @@ export class RunnerDaemon {
     this.secretDeny = secrets.rules;
     secrets.skipped.forEach((p) => console.warn(`[runner] secret_paths: ${p} no cabe en una regla de permisos de claude: queda solo la lista genérica del server`));
     this.adoptMachineId();
+    this.pruneAudit();
     this.installSignalHandlers();
     console.log(
       `[runner] duckhunt-runner ${runnerVersion() ?? '?'} · ${this.label()} → ${this.legacy.platform.identity().baseUrl} (claude ${this.claude.version}, aws cli ${this.hasAws ? 'sí' : 'no'}, ${Object.keys(this.cfg.repos).length} repos, ${Object.keys(this.cfg.aws).length} cuentas aws, capacidades ${this.capabilities().join(',')}, ${this.slots} slot${this.slots === 1 ? '' : 's'}, poll ${CLAIM_POLL_MS / 1000}s)`,
@@ -342,7 +404,10 @@ export class RunnerDaemon {
     await this.refreshRepoHealth();
     this.running = true;
     this.supervisors.forEach((sup) => this.polls.push(this.poll(sup)));
-    while (!this.stopping) await this.idle(CLAIM_POLL_MS);
+    while (!this.stopping) {
+      await this.idle(CLAIM_POLL_MS);
+      if (Date.now() - this.lastAuditPruneAt >= DAY_MS) this.pruneAudit();
+    }
     await Promise.all(this.polls);
     // parada: cada run en vuelo recibió kill('shutdown'); se espera a que reporte su cierre.
     while (this.leases.length > 0) await this.idle(CLAIM_POLL_MS);
@@ -366,7 +431,13 @@ export class RunnerDaemon {
   // vuelta va en el acto. sin slot, espera a que se libere uno (o al siguiente poll).
   private async pollOnce(sup: PlatformSupervisor): Promise<boolean> {
     sup.blocked = false;
-    if (!sup.claiming) return false;
+    this.checkBudget(sup);
+    if (!sup.claiming) {
+      // un slot que se le guardaba (en pausa, sin cuota, retirada) pasa a la siguiente.
+      this.scheduler.withdraw(sup.id);
+      this.offerFreeSlots();
+      return false;
+    }
     if (!this.scheduler.tryReserve(sup.id, this.quota(sup))) {
       sup.blocked = true;
       return false;
@@ -375,10 +446,56 @@ export class RunnerDaemon {
     const claim = this.stopping ? null : await sup.claim();
     if (!claim) {
       this.scheduler.release(sup.id);
+      // sin trabajo: el turno pasa en el acto a la siguiente que espera slot.
+      this.offerFreeSlots();
       return false;
     }
     this.start(sup, claim);
     return true;
+  }
+
+  // los slots libres, uno a uno, a la siguiente plataforma en round-robin de las que esperan (platforms/scheduler.ts),
+  // que se despierta para reservarlo.
+  private offerFreeSlots(): void {
+    const waiting = [...this.supervisors.values()].filter((s) => s.blocked && s.claiming).map((s) => ({ id: s.id, quota: this.quota(s) }));
+    const next = this.scheduler.offer([...this.supervisors.keys()], waiting);
+    if (next === null) return;
+    this.supervisors.get(next)?.wake();
+    this.offerFreeSlots();
+  }
+
+  // la cuota del día de una plataforma (M6.6, contada en su auditoría): agotada, no reclama hasta medianoche; con
+  // cuota otra vez (otro día, o la config se la sube), vuelve.
+  private checkBudget(sup: PlatformSupervisor): void {
+    const over = this.overBudget(sup);
+    if (sup.state === PLATFORM_STATE.active && over !== null) {
+      sup.state = PLATFORM_STATE.budget;
+      console.log(`${this.tagOf(sup)} plataforma ${sup.id}: cuota del día agotada (${over}): no reclama hasta las ${new Date(nextMidnight(Date.now())).toLocaleString()}`);
+    } else if (sup.state === PLATFORM_STATE.budget && over === null) {
+      sup.state = PLATFORM_STATE.active;
+      console.log(`${this.tagOf(sup)} plataforma ${sup.id}: con cuota otra vez, reclama`);
+    }
+  }
+
+  // qué cuota del día agotó la plataforma, o null (sin cuota configurada, nunca: ni se lee la auditoría).
+  private overBudget(sup: PlatformSupervisor): string | null {
+    const cfg = this.platformsCfg[sup.id];
+    if (cfg?.budgetUsdPerDay === undefined && cfg?.runsPerDay === undefined) return null;
+    const used = this.audit.usageToday(sup.id);
+    if (cfg.runsPerDay !== undefined && used.runs >= cfg.runsPerDay) return `${used.runs}/${cfg.runsPerDay} segmentos`;
+    if (cfg.budgetUsdPerDay !== undefined && used.costUsd >= cfg.budgetUsdPerDay) return `${used.costUsd.toFixed(2)}/${cfg.budgetUsdPerDay} usd`;
+    return null;
+  }
+
+  // poda la auditoría de todas las plataformas (al arrancar y una vez al día). nunca lanza.
+  private pruneAudit(): void {
+    this.lastAuditPruneAt = Date.now();
+    try {
+      const removed = pruneAudit(Date.now(), retentionDays(this.cfg.defaults.auditRetentionDays));
+      if (removed > 0) console.log(`[${LOG_PREFIX}] auditoría: ${removed} fichero(s) viejo(s) borrado(s)`);
+    } catch (err) {
+      console.error(`[${LOG_PREFIX}] auditoría: no se pudo podar: ${(err as Error).message}`);
+    }
   }
 
   // el machine id de la config o uno nuevo que se guarda (config de 0.10). una config que no se puede
@@ -398,7 +515,7 @@ export class RunnerDaemon {
   private platformRejected(sup: PlatformSupervisor, err: PlatformRejectedError): void {
     if (this.stopping || sup.state === PLATFORM_STATE.unpaired) return;
     const last = ![...this.supervisors.values()].some((other) => other !== sup && other.usable);
-    console.error(`[runner] ${err.message}. ${last ? 'el daemon se detiene' : `la plataforma ${sup.id} deja de reclamar`}`);
+    console.error(`${this.tagOf(sup)} ${err.message}. ${last ? 'el daemon se detiene' : `la plataforma ${sup.id} deja de reclamar`}`);
     sup.state = PLATFORM_STATE.unpaired;
     sup.recordServerState(CLAIM_OUTCOME.unpaired, null);
     if (last) {
@@ -416,12 +533,12 @@ export class RunnerDaemon {
     this.wake?.();
   }
 
-  // un slot libre: lo prueba en el acto su plataforma y cualquiera que esperara slot (y la parada, si espera). una
-  // retirada de la config que ya no tiene runs se suelta.
+  // un slot libre: lo prueba en el acto su plataforma, y se ofrece a la siguiente en round-robin de las que esperaban
+  // uno (y la parada, si espera). una retirada de la config que ya no tiene runs se suelta.
   private slotFreed(sup: PlatformSupervisor): void {
     if (sup.state === PLATFORM_STATE.removing) this.retire(sup);
     sup.wake();
-    this.supervisors.forEach((other) => other.blocked && other.wake());
+    this.offerFreeSlots();
     this.wake?.();
   }
 
@@ -465,8 +582,8 @@ export class RunnerDaemon {
 
   // lo que esta máquina anuncia a una plataforma en su claim (platforms/platform.ts::ClaimAnnounce): sus slots
   // son su cuota (nunca los libres del pool, que dirían cuánto trabajo traen las demás), y de los repos y cuentas
-  // aws solo los que expone (la legacy, todos). los candidatos de carpeta y el machine id, solo a la legacy: los
-  // comandos de repos son solo suyos y el id de una nueva saldrá derivado (M6.5).
+  // aws solo los que expone (la legacy, todos). los candidatos de carpeta, solo a la legacy: los comandos de repos son
+  // solo suyos. el machine id de una que no es la legacy sale derivado (machineIdFor, M6.5).
   private announce(sup: PlatformSupervisor): ClaimAnnounce {
     const legacy = sup.id === LEGACY_PLATFORM_ID;
     const expose = this.exposure(sup);
@@ -474,8 +591,8 @@ export class RunnerDaemon {
     const repos = Object.keys(this.cfg.repos).filter(seen(RESOURCE_TYPE.repo));
     const allRepos = expose[RESOURCE_TYPE.repo] === EXPOSE_ALL;
     return {
-      label: this.label(),
-      machineId: legacy ? (this.cfg.machineId ?? null) : null,
+      label: this.label(sup),
+      machineId: this.machineIdFor(sup),
       capabilities: this.capabilities(),
       slots: this.quota(sup),
       version: runnerVersion(),
@@ -501,7 +618,7 @@ export class RunnerDaemon {
     if (sup.keptWorktrees?.some((k) => k.runId === claim.run.id)) sup.keptWorktrees = sup.keptWorktrees.filter((k) => k.runId !== claim.run.id);
     if (this.stopping) lease.kill('shutdown');
     void this.executeRun(sup, claim, lease)
-      .catch((err) => console.error(`[runner] run ${lease.runId} reventó: ${(err as Error).message}`))
+      .catch((err) => console.error(`${this.tagOf(sup)} run ${lease.runId} reventó: ${(err as Error).message}`))
       .finally(() => {
         sup.leases.delete(lease);
         this.scheduler.release(sup.id);
@@ -551,7 +668,7 @@ export class RunnerDaemon {
     if (this.repoCommandsInFlight) return;
     this.repoCommandsInFlight = true;
     try {
-      const commands = await sup.platform.commands(this.label());
+      const commands = await sup.platform.commands(this.label(sup));
       if (!commands || commands.length === 0) return;
       const env = scrubEnv(process.env);
       // solo la legacy cambia el mapa de repos de la máquina, y solo si el usuario no lo apagó.
@@ -691,7 +808,7 @@ export class RunnerDaemon {
       if (!legacy || current) console.log(`[runner] plataforma ${id} → ${credential.baseUrl}${cfg.paused ? ' (en pausa)' : ''}`);
       return;
     }
-    if (current.state === PLATFORM_STATE.active && cfg.paused) {
+    if ((current.state === PLATFORM_STATE.active || current.state === PLATFORM_STATE.budget) && cfg.paused) {
       current.state = PLATFORM_STATE.paused;
       console.log(`[runner] plataforma ${id} en pausa: no reclama, sus runs siguen`);
     } else if (current.state === PLATFORM_STATE.paused && !cfg.paused) {
@@ -748,9 +865,9 @@ export class RunnerDaemon {
       const removed = collected.reduce((n, c) => n + c.removed, 0);
       // lo que se anuncia al server: recuentos por conversación, nunca paths (worktree_report).
       sup.keptWorktrees = collected.flatMap((c) => c.kept).sort((a, b) => compareRunIds(a.runId, b.runId));
-      if (removed > 0) console.log(`[runner] gc: ${removed} worktree(s) recogido(s)`);
+      if (removed > 0) console.log(`${this.tagOf(sup)} gc: ${removed} worktree(s) recogido(s)`);
     } catch (err) {
-      console.error(`[runner] gc de worktrees falló: ${(err as Error).message}`);
+      console.error(`${this.tagOf(sup)} gc de worktrees falló: ${(err as Error).message}`);
     }
   }
 
@@ -765,11 +882,12 @@ export class RunnerDaemon {
     return key !== null && map && Object.hasOwn(map, key) && isExposed(this.exposure(sup), type, key) ? map[key] : null;
   }
 
-  // deny de todo kit para un segmento de la plataforma: el run-config de todas (con estado en disco) y el scratch de
-  // las demás. por segmento: una plataforma añadida en caliente queda cubierta en el siguiente.
+  // deny de todo kit para un segmento de la plataforma: el run-config de todas (con estado en disco), el scratch de
+  // las demás y lo privado de las demás (su estado y su auditoría). por segmento: una plataforma añadida en caliente
+  // queda cubierta en el siguiente. con una sola plataforma, lo de las demás es vacío: el deny de siempre.
   private runDeny(sup: PlatformSupervisor): string[] {
     const configured = [...new Set([...Object.keys(this.platformsCfg), ...this.supervisors.keys()])];
-    return [...allRunConfigDirs().flatMap(runConfigDeny), ...otherScratchDeny(sup.id, configured)];
+    return [...allRunConfigDirs().flatMap(runConfigDeny), ...otherScratchDeny(sup.id, configured), ...otherPlatformsDeny(sup.id, configured)];
   }
 
   // latido del run desde el claim hasta el cierre: transporta el soft-cancel del server (y refresca
@@ -781,13 +899,13 @@ export class RunnerDaemon {
         .heartbeat(runId, seg)
         .then((verdict) => {
           if (!verdict.stop) return;
-          console.log(`[runner] run ${runId} ${verdict.reason}; deteniéndolo`);
+          console.log(`${this.tagOf(sup)} run ${runId} ${verdict.reason}; deteniéndolo`);
           lease.kill('cancel');
         })
         .catch((err: Error) => {
           // con los slots llenos el loop no reclama: el latido es quien se entera de que la credencial murió.
           if (err instanceof PlatformRejectedError) this.platformRejected(sup, err);
-          else console.error(`[runner] heartbeat del run ${runId} falló: ${err.message}`);
+          else console.error(`${this.tagOf(sup)} heartbeat del run ${runId} falló: ${err.message}`);
         });
     }, Math.max(MIN_HEARTBEAT_MS, heartbeatMs));
   }
@@ -797,8 +915,9 @@ export class RunnerDaemon {
   private async executeRun(sup: PlatformSupervisor, claim: ClaimResponse, lease: RunLease): Promise<void> {
     const { run } = claim;
     const tag = `run ${run.id}`;
+    const log = this.tagOf(sup);
     console.log(
-      `[runner] ${tag} reclamado (${run.kind}${run.profile ? `, perfil ${run.profile}` : ''}, entry ${run.entryId}${claim.tier ? `, tier ${claim.tier}` : ''}${run.repo ? `, repo ${run.repo}${run.branch ? `@${run.branch}` : ''}` : ''}${run.sessionId ? `, sesión ${run.sessionId}` : ''}${run.model ? `, modelo ${run.model}` : ''})`,
+      `${log} ${tag} reclamado (${run.kind}${run.profile ? `, perfil ${run.profile}` : ''}, entry ${run.entryId}${claim.tier ? `, tier ${claim.tier}` : ''}${run.repo ? `, repo ${run.repo}${run.branch ? `@${run.branch}` : ''}` : ''}${run.sessionId ? `, sesión ${run.sessionId}` : ''}${run.model ? `, modelo ${run.model}` : ''})`,
     );
     // env base del run: el del usuario saneado. el perfil aws de su cuenta (o la aws vacía de una cuenta sin
     // mapear, aws_strict) lo pone el recurso aws (resources/aws.ts) y se suelta al cerrar el segmento.
@@ -810,6 +929,14 @@ export class RunnerDaemon {
     // toolset_v1 en sombra: viaja en todo status de este segmento (nada si el claim no lo trajo).
     const shadow = this.toolsetShadow(sup, claim, tag);
     const withShadow = shadow !== null ? { toolsetShadow: shadow } : {};
+    // los recursos de un claim que manda con toolset_v1 (v0) son los de sus grants, ya validados contra el techo y
+    // la exposición (platforms/claim-v0.ts); los de uno legacy salen de sus campos.
+    const requests = claim.resources ?? legacyRequests(run);
+    const startedAt = Date.now();
+    this.audit.append(claimedRecord(this.auditSubject(sup), claim, { grants: requests, toolset: this.auditToolset(sup, claim), attestations: v0Announce(this.capabilities()).attestations }));
+    // el cierre del segmento en la auditoría (sin el texto del status: solo números, nombres y un código).
+    const audited = (c: { lockWaitMs: number; materialized: MaterializedRun['resources']; report: StatusReport; toolsByName: Record<string, number>; code: string | null }): void =>
+      this.audit.append(closedRecord(this.auditSubject(sup), claim, { startedAt, ...c }));
 
     let res: MaterializedRun;
     try {
@@ -817,14 +944,14 @@ export class RunnerDaemon {
       // legacy también: sin compatibilidad que guardar, una plataforma nueva no hereda la aws del usuario. uno
       // legacy de duckhunt, nunca.
       const isolate = claim.toolset !== null || sup.id !== LEGACY_PLATFORM_ID;
-      // los recursos de un claim que manda con toolset_v1 (v0) son los de sus grants, ya validados contra el techo y
-      // la exposición (platforms/claim-v0.ts); los de uno legacy salen de sus campos.
-      const plan = this.registry.plan(claim.resources ?? legacyRequests(run), (type, key) => this.refOf(sup, type, key), isolate);
+      const plan = this.registry.plan(requests, (type, key) => this.refOf(sup, type, key), isolate);
       res = await materializeRun(plan, { platform: sup.id, runId: run.id, env, gitLocks: this.gitLocks }, { dir: () => scratchDir(sup.id), exclusive: legacyScratchExclusive(run) });
     } catch (err) {
       clearInterval(heartbeat);
       await feed?.close();
-      await sup.platform.result(run.id, { status: 'failed', error: legacyResourceError(err), ...withShadow, ...seg });
+      const failed: StatusReport = { status: 'failed', error: legacyResourceError(err) };
+      audited({ lockWaitMs: 0, materialized: [], report: failed, toolsByName: {}, code: err instanceof ResourceUnavailableError ? AUDIT_OUTCOME.resourceUnavailable : AUDIT_OUTCOME.runnerError });
+      await sup.platform.result(run.id, { ...failed, ...withShadow, ...seg });
       return;
     }
     const ctx: FeedContext = {
@@ -835,19 +962,22 @@ export class RunnerDaemon {
       platformServer: claim.mcp.serverName,
     };
     const note = (text: string): void => {
-      console.log(`[runner] ${tag}: ${text}`);
+      console.log(`${log} ${tag}: ${text}`);
       feed?.push(systemEvent(text, ctx));
     };
     note(res.note);
     [...claim.warnings, ...res.warnings].forEach(note);
 
+    const lockStart = Date.now();
     const releaseLocks = await holdLocks(res.locks, this.cwdLocks, lease.killed, note);
+    const lockWaitMs = Date.now() - lockStart;
     // mcp-config con el token per-run (run-mcp-config.ts: 0600 en un directorio 0700; se borra al terminar).
     let mcpFile: string | null = null;
     let report: StatusReport;
+    let attempt: Attempt | null = null;
     try {
       mcpFile = writeRunMcpConfig(run.id, claim.mcp, sup.id, claim.extraMcp);
-      report = await this.runAttempts(sup, claim, lease, res, mcpFile, feed, ctx, note);
+      ({ report, attempt } = await this.runAttempts(sup, claim, lease, res, mcpFile, feed, ctx, note));
     } catch (err) {
       report = { status: 'failed', error: (err as Error).message };
     } finally {
@@ -860,8 +990,18 @@ export class RunnerDaemon {
     releaseLocks();
 
     await feed?.close();
+    audited({ lockWaitMs, materialized: res.resources, report, toolsByName: attempt?.stream.toolsByName ?? {}, code: outcomeCode(report.status, attempt && attemptFacts(attempt)) });
     await sup.platform.result(run.id, { ...report, ...withShadow, ...seg });
-    console.log(`[runner] ${tag} terminado (${report.status}${report.error ? `: ${report.error}` : ''})`);
+    console.log(`${log} ${tag} terminado (${report.status}${report.error ? `: ${report.error}` : ''})`);
+  }
+
+  // el toolset de un claim para la auditoría: el de un claim v0 tal como se aplicó (platforms/claim-v0.ts); el de uno
+  // legacy en sombra, cortado por el techo de la plataforma; sin toolset, null.
+  private auditToolset(sup: PlatformSupervisor, claim: ClaimResponse): ClaimedRecord['toolset'] {
+    if (claim.policyAudit) return { requested: toolsetSummary(claim.policyAudit.requested), effective: toolsetSummary(claim.policyAudit.effective), narrowed: claim.policyAudit.narrowed };
+    if (claim.toolsetShadow === null) return null;
+    const { toolset, narrowed } = intersectToolset(claim.toolsetShadow.toolset, this.platformsCfg[sup.id]?.ceiling ?? legacyPlatform().ceiling);
+    return { requested: toolsetSummary(claim.toolsetShadow.toolset), effective: toolsetSummary(toolset), narrowed };
   }
 
   // toolset_v1 en sombra de un claim (t#495, M5): su toolset ∩ el techo de la plataforma, renderizado y comparado
@@ -871,11 +1011,11 @@ export class RunnerDaemon {
     if (claim.toolsetShadow === null) return null;
     const ceiling = this.platformsCfg[sup.id]?.ceiling ?? legacyPlatform().ceiling;
     const { shadow, narrowed } = shadowOf(claim.toolsetShadow, ceiling, { mcpServerName: claim.mcp.serverName, awsCli: this.hasAws });
-    if (narrowed.length > 0) console.log(`[runner] ${tag}: toolset_v1 acotado por el techo de ${sup.id}: ${narrowed.join(', ')}`);
+    if (narrowed.length > 0) console.log(`${this.tagOf(sup)} ${tag}: toolset_v1 acotado por el techo de ${sup.id}: ${narrowed.join(', ')}`);
     if (!shadow.match) {
       const known = shadow.known.length > 0 ? ` (${shadow.known.join(', ')})` : '';
-      if (shadow.explained) console.log(`[runner] ${tag}: toolset_v1 en sombra: solo la diferencia buscada${known}`);
-      else console.warn(`[runner] ${tag}: toolset_v1 en sombra no casa con las listas del server${known}`);
+      if (shadow.explained) console.log(`${this.tagOf(sup)} ${tag}: toolset_v1 en sombra: solo la diferencia buscada${known}`);
+      else console.warn(`${this.tagOf(sup)} ${tag}: toolset_v1 en sombra no casa con las listas del server${known}`);
     }
     return shadow;
   }
@@ -891,7 +1031,7 @@ export class RunnerDaemon {
     feed: EventUploader | null,
     ctx: FeedContext,
     note: (text: string) => void,
-  ): Promise<StatusReport> {
+  ): Promise<{ report: StatusReport; attempt: Attempt }> {
     const { run } = claim;
     // settings leídos por run (pueden cambiar con el daemon vivo): lectura solo carga los de usuario y
     // espeja su shell y su escritura; un run de reglas carga todos y espeja su escritura; edición, nada.
@@ -905,7 +1045,7 @@ export class RunnerDaemon {
     // es un checkout: no se revisa). una vez por segmento: el reintento desde cero usa el mismo cwd.
     const shell = await readShellGuard(res.cwd.checkout ? res.cwd.dir : null, claim.tools, deny, res.env);
     if (shell.dropShell) {
-      console.warn(`[runner] run ${run.id}: shell de lectura fuera en este segmento: ${readShellLog(shell)}`);
+      console.warn(`${this.tagOf(sup)} run ${run.id}: shell de lectura fuera en este segmento: ${readShellLog(shell)}`);
       note(readShellNote(shell)!);
     }
     const args = (prompt: string, resumeSessionId: string | null): string[] =>
@@ -930,12 +1070,12 @@ export class RunnerDaemon {
     let attempt = await this.spawnClaude(sup, claim, lease, args(claim.prompt, resume), res, feed, ctx);
     let resumed: boolean | undefined = resume ? true : undefined;
     if (resume && attempt.killedBy === null && attempt.exitCode !== 0 && !attempt.stream.sawAssistant && claim.fallbackPrompt) {
-      console.log(`[runner] run ${run.id}: la sesión ${resume} no se pudo reanudar`);
+      console.log(`${this.tagOf(sup)} run ${run.id}: la sesión ${resume} no se pudo reanudar`);
       note('la sesión anterior no se pudo reanudar en este runner: reintento desde cero');
       attempt = await this.spawnClaude(sup, claim, lease, args(claim.fallbackPrompt, null), res, feed, ctx);
       resumed = false;
     }
-    return reportFor(attempt, resumed);
+    return { report: reportFor(attempt, resumed), attempt };
   }
 
   // spawnea claude en su propio grupo de procesos, consume stdout (stream-json → contadores + feed)
@@ -964,7 +1104,7 @@ export class RunnerDaemon {
         try {
           logFile = fs.openSync(path.join(logsDir(sup.id), `${runId}.jsonl`), 'a');
         } catch (err) {
-          console.error(`[runner] no se pudo abrir el log del run: ${(err as Error).message}`);
+          console.error(`${this.tagOf(sup)} no se pudo abrir el log del run: ${(err as Error).message}`);
         }
       }
 
@@ -1009,7 +1149,7 @@ export class RunnerDaemon {
       }, PROGRESS_TICK_MS);
 
       const timeout = setTimeout(() => {
-        console.log(`[runner] run ${runId} superó ${Math.round(claim.timeoutMs / 1000)}s; deteniendo claude`);
+        console.log(`${this.tagOf(sup)} run ${runId} superó ${Math.round(claim.timeoutMs / 1000)}s; deteniendo claude`);
         kill('timeout');
       }, Math.max(MIN_RUN_TIMEOUT_MS, claim.timeoutMs));
 
@@ -1037,6 +1177,6 @@ export class RunnerDaemon {
 
   // progreso del segmento: fuego y olvido (el siguiente envío lo corrige).
   private postProgress(sup: PlatformSupervisor, runId: string, toolCalls: number, seg: RunSegment, workdir?: string): void {
-    void sup.platform.progress(runId, toolCalls, seg, workdir).catch((err) => console.error(`[runner] progress falló: ${(err as Error).message}`));
+    void sup.platform.progress(runId, toolCalls, seg, workdir).catch((err) => console.error(`${this.tagOf(sup)} progress falló: ${(err as Error).message}`));
   }
 }

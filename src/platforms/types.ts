@@ -8,6 +8,7 @@
 //   del techo: es un invariante del daemon para toda plataforma.
 // - una plataforma nueva arranca sin nada expuesto y con el techo más bajo.
 // - shell:'full' solo en una plataforma marcada trusted (duckhunt y la local); el resto, como mucho 'read'.
+// - (M6.5/M6.6) etiqueta por plataforma y cuota diaria (coste y segmentos), contada en la auditoría local (audit.ts).
 // - (M6.3) protocolo, pausa y cuota de slots por plataforma. la legacy habla duckhunt-42 y tiene todo el pool; una
 //   nueva, PLATFORM_DEFAULT_SLOTS. un protocolo que este runner no habla deja la plataforma sin reclamar (con un
 //   aviso), nunca la config inválida: un runner más nuevo puede haberla escrito.
@@ -62,6 +63,19 @@ export interface PlatformConfig {
   // runs a la vez de esta plataforma, dentro del pool de la máquina (ausente: la legacy todo el pool, una nueva
   // PLATFORM_DEFAULT_SLOTS).
   slots?: number;
+  // (M6.5) etiqueta con la que se anuncia a esta plataforma (ausente: la de la máquina o su hostname).
+  label?: string;
+  // (M6.6) cuota diaria (día local), contada en su auditoría: coste en usd de sus runs y segmentos reclamados. al
+  // agotarla no reclama hasta medianoche. ausente = sin tope.
+  budgetUsdPerDay?: number;
+  runsPerDay?: number;
+}
+
+/** el emisor de una plataforma (su `issuer` del discovery, M6.4) o, sin él, la base de su credencial: lo que firma su
+ *  machine id derivado (machine.ts). el campo lo guarda el `login` de M6.4. */
+export function issuerOf(cfg: PlatformConfig | undefined, baseUrl: string): string {
+  const issuer = (cfg as { issuer?: unknown } | undefined)?.issuer;
+  return typeof issuer === 'string' && issuer ? issuer : baseUrl;
 }
 
 /** el techo de duckhunt: lo que su kit puede pedir hoy. */
