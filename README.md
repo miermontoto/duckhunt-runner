@@ -10,6 +10,10 @@ answers in the run's conversation in duckhunt, which reaches you as a push notif
 You can also start a run yourself: the *Agents* page in duckhunt is a chat with an agent running
 on this machine, in a checkout of one of your repos (see [Prompt runs](#prompt-runs)).
 
+From 0.13.0 the daemon can also take runs from other platforms that speak the same open protocol.
+duckhunt stays the built-in one, and nothing changes for it unless you add another (see
+[Platforms](#platforms-0130-or-later)).
+
 The server never sees your credentials, your filesystem paths or your git tokens. It only ever
 learns a repo's `workspace/slug` key and, optionally, an AWS account id — never where they live on
 disk. With the progress feed on, it also receives what the agent says and one line per tool call
@@ -28,9 +32,9 @@ disk. With the progress feed on, it also receives what the agent says and one li
 ## Setup
 
 ```sh
-npx duckhunt-runner@0.12.0 login
-npx duckhunt-runner@0.12.0 repos discover ~/dev
-npx duckhunt-runner@0.12.0 start
+npx duckhunt-runner@0.13.0 login
+npx duckhunt-runner@0.13.0 repos discover ~/dev
+npx duckhunt-runner@0.13.0 start
 ```
 
 Pin the version: the daemon runs `claude -p` with a shell on your machine, so install the release you
@@ -42,20 +46,30 @@ recommends). That is the whole thing. Step by step:
 | `login [base-url] [label]` | Connects the daemon to your account. Opens the browser, you paste the code back. Defaults to `https://duckhunt.info`; pass a URL for another instance (`https://` is assumed if you omit the scheme). Both arguments are optional — an argument that does not look like a URL is taken as the label, which distinguishes machines if you run more than one. A running daemon switches to the new credential before its next claim; one connected to another instance keeps it until you restart it. |
 | `repos discover [dir]` | Scans a directory for git checkouts and maps each one by its `origin` remote, so an agent can read the code behind an alarm. Add `--dry-run` to see what it would map. Only the `workspace/slug` key reaches the server. A repo checked out in more than one directory is listed but not mapped: pick one with `repos add`. |
 | `repos list\|add\|remove` | Manage that map by hand: `repos add <workspace/slug> <path>`. `list` and `add` show each repo's health warnings (see below). |
-| `aws add <accountId> <profile>` | Optional. Binds an AWS account id to a profile of your local AWS CLI, so the agent can read metrics, logs and resource state for that account. |
+| `aws add <accountId> <profile> [region]` | Optional. Binds an AWS account id to a profile of your local AWS CLI, so the agent can read metrics, logs and resource state for that account. |
 | `aws list\|remove` | Manage the AWS map. |
-| `status` | Reports whether a daemon is running, this machine's kit (Claude version, which credential it will use, AWS profiles and mapped repos) and what duckhunt last said about this machine (see [Machines](#machines-and-credentials)). Run this first when something does not work. |
-| `logout` | Unpairs this machine from duckhunt and deletes its credential from the config file (0.11.0 or later; see [Machines](#machines-and-credentials)). |
+| `resource list\|add\|remove\|check [repo\|aws]` | The same maps by resource type (0.13.0 or later): `repos` and `aws` are its `repo` and `aws` types, with the same output and exit codes (`resource discover repo` is `repos discover`). `resource add aws default <profile> [region]` maps the machine's default AWS identity (see [AWS accounts](#aws-accounts-0110-or-later)). `resource check` prints the repo warnings and exits 1 if one blocks runs. |
+| `status [--platforms]` | Reports whether a daemon is running, this machine's kit (Claude version, which credential it will use, AWS profiles and mapped repos) and what duckhunt last said about this machine (see [Machines](#machines-and-credentials)). Run this first when something does not work. `--platforms` shows each platform instead (see [Platforms](#platforms-0130-or-later)). |
+| `logout [id]` | Unpairs this machine from duckhunt and deletes its credential from the config file (0.11.0 or later; see [Machines](#machines-and-credentials)). With an id, does the same for another platform. |
+| `login <url> --as [id]`, `platforms …`, `audit …` | Add and manage other platforms, and read what each one ran here (0.13.0 or later; see [Platforms](#platforms-0130-or-later)). |
 | `start [--verbose]` | Starts the claim loop. |
 
 Configuration lives in `~/.duckhunt-runner.json`. It holds the base URL, the OAuth credential, this
-machine's id, the repo and AWS maps, and optional defaults (`model`, `maxBudgetUsd`, `maxConcurrent`). Set `DUCKHUNT_RUNNER_CONFIG` to use
+machine's id, the repo and AWS maps, and optional defaults (`model`, `maxBudgetUsd`, `maxConcurrent`, `auditRetentionDays`). Set `DUCKHUNT_RUNNER_CONFIG` to use
 another file (a second account, a test instance) and `DUCKHUNT_RUNNER_HOME` to move the state
 directory (`~/.duckhunt-runner`: the scratch directory, `--verbose` logs, the daemon lock, the
-per-run MCP configs and `server-state.json`, what duckhunt last said about this machine). `--version`
-prints the daemon version.
+per-run MCP configs and `server-state.json`, what duckhunt last said about this machine; from 0.13.0
+also `audit/` and `platforms/<id>/` for other platforms). `--version` prints the daemon version.
 
-The daemon does not need a restart after `login`, `repos`, `aws` or a hand edit of the file: it
+From 0.13.0 the same file can also hold `platforms` (other platforms and your settings for each, see
+[Platforms](#platforms-0130-or-later)), `resources` (resource types other than repos and AWS; none
+yet) and `version: 2`. These keys only appear once you use something that needs them, so a file
+without them is exactly what 0.12.0 wrote, and the duckhunt credential and the repo and AWS maps stay
+in their usual keys either way. An older daemon on the same file keeps working and leaves the new keys
+alone (daemons before 0.10.1 rewrite the whole file and drop them). A file with a `version` this daemon
+does not know is refused rather than half-read.
+
+The daemon does not need a restart after `login`, `repos`, `aws`, `resource`, `platforms` or a hand edit of the file: it
 rereads the config every few seconds, even while all its slots are busy. Each command, and the
 daemon itself when it rotates its token, rewrites only its own keys and replaces the file in one
 step, so nothing undoes another's change. If the file does not parse (a hand edit in progress), the
@@ -109,7 +123,7 @@ already does for this — a `screen`/`tmux` session, a systemd user service, `la
 Description=duckhunt runner
 
 [Service]
-ExecStart=/usr/bin/npx duckhunt-runner@0.12.0 start
+ExecStart=/usr/bin/npx duckhunt-runner@0.13.0 start
 Restart=always
 # 78: this machine was unpaired (or its credential expired); it needs a new `login`, not a restart.
 RestartPreventExitStatus=78
@@ -151,7 +165,14 @@ next call.
 
 When the credential is rejected (the machine was unpaired from duckhunt or with `logout`, or the
 credential was revoked or expired), the daemon stops claiming, stops its runs and exits with code
-**78** instead of retrying every few seconds. Run `login` again to pair it.
+**78** instead of retrying every few seconds. Run `login` again to pair it. With other platforms
+configured (0.13.0 or later), only the platform whose credential died stops, along with its runs; the
+daemon exits with 78 when none is left usable, and a new `login` brings that platform back without a
+restart.
+
+The machine's label is `label` from the config, or the hostname. From 0.13.0 a label longer than
+duckhunt accepts (100 characters) is clipped, and a blank one falls back to the hostname; before,
+duckhunt refused every claim with it.
 
 `status` prints what duckhunt said about this machine in the daemon's last claim, and how long ago:
 its name in duckhunt, whether it is paused, what it accepts, its slot cap, why it is not getting work
@@ -174,7 +195,9 @@ share on this machine takes turns: git operations on the same checkout (fetch, w
 creation and cleanup), conversations opened in the checkout itself, and prompt runs with the `edit`
 profile and no repo (they share the scratch directory). A run waiting for its turn
 still heartbeats and says so in its feed. The daemon reports its slot count, and Settings → Agents
-shows how many are in use. Never run two daemons on the same config file: the credential rotates on
+shows how many are in use. With other platforms (0.13.0 or later), `maxConcurrent` is the pool they
+all share, each one capped by its own `slots`, and a slot that frees up goes to the next waiting
+platform in turn. Never run two daemons on the same config file: the credential rotates on
 every refresh and duckhunt revokes it when it sees an old one again. `start` refuses a second daemon
 on the same state directory; raise one daemon's slots instead.
 
@@ -225,6 +248,13 @@ may belong to another account: the AWS CLI runs with empty config and credential
 (and no profile, no keys from the environment and no instance or container credentials), so every
 call fails, and the run's feed says which account to map. duckhunt already omits the AWS read
 patterns for an investigation whose account this machine does not announce; this is the second line.
+
+A run without an account keeps your environment's AWS setup, as before. From 0.13.0 you can also map
+the machine's default identity under the key `default`
+(`resource add aws default <profile> [region]`; `aws add` still takes only account ids). Nothing
+creates it for you, and duckhunt never sees it: only account ids are announced. It is there for
+platforms that ask for AWS by key (see [Platforms](#platforms-0130-or-later)), whose runs get no AWS at
+all unless they are granted a key you exposed to them.
 
 ## Prompt runs
 
@@ -308,7 +338,10 @@ directory (the logs, the lock, `server-state.json` and the run configs; not the 
 which is the working directory of runs without a repo), `$CLAUDE_CONFIG_DIR/.credentials.json`,
 `AWS_SHARED_CREDENTIALS_FILE` and `AWS_CONFIG_FILE` when they are set, and the real path behind any
 of the listed ones that is a symlink (dotfiles). A path that a Claude permission rule cannot express
-(commas, brackets, wildcards) is skipped with a warning at startup.
+(commas, brackets, wildcards) is skipped with a warning at startup. From 0.13.0 that includes the
+audit directory (from the first start after it exists), and every run is also denied the state of the
+other platforms: their logs, run configs, `server-state.json`, audit and scratch directory,
+including a platform added while the daemon runs (from its next step).
 
 Checked with Claude Code 2.1.296: `Read`, `Grep` and `Glob` honour these deny rules, through symlinks
 and in recursive searches. The read-only shell approves nothing outside its working directory, and
@@ -414,11 +447,136 @@ for your home; a file opened outside the worktree shows only its name) and anyth
 a secret (AWS keys, GitHub, Slack, Atlassian, Bitbucket and Anthropic tokens, credentials in a remote
 URL, `password=`/`token=`-style assignments, `Bearer` headers, private keys) is masked before it
 leaves the machine, also in the final result, error and stderr; the server masks it again. Set *progress feed* to *counter only* in Settings → Agents to send just the
-tool-call count.
+tool-call count. From 0.13.0, what the agent types or evaluates in a tool that is not the platform's
+own (the `value` of a form fill, a script it runs in a page) shows only its length, and a URL shows
+only its origin and path, never its query or fragment.
 
 The daemon also strips variables of the Claude Code session it may have been started from
 (`CLAUDECODE`, `CLAUDE_CODE_SESSION_ID`…), empty `ANTHROPIC_*` values and a dead `SSH_AUTH_SOCK` from
 the environment of each run, and disables git's terminal prompts.
+
+## Platforms (0.13.0 or later)
+
+duckhunt is the built-in platform: `login` and `logout` without an id are still the duckhunt ones,
+and it keeps its current protocol (`duckhunt-42`) even against a duckhunt that already publishes the
+new one. Other platforms speak `agent-runner/0`, an open protocol they describe at
+`/.well-known/agent-runner`. Each one gets its own credential, its own state directory and its own
+worktrees (`<checkout>/.runner/worktrees/<id>/`), and sees only what you expose to it.
+
+### Adding one
+
+```sh
+npx duckhunt-runner@0.13.0 login https://platform.example --as acme --name "Acme"
+```
+
+`login <url> --as [id] [--name <name>] [--trusted]` reads the platform's discovery document and its
+OAuth metadata, registers this machine, and asks you to open a URL and paste the code back, like the
+duckhunt `login`. Every OAuth endpoint has to be on the platform's own origin, the platform has to
+serve HTTPS (plain HTTP only on localhost, for development) and support PKCE `S256`; otherwise
+nothing is sent. Without a value, `--as` derives the id from the platform's host. `duckhunt` and
+`local` are reserved. Logging in again with the same id and the same platform renews the credential
+and keeps everything you set for it; an id already used by another platform is refused.
+
+A platform without a discovery document can only be added with `--trusted`: it then speaks the
+duckhunt protocol, in which this machine cannot apply your limits (see below).
+
+A new platform starts with nothing exposed, one slot and the lowest ceiling: no shell, no edits, no
+memory, no web, no push and no access to any resource. It can still call its own MCP tools
+(`platformTools: "*"`), which only ever reach that platform. To let it work on a repo, expose the key
+*and* give the type an `access` level in its ceiling, by editing the config file (example below). A
+running daemon picks it up within a few seconds.
+
+| Command | What it does |
+| --- | --- |
+| `platforms list` | Every platform with its protocol, server, whether it is trusted, paused, its slots and what it can see. Never contacts a server. |
+| `platforms pause\|resume <id>` | Stop or resume claiming; runs in progress finish. |
+| `platforms expose\|unexpose <id> <type> <key\|*>` | What it can see of this machine: `repo` keys and `aws` keys you mapped, or `*` for all of a type, including those you map later. |
+| `platforms trust\|untrust <id>` | Whether it may get a full shell (see below). `untrust` lowers a full-shell ceiling to the read-only shell. |
+| `platforms remove <id>` | Unpairs it on its server and deletes its entry. Its directories stay, since they may hold work, and the command prints where. |
+| `logout <id>` | Unpairs it and deletes only its credential. |
+
+duckhunt can be paused and its exposure edited (by default it sees every repo and AWS account, as
+before), but not removed or untrusted: `logout` unpairs it.
+
+### What a platform may do
+
+What a run can do is what the platform asks for, intersected with the ceiling you set for that
+platform in the config file:
+
+```json
+{
+  "platforms": {
+    "acme": {
+      "expose": { "repo": ["acme/api"] },
+      "ceiling": { "shell": "read", "fsWrite": false, "memory": false, "web": true, "vcsPush": false, "access": { "repo": "read" }, "platformTools": "*" },
+      "slots": 1,
+      "runsPerDay": 20
+    }
+  }
+}
+```
+
+For an `agent-runner/0` platform, this daemon enforces it. It builds the Claude tool lists itself from
+the platform's request cut down to the ceiling, never from lists the platform sends, and a `read`
+run never edits or gets a full shell. A resource is only materialized when the platform asks for it,
+you exposed that key to it, and its type has an `access` level in the ceiling. A run without an AWS
+grant gets an empty AWS config. A claim that asks for an unknown resource type, a key you did not
+expose, a type the ceiling does not allow, or a policy field this daemon does not know is refused and
+reported as failed, with a code and no paths. Its MCP servers have to be on the platform's own
+origin, so a platform cannot point a run at another host or at a service on your machine.
+
+`shell: "full"` is only allowed for platforms you marked `trusted` (`login --trusted` or
+`platforms trust`); the config is invalid otherwise. A second platform that speaks the duckhunt
+protocol only runs when trusted, because on that protocol the ceiling cannot be applied.
+
+**Quotas.** `slots` (1 by default) caps its runs within `defaults.maxConcurrent`. `budgetUsdPerDay`
+and `runsPerDay` cap a local day, counted from the [audit](#status-and-audit); once reached, the
+platform stops claiming until midnight while the others carry on. On a Claude subscription the cost
+is the one Claude reports, not what you are billed.
+
+**Identity.** Each platform other than duckhunt is announced a machine id derived from a secret
+stored in the config file (`machineSecret`) and the platform's address, so two platforms cannot tell
+they share a machine by its id. duckhunt keeps its id. `label` under a platform overrides the label it
+sees.
+
+### Isolation between platforms
+
+Kept apart: credentials (each refresh writes only its own), run configs with their tokens, scratch
+directories, worktrees, logs, `server-state.json` and audit files. Every run's `Read` deny covers the
+other platforms' state.
+
+Not kept apart:
+
+- A full shell. `Read` denies do not bind `Bash`, so an `edit` run can read this config file, which
+  holds every platform's refresh token, and the tokens of runs in other slots. Only give
+  `shell: "full"` to platforms you trust; that is what the `trusted` flag is for.
+- Claude's native memory is stored by directory, so runs of different platforms in the same repo, and
+  your own sessions there, share it. Leave `memory` off in a ceiling to keep a platform out of it.
+- A platform can notice the machine is busy when its claims stop being served, though not by whom.
+
+### Status and audit
+
+`status --platforms` shows each platform: protocol, credential, local state (active, paused, out of
+its daily quota…), what its server last said and when, quota use, a summary of its ceiling, what it
+can see with the health of those repos, and its audit for the last 24 hours. Like `status`, it never
+contacts a server; plain `status` prints what it always did.
+
+The daemon keeps an audit of every platform's runs, duckhunt's included, in
+`~/.duckhunt-runner/audit/<id>/YYYY-MM.jsonl` (files `0600`): one line when a run is claimed, one when
+a claim is refused (with its code) and one when each step closes. It records ids, times, resource
+keys and access levels, MCP server names, the model, tool names with their counts, cost, the outcome
+and a SHA-256 of the prompt. It never records the prompt, results, tool arguments, paths or tokens.
+A month's file is deleted once that month ended more than `defaults.auditRetentionDays` (180) ago,
+and each platform keeps at most 50 MB, oldest months first, never the current one.
+`audit [--platform <id>] [--since 7d|<date>] [--json]` prints it (the last 7 days by default).
+
+### Comparing policies with duckhunt
+
+0.13.0 announces `toolset_v1`. duckhunt then sends each run's permissions in the platform-neutral form
+as well, and the daemon builds its own tool lists from them and reports in each step's status
+whether they match duckhunt's. Runs still launch with duckhunt's lists: nothing changes in what an
+agent can do. The one expected difference is a `read` run without an announced AWS account, which
+today gets the AWS read patterns with your default identity and in the new form gets none.
 
 ## Licence
 
