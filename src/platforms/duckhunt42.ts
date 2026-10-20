@@ -12,6 +12,7 @@ import { claimRunId, parseClaim } from '../claim.js';
 import type { SeqEvent } from '../event-uploader.js';
 import { parseRepoCommands, type RepoCommand, type RepoCommandResult } from '../repo-commands.js';
 import { chunk } from '../resources/repo/gc.js';
+import { RESOURCE_TYPE } from '../resources/types.js';
 import { isLegacyRunId, legacyWireRunId } from '../run-id.js';
 import { CLAIM_OUTCOME, parseRunnerBlock } from '../server-state.js';
 import { clampReport, type StatusReport } from '../status-report.js';
@@ -93,6 +94,13 @@ export class Duckhunt42Platform implements Platform {
         ...(a.kept ? { keptWorktrees: a.kept.filter((k) => isLegacyRunId(k.runId)).map((k) => ({ ...k, runId: legacyWireRunId(k.runId) })) } : {}),
         // al final: lo de antes no cambia de orden.
         ...(a.awsDefault !== null ? { awsDefault: a.awsDefault } : {}),
+        // las sesiones de navegador expuestas (LegacyClaimResources del protocolo, t#495 M7): sin ninguna, nada.
+        ...(a.browsers
+          ? {
+              resources: [{ type: RESOURCE_TYPE.browser, keys: [...a.browsers.keys] }],
+              ...(a.browsers.health.length > 0 ? { health: a.browsers.health.map((h) => ({ type: RESOURCE_TYPE.browser, key: h.key, kind: h.kind })) } : {}),
+            }
+          : {}),
       });
     } catch (err) {
       if (err instanceof PlatformRejectedError) throw err;

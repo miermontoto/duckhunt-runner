@@ -13,7 +13,8 @@
 //   implícita: un run SIN cuenta la recibe solo si la máquina la anuncia (read en uno de lectura con la aws en
 //   lectura, full con Bash entero). sin ella, la única diferencia buscada con las listas legacy, que dan la aws en
 //   lectura a un run de lectura sin cuenta (TOOLSET_SHADOW_KNOWN.awsWithoutGrant). una cuenta que la máquina no
-//   anuncia nunca cae en `default` (aws_strict).
+//   anuncia nunca cae en `default` (aws_strict). una sesión de navegador (t#495, M7) solo si la máquina anuncia la
+//   capability `browser` y esa clave: la que la persona eligió para el run, con el acceso que deja su política.
 // - flip (t#495, M5): un daemon que anuncia además `toolset_render` lanza el run con su render; las listas de `tools`
 //   siguen viajando y son la entrada de su comparación (el mismo toolsetShadow, mirado al revés).
 // - explained: el daemon dice si la diferencia es SOLO la buscada, calculado sobre el diff entero (el que viaja va
@@ -39,10 +40,12 @@ export const GRANT_ACCESS = {
 } as const;
 export type GrantAccess = (typeof GRANT_ACCESS)[keyof typeof GRANT_ACCESS];
 
-/** tipos de recurso que concede el server hoy (el daemon conoce más: browser…). */
+/** tipos de recurso que concede el server (el daemon puede conocer más). browser = una sesión de navegador guardada
+ *  que la máquina anuncia (resources.ts), solo a un daemon con la capability `browser` (t#495, M7). */
 export const GRANT_TYPE = {
   repo: 'repo',
   aws: 'aws',
+  browser: 'browser',
 } as const;
 
 /** un recurso de la máquina que el run puede usar: su tipo, la clave que el daemon anunció y el acceso (read si falta). */

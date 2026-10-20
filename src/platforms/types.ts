@@ -89,7 +89,9 @@ export const LEGACY_CEILING: ToolsetCeiling = {
   memory: true,
   web: true,
   vcsPush: true,
-  access: { [RESOURCE_TYPE.repo]: ACCESS.full, [RESOURCE_TYPE.aws]: ACCESS.full },
+  // browser (t#495, M7): lo que su política deje; lo que ve lo decide la exposición, que no lleva sesiones de navegador
+  // hasta que el usuario las expone (`platforms expose duckhunt browser <clave>`).
+  access: { [RESOURCE_TYPE.repo]: ACCESS.full, [RESOURCE_TYPE.aws]: ACCESS.full, [RESOURCE_TYPE.browser]: ACCESS.full },
   platformTools: EXPOSE_ALL,
 };
 

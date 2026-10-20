@@ -1,5 +1,5 @@
 {
-  "version": "0.4.0",
+  "version": "0.5.0",
   "files": {
     "claim-kits/lifecycle-prompt-read.json": "981fbae74202e3dc3ab603066d65205d723f5a94cd6b34c80e3b5c56f7077a59",
     "claim-kits/lifecycle-template.json": "cba448a3000f183672a5aeeb8fea171f27b73c8db1eb50809aca1800bbf01533",
@@ -337,6 +337,9 @@
     "v0/template-timeout-1h.json": "207507348e1f47f1d1420dc4978560aae6f3e54dc989122cfd0e86712ce4906d",
     "v0/template-world-after-yes.json": "c822bbf1ae7bb75299ec7b08b1aede1b0133af1c8aef7d8d57746fed1e3af613",
     "v0/template-world-commentjira.json": "999bb13cc39c9f5eaa3fd93a191d06b03d6a67b8aae80f8acc1fabc92a8410db",
-    "v0/template-world-read-only.json": "291a1f2b49a236a16fa30559fc6bfe4d3ac88b176dafe5efb24b507ef194e034"
+    "v0/template-world-read-only.json": "291a1f2b49a236a16fa30559fc6bfe4d3ac88b176dafe5efb24b507ef194e034",
+    "claims-browser/prompt-edit-browser-full.json": "41dce9b0ed0d7e2ecc1136b4b185d5591b93bb45219c23cf39a7b0ed5fa182ed",
+    "claims-browser/prompt-read-browser-interact.json": "91bdc81a639d893d7f4fe7b25f72ed809c5474f2bb85f2984763d647b690b318",
+    "claims-browser/prompt-read-browser-read.json": "f80efde267be57587e51ca7937ad9c62c472d0939f60dccdef74675cec3b6a13"
   }
 }

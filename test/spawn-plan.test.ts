@@ -80,7 +80,9 @@ function makeOrigin(name: string, links: Record<string, string> = {}): string {
 
 // `claude` falso: --version/--help como el de verdad (todos los flags opcionales); un run anota lo que recibe en
 // <case>/spawns.jsonl (el case es el primer padre del mcp-config con la config del caso) y contesta un stream-json mínimo. el prompt puede
-// pedir esperar a un fichero (HOLD:<f>) o fallar (FAIL); --resume gone simula una sesión que no está.
+// pedir esperar a un fichero (HOLD:<f>) o fallar (FAIL); --resume gone simula una sesión que no está. con una sesión de
+// navegador en el mcp-config (res_browser_*, t#495 M7) anota la copia que recibe y le añade una cookie, como odysea al
+// guardar un token rotado (sin ella, lo de siempre).
 function writeFakeClaude(): void {
   const script = `#!${process.execPath}
 const fs = require('node:fs');
@@ -91,7 +93,14 @@ if (args[0] === '--help') { console.log(${JSON.stringify(OPTIONAL_FLAGS.join('\n
 const mcpFile = args[args.indexOf('--mcp-config') + 1];
 let caseDir = path.dirname(mcpFile);
 while (!fs.existsSync(path.join(caseDir, 'runner.json'))) caseDir = path.dirname(caseDir);
-fs.appendFileSync(path.join(caseDir, 'spawns.jsonl'), JSON.stringify({ argv: args, cwd: process.cwd(), env: process.env, mcp: fs.readFileSync(mcpFile, 'utf8') }) + '\\n');
+const browsers = Object.entries(JSON.parse(fs.readFileSync(mcpFile, 'utf8')).mcpServers).filter(([name]) => name.startsWith('res_browser_'));
+const copies = browsers.map(([name, s]) => ({ name, state: JSON.parse(fs.readFileSync(s.env.ODYSEA_STATE_FILE, 'utf8')) }));
+browsers.forEach(([, s]) => {
+  const st = JSON.parse(fs.readFileSync(s.env.ODYSEA_STATE_FILE, 'utf8'));
+  st.cookies.push({ name: 'rotated', value: 'nuevo', domain: 'acme.atlassian.net', path: '/', expires: -1 });
+  fs.writeFileSync(s.env.ODYSEA_STATE_FILE, JSON.stringify(st));
+});
+fs.appendFileSync(path.join(caseDir, 'spawns.jsonl'), JSON.stringify({ argv: args, cwd: process.cwd(), env: process.env, mcp: fs.readFileSync(mcpFile, 'utf8'), ...(copies.length > 0 ? { copies } : {}) }) + '\\n');
 const prompt = args[args.length - 1];
 const resume = args.includes('--resume') ? args[args.indexOf('--resume') + 1] : null;
 const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
@@ -136,6 +145,7 @@ interface DaemonInternals extends Harness {
   claude: ClaudeInfo;
   secretDeny: string[];
   hasAws: boolean;
+  refreshBrowserHealth(force?: boolean): Promise<void>;
 }
 
 const fixtureCases = (): Case[] =>
@@ -305,7 +315,9 @@ async function runCase(c: Case): Promise<unknown> {
   process.env.DUCKHUNT_RUNNER_HOME = home;
   const d = internals(loadConfig()!) as DaemonInternals;
   await d.reloadConfig();
-  // lo que hace run() al arrancar, sin el loop ni las señales.
+  // lo que hace run() al arrancar, sin el loop ni las señales: también la salud de las sesiones de navegador (sin
+  // ninguna configurada, nada: ni se busca odysea).
+  await d.refreshBrowserHealth(true);
   d.claude = claude;
   d.hasAws = c.awsCli === true;
   allRunConfigDirs().forEach(runConfigDeny);
@@ -571,14 +583,21 @@ test('flip: un grant que el daemon no puede cumplir rechaza el claim con su cód
   t.mock.method(console, 'warn', () => {});
   t.mock.method(console, 'error', () => {});
   const base = toolsetFx('prompt-read-full');
-  // un tipo que el daemon aún no sirve en un run (browser hasta M7 fase 2): nunca se quita en silencio.
+  // un tipo que el daemon no sirve en un run: nunca se quita en silencio.
+  const unknown = (await runCase({
+    name: 'flip/unknown-grant',
+    raw: withRun(kit('prompt-read-full'), { id: 966 }, { toolset: { ...base, grants: [...base.grants, { type: 'kube', key: 'prod', access: 'read' }] } }),
+  })) as FlipPlan;
+  assert.equal(unknown.spawns.length, 0);
+  assert.equal(statusOf(unknown, 966).status, 'failed');
+  assert.match(String(statusOf(unknown, 966).error), /^claim rechazado por el runner \(resource_type_unknown: grant de kube/);
+  // una sesión de navegador (t#495, M7) que el usuario no expone a duckhunt: su exposición de siempre no las lleva.
   const browser = (await runCase({
-    name: 'flip/browser-grant',
-    raw: withRun(kit('prompt-read-full'), { id: 966 }, { toolset: { ...base, grants: [...base.grants, { type: 'browser', key: 'jira', access: 'read' }] } }),
+    name: 'flip/browser-not-exposed',
+    raw: withRun(kit('prompt-read-full'), { id: 968 }, { toolset: { ...base, grants: [...base.grants, { type: 'browser', key: 'jira', access: 'read' }] } }),
   })) as FlipPlan;
   assert.equal(browser.spawns.length, 0);
-  assert.equal(statusOf(browser, 966).status, 'failed');
-  assert.match(String(statusOf(browser, 966).error), /^claim rechazado por el runner \(resource_type_unknown: grant de browser/);
+  assert.match(String(statusOf(browser, 968).error), /^claim rechazado por el runner \(resource_not_exposed: grant de browser jira/);
   // una clave que el usuario no expone a duckhunt.
   const hidden = (await runCase({
     name: 'flip/repo-not-exposed',
@@ -587,4 +606,125 @@ test('flip: un grant que el daemon no puede cumplir rechaza el claim con su cód
   })) as FlipPlan;
   assert.equal(hidden.spawns.length, 0);
   assert.match(String(statusOf(hidden, 967).error), /^claim rechazado por el runner \(resource_not_exposed: grant de repo /);
+});
+
+// --- sesiones de navegador (t#495, M7): fuera del golden ---
+
+const BROWSER_KEY = 'jira';
+const BROWSER_ORIGIN = 'https://acme.atlassian.net';
+// lo que guarda el vault: la cookie de la sesión y una de otro sitio que la copia del run nunca lleva.
+const VAULT_STATE = {
+  cookies: [
+    { name: 'sid', value: 's1', domain: 'acme.atlassian.net', path: '/', expires: -1 },
+    { name: 'other', value: 'x', domain: 'evil.test', path: '/', expires: -1 },
+  ],
+  origins: [],
+};
+type BrowserSpawn = Spawn & { copies?: { name: string; state: { cookies: { name: string; domain: string }[] } }[] };
+
+// odysea falso (solo --version: el run no lo lanza, lo lanzaría claude).
+function fakeOdysea(): string {
+  const file = path.join(root, 'odysea-bin', 'odysea');
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `#!${process.execPath}\nif (process.argv[2] === '--version') console.log('0.5.0');\n`, { mode: 0o755 });
+  return file;
+}
+
+// la config del caso con la sesión `jira` (exclusiva o no) expuesta a duckhunt, su vault y el odysea falso.
+const withBrowser =
+  (exclusive: boolean) =>
+  (c: RunnerConfig, dir: string): RunnerConfig => {
+    const vault = path.join(dir, 'vault');
+    fs.mkdirSync(vault, { recursive: true, mode: 0o700 });
+    fs.writeFileSync(path.join(vault, `${BROWSER_KEY}.json`), JSON.stringify(VAULT_STATE), { mode: 0o600 });
+    return {
+      ...c,
+      version: 2,
+      resources: { browser: { [BROWSER_KEY]: { session: BROWSER_KEY, origins: [BROWSER_ORIGIN], ...(exclusive ? { exclusive: true } : {}) } } },
+      providers: { browser: { bin: fakeOdysea(), vaultDir: vault } },
+      platforms: { duckhunt: { expose: { repo: '*', aws: '*', browser: '*' } } },
+    } as unknown as RunnerConfig;
+  };
+
+const browserFx = (name: string): Record<string, unknown> =>
+  JSON.parse(fs.readFileSync(new URL(`claims-browser/${name}.json`, FIXTURES), 'utf8')) as Record<string, unknown>;
+const caseDir = (name: string): string => path.join(root, 'cases', name.replace(/[^a-z0-9]+/gi, '-'));
+const browserSpawns = (name: string): BrowserSpawn[] =>
+  fs.readFileSync(path.join(caseDir(name), 'spawns.jsonl'), 'utf8').trim().split('\n').map((l) => JSON.parse(l) as BrowserSpawn);
+const flagValue = (argv: string[], flag: string): string[] => (argv[argv.indexOf(flag) + 1] ?? '').split(',');
+const vaultCookies = (name: string): string[] =>
+  (JSON.parse(fs.readFileSync(path.join(caseDir(name), 'vault', `${BROWSER_KEY}.json`), 'utf8')) as typeof VAULT_STATE).cookies.map((c) => c.name);
+
+test('navegador: la sesión llega al run como su servidor mcp, con la copia filtrada, las tools de su acceso y `session` negada', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  t.mock.method(console, 'warn', () => {});
+  t.mock.method(console, 'error', () => {});
+  const name = 'browser/read-shared';
+  const plan = (await runCase({ name, raw: browserFx('prompt-read-browser-read'), cfg: withBrowser(false) })) as { runs: Record<string, { status: string[] }>; left: { runConfig: string[] } };
+  const [spawn] = browserSpawns(name);
+  assert.ok(spawn, 'claude se lanzó');
+  const server = (JSON.parse(spawn.mcp) as { mcpServers: Record<string, { type: string; command: string; env: Record<string, string> }> }).mcpServers[`res_browser_${BROWSER_KEY}`];
+  assert.ok(server, 'el servidor de la sesión en el mcp-config');
+  assert.equal(server.type, 'stdio');
+  assert.equal(server.command, path.join(root, 'odysea-bin', 'odysea'));
+  assert.deepEqual(
+    { origins: server.env.ODYSEA_ALLOWED_ORIGINS, session: server.env.ODYSEA_SESSION_TOOL, autosave: server.env.ODYSEA_AUTOSAVE_MS },
+    { origins: BROWSER_ORIGIN, session: '0', autosave: undefined },
+    'sin exclusiva no se autoguarda',
+  );
+  assert.deepEqual(spawn.copies?.[0]?.state.cookies.map((c) => c.name), ['sid'], 'la copia del run, filtrada a sus orígenes');
+  const allowed = flagValue(spawn.argv, '--allowedTools');
+  assert.ok(allowed.includes(`mcp__res_browser_${BROWSER_KEY}__navigate`) && allowed.includes(`mcp__res_browser_${BROWSER_KEY}__dom_snapshot`), 'las de lectura');
+  assert.ok(!allowed.includes(`mcp__res_browser_${BROWSER_KEY}__click`) && !allowed.includes(`mcp__res_browser_${BROWSER_KEY}__evaluate`), 'nada de interact ni full en read');
+  assert.ok(flagValue(spawn.argv, '--disallowedTools').includes(`mcp__res_browser_${BROWSER_KEY}__session`), 'session, negada');
+  assert.equal(JSON.parse(plan.runs[String((browserFx('prompt-read-browser-read').run as { id: number }).id)]!.status[0]!).status, 'done');
+  assert.deepEqual(plan.left.runConfig.filter((f) => f.startsWith('browser-')), [], 'la copia se tira al cerrar');
+  assert.deepEqual(vaultCookies(name).sort(), ['other', 'sid'], 'sin exclusiva no vuelve nada al vault');
+});
+
+test('navegador: una sesión exclusiva devuelve al vault lo que el run cambió; el vault, negado a un kit de edición', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  t.mock.method(console, 'warn', () => {});
+  t.mock.method(console, 'error', () => {});
+  const name = 'browser/edit-exclusive';
+  await runCase({ name, raw: browserFx('prompt-edit-browser-full'), cfg: withBrowser(true) });
+  const [spawn] = browserSpawns(name);
+  assert.ok(spawn);
+  const server = (JSON.parse(spawn.mcp) as { mcpServers: Record<string, { env: Record<string, string> }> }).mcpServers[`res_browser_${BROWSER_KEY}`]!;
+  assert.ok(server.env.ODYSEA_AUTOSAVE_MS, 'exclusiva: odysea autoguarda la copia');
+  const allowed = flagValue(spawn.argv, '--allowedTools');
+  assert.ok(allowed.includes(`mcp__res_browser_${BROWSER_KEY}__evaluate`), 'full en edición');
+  // el vault en el deny de un kit de edición (no solo en los de lectura).
+  const vault = path.join(caseDir(name), 'vault');
+  assert.ok(flagValue(spawn.argv, '--disallowedTools').some((r) => r.startsWith('Read(/') && r.includes(`${fs.realpathSync(vault)}/**`)), 'el vault, negado a Read en edición');
+  assert.deepEqual(vaultCookies(name).sort(), ['other', 'rotated', 'sid'], 'lo que el run guardó vuelve al vault; lo de otros sitios del vault se queda');
+});
+
+test('navegador: una sesión que no sirve (caducada) hace fallar el run sin lanzarlo; una sin mapear, degrada', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  t.mock.method(console, 'warn', () => {});
+  t.mock.method(console, 'error', () => {});
+  const expired = { ...VAULT_STATE, cookies: [{ name: 'sid', value: 's1', domain: 'acme.atlassian.net', path: '/', expires: 1 }] };
+  const raw = browserFx('prompt-read-browser-read');
+  const runId = (raw.run as { id: number }).id;
+  const plan = (await runCase({
+    name: 'browser/expired',
+    raw,
+    cfg: (c, dir) => {
+      const cfg = withBrowser(false)(c, dir);
+      fs.writeFileSync(path.join(dir, 'vault', `${BROWSER_KEY}.json`), JSON.stringify(expired));
+      return cfg;
+    },
+  })) as { spawns: unknown[]; runs: Record<string, { status: string[] }> };
+  assert.equal(plan.spawns.length, 0, 'no se lanza');
+  assert.match(JSON.parse(plan.runs[String(runId)]!.status[0]!).error, /^no se pudo preparar el run: recurso browser jira no disponible \(expired\)/);
+  // la sesión expuesta pero sin entrada en la config de esta máquina: el run sigue sin navegador, con su aviso.
+  const unmapped = (await runCase({
+    name: 'browser/unmapped',
+    raw,
+    cfg: (c) => ({ ...c, version: 2, platforms: { duckhunt: { expose: { repo: '*', aws: '*', browser: '*' } } } }) as unknown as RunnerConfig,
+  })) as { spawns: { mcp: string }[]; runs: Record<string, { feed: { body: string }[] }> };
+  assert.equal(unmapped.spawns.length, 1);
+  assert.ok(!unmapped.spawns[0]!.mcp.includes('res_browser_'));
+  assert.ok(unmapped.runs[String(runId)]!.feed.some((e) => e.body.includes('no mapeada en este runner')));
 });

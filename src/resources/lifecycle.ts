@@ -11,6 +11,10 @@
 //   cruz), esperando con el run vivo: un run cancelado mientras espera deja de esperar y suelta lo que le llegue.
 // - soltar: al revés del orden de materialización, cada recurso en su try/catch (uno que falla no deja a los
 //   demás sin soltar).
+// - mcp (t#495, M7): con los turnos tomados, `mcp()` prepara el servidor de cada recurso de la fase mcp
+//   (res_<tipo>_<clave>) con sus tools ya con prefijo (mcp__res_<tipo>_<clave>__<tool>): las que el run puede llamar
+//   al allow y las que se le niegan al deny. si uno falla, lanza ResourceUnavailableError y el daemon suelta todo con
+//   `aborted` sin lanzar el run.
 
 import path from 'node:path';
 import type { KeyedMutex } from '../keyed-mutex.js';
@@ -23,6 +27,7 @@ import {
   ResourceUnavailableError,
   UNAVAILABLE_KIND,
   type Materialized,
+  type McpServerEntry,
   type Phase,
   type ReleaseOutcome,
   type ResourceLock,
@@ -50,6 +55,21 @@ export interface MaterializedSummary {
   isolated: boolean;
 }
 
+/** los servidores mcp de los recursos de un run (por nombre) y sus tools con prefijo. */
+export interface RunMcp {
+  servers: Readonly<Record<string, McpServerEntry>>;
+  allowed: string[];
+  deny: string[];
+}
+
+// prefijo de los servidores mcp de los recursos: ninguna plataforma puede usarlo (platforms/claim-v0.ts).
+const RESOURCE_SERVER_PREFIX = 'res_';
+const MCP_TOOL_PREFIX = 'mcp__';
+const MCP_TOOL_SEPARATOR = '__';
+
+/** el nombre del servidor mcp de un recurso en el run. */
+export const resourceServerName = (type: string, key: string): string => `${RESOURCE_SERVER_PREFIX}${type}_${key}`;
+
 /** los recursos de un run, juntos. */
 export interface MaterializedRun {
   cwd: RunCwd;
@@ -58,6 +78,8 @@ export interface MaterializedRun {
   warnings: string[];
   locks: ResourceLock[];
   resources: MaterializedSummary[];
+  // los servidores mcp de los recursos, con los turnos ya tomados (ver cabecera).
+  mcp(): Promise<RunMcp>;
   release(outcome: ReleaseOutcome): Promise<void>;
 }
 
@@ -105,8 +127,9 @@ async function materializeSteps(plan: readonly PlannedResource[], ctx: RunContex
       const m = await (request ? provider.materialize(request, ref, stepCtx) : provider.isolate!(stepCtx)).catch((err: unknown) => {
         throw err instanceof ResourceUnavailableError ? err : new ResourceUnavailableError(provider.type, key, UNAVAILABLE_KIND.failed, err);
       });
-      // pedido y sin mapear (o un repo cuyo checkout no está): el run sigue, degradado.
-      const degraded = request !== null && (ref === null || (provider.phase === PHASE.cwd && m.cwd === undefined));
+      // pedido y sin mapear (o un repo cuyo checkout no está, o un recurso mcp sin servidor): el run sigue, degradado.
+      const degraded =
+        request !== null && (ref === null || (provider.phase === PHASE.cwd && m.cwd === undefined) || (provider.phase === PHASE.mcp && m.mcp === undefined));
       steps.push({ type: provider.type, key, phase: provider.phase, m, degraded, isolated: request === null });
       const vars = m.env ?? {};
       if (Object.entries(vars).some(([k, v]) => setBy.has(k) && setBy.get(k) !== v)) throw new ResourceUnavailableError(provider.type, key, UNAVAILABLE_KIND.envConflict);
@@ -119,6 +142,22 @@ async function materializeSteps(plan: readonly PlannedResource[], ctx: RunContex
     throw err;
   }
   return { steps, env };
+}
+
+// i/o secuencial: el servidor de cada recurso mcp, en orden de materialización (lanza al primero que falla).
+async function prepareMcp(steps: readonly Step[]): Promise<RunMcp> {
+  const out: { servers: Record<string, McpServerEntry>; allowed: string[]; deny: string[] } = { servers: {}, allowed: [], deny: [] };
+  for (const s of steps.filter((step) => step.m.mcp && step.key !== null)) {
+    const name = resourceServerName(s.type, s.key!);
+    const prefixed = (tool: string): string => `${MCP_TOOL_PREFIX}${name}${MCP_TOOL_SEPARATOR}${tool}`;
+    const m = await s.m.mcp!().catch((err: unknown) => {
+      throw err instanceof ResourceUnavailableError ? err : new ResourceUnavailableError(s.type, s.key, UNAVAILABLE_KIND.failed, err);
+    });
+    out.servers[name] = m.server;
+    out.allowed.push(...m.tools.map(prefixed));
+    out.deny.push(...m.denied.map(prefixed));
+  }
+  return out;
 }
 
 /** materializa el plan de un run, todo o nada (ver cabecera). lanza ResourceUnavailableError tras deshacer. */
@@ -135,6 +174,7 @@ export async function materializeRun(plan: readonly PlannedResource[], ctx: RunC
     warnings: byNotePhase.flatMap((s) => s.m.warnings),
     locks: [...steps.flatMap((s) => s.m.locks ?? []), ...scratchLock],
     resources: steps.map(({ type, key, degraded, isolated }) => ({ type, key, degraded, isolated })),
+    mcp: () => prepareMcp(steps),
     release: (outcome) => releaseInReverse(steps, outcome),
   };
 }

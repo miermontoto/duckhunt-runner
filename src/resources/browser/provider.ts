@@ -1,5 +1,5 @@
-// proveedor de sesiones de navegador (t#495, M7, fase 1): lo que un run necesitará de una sesión guardada, sin
-// enchufarlo aún al ciclo de vida (fase 2: la fase mcp de lifecycle.ts, el mcp-config del run y el render de tools).
+// proveedor de sesiones de navegador (t#495, M7): una sesión guardada en un run, en la fase mcp del ciclo de vida
+// (lifecycle.ts): browserProvider la materializa (turno si es exclusiva, copia y servidor tras tomarlo) y la suelta.
 // - la sesión llega al run como un servidor mcp stdio propio, `res_browser_<clave>` (el prefijo `res_` lo reserva
 //   el daemon: ninguna plataforma puede usarlo), que es el binario de odysea con su copia filtrada del vault en modo
 //   fichero único, la allowlist de orígenes de la sesión y sin la tool `session`.
@@ -11,14 +11,22 @@
 //   el guardado al cerrar) y al soltar vuelve al vault con mergeBack, bajo el turno de la sesión y el mutex de su
 //   fichero, en todo cierre salvo `aborted`: el sitio puede haber rotado ya el token, tirarla mataría la sesión.
 // - la que dejó un daemon muerto se borra al arrancar (sweep).
+// - fallos al materializar (fase 2): una clave sin mapear en esta máquina o sin odysea degradan (el run sigue sin
+//   navegador, con una nota): es la deriva de config de siempre, como un repo sin mapear. una sesión que no sirve
+//   (sin guardar, ilegible, caducada o cerrada según su última salud) hace fallar el run con resource_unavailable y
+//   su código, sin paths: la persona la pidió para esta conversación, correr sin ella no es lo que pidió, y el fallo
+//   le dice que vuelva a iniciar sesión (`duckhunt-runner browser login`).
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import type { KeyedMutex } from '../../keyed-mutex.js';
 import { runConfigDir } from '../../paths.js';
-import { ACCESS, RESOURCE_TYPE, type Access } from '../types.js';
-import { originPatterns, type BrowserRef } from './config.js';
+import { resourceServerName } from '../lifecycle.js';
+import { ACCESS, PHASE, RELEASE, RESOURCE_TYPE, ResourceUnavailableError, type Access, type Materialized, type McpServerEntry, type ResourceProvider } from '../types.js';
+import { originPatterns, vaultFileOf, type BrowserRef } from './config.js';
+import { BLOCKING_BROWSER_HEALTH, BROWSER_HEALTH, stateHealth, type BrowserHealthKind } from './health.js';
+import type { OdyseaDetection } from './odysea-cli.js';
 import { filterState, mergeBack, parseStorageState, writeStateAtomic } from './state-filter.js';
 
 export const BROWSER_TYPE = RESOURCE_TYPE.browser;
@@ -64,7 +72,10 @@ const ORIGINS_SEPARATOR = ',';
 const SESSION_TOOL_OFF = '0';
 
 /** el nombre del servidor mcp de una sesión en el run. */
-export const browserServerName = (key: string): string => `${BROWSER_SERVER_PREFIX}${key}`;
+export const browserServerName = (key: string): string => resourceServerName(BROWSER_TYPE, key);
+
+/** nota del feed de un run que espera el turno de una sesión exclusiva. */
+export const BROWSER_WAIT_NOTE = 'esperando turno: otro run usa esta misma sesión de navegador';
 
 /** las tools de odysea de un nivel de acceso. */
 export const browserToolsFor = (access: Access): readonly string[] => BROWSER_TOOLS[access];
@@ -78,13 +89,8 @@ export interface BrowserCopy {
   stateFile: string;
 }
 
-/** servidor mcp stdio de un run (la forma del mcp-config de claude). */
-export interface McpStdioServer {
-  type: 'stdio';
-  command: string;
-  args: readonly string[];
-  env: Readonly<Record<string, string>>;
-}
+/** servidor mcp stdio de un run (la forma del mcp-config de claude): el de todo recurso de la fase mcp. */
+export type McpStdioServer = McpServerEntry;
 
 /** escribe la copia filtrada del vault para un run (lanza si el vault no existe o no tiene forma de storage state). */
 export function materializeCopy(platform: string, runId: string, vaultFile: string, ref: BrowserRef, nowMs: number): BrowserCopy {
@@ -130,4 +136,64 @@ export function clearRunBrowserCopies(platform: string): number {
   const stale = fs.readdirSync(dir, { withFileTypes: true }).filter((d) => d.isDirectory() && d.name.startsWith(COPY_PREFIX));
   stale.forEach((d) => fs.rmSync(path.join(dir, d.name), { recursive: true, force: true }));
   return stale.length;
+}
+
+/** lo que el proveedor necesita del daemon: odysea (lo detecta el daemon con sesiones configuradas), el vault, el mutex
+ *  de sus ficheros y la última salud de cada clave (el probe de logged_out, que no se repite al materializar). */
+export interface BrowserDeps {
+  odysea(): OdyseaDetection | null;
+  vaultDir(): string;
+  vaultLocks: KeyedMutex;
+  health(key: string): readonly BrowserHealthKind[];
+  now?(): number;
+}
+
+const noRelease = async (): Promise<void> => {};
+
+// sin navegador: el run sigue, con un aviso al feed.
+const degraded = (warning: string): Materialized => ({ warnings: [warning], release: noRelease });
+
+/** el proveedor de sesiones de navegador (ver cabecera). */
+export function browserProvider(deps: BrowserDeps): ResourceProvider<BrowserRef> {
+  const now = deps.now ?? Date.now;
+  return {
+    type: BROWSER_TYPE,
+    phase: PHASE.mcp,
+
+    async materialize(req, ref, ctx) {
+      const key = req.key ?? '';
+      if (!ref) return degraded(`sesión de navegador ${key} no mapeada en este runner: el run sigue sin navegador`);
+      const odysea = deps.odysea();
+      if (!odysea?.ok) return degraded(`sin odysea en este runner (${odysea?.reason ?? 'no detectado'}): el run sigue sin navegador`);
+      const vaultFile = vaultFileOf(deps.vaultDir(), ref.session);
+      const text = fs.existsSync(vaultFile) ? fs.readFileSync(vaultFile, 'utf-8') : null;
+      // lo que ya se sabe que no sirve: el json de ahora (sin guardar, ilegible, caducada) y el último probe (cerrada).
+      const known = [...stateHealth(key, ref, text, now()).findings.map((f) => f.kind), ...deps.health(key).filter((k) => k === BROWSER_HEALTH.loggedOut)];
+      const blocking = known.find((k) => BLOCKING_BROWSER_HEALTH.has(k));
+      if (blocking) throw new ResourceUnavailableError(BROWSER_TYPE, key, blocking);
+      const lock = browserLockKey(key, ref);
+      // la copia del run: la hace mcp(), ya con el turno de la sesión tomado (lifecycle.ts).
+      let copy: BrowserCopy | null = null;
+      return {
+        warnings: [],
+        ...(lock ? { locks: [{ key: lock, waitNote: BROWSER_WAIT_NOTE }] } : {}),
+        mcp: async () => {
+          copy = materializeCopy(ctx.platform, ctx.runId, vaultFile, ref, now());
+          return { server: browserMcpServer(odysea.info.bin, copy, ref), tools: browserToolsFor(req.access), denied: BROWSER_DENIED_TOOLS };
+        },
+        release: async (outcome) => {
+          if (copy === null) return;
+          const own = copy;
+          try {
+            // exclusiva: lo que el run cambió vuelve al vault en todo cierre salvo aborted (ver cabecera).
+            if (ref.exclusive && outcome !== RELEASE.aborted) await writeBack(vaultFile, own, ref, deps.vaultLocks, now());
+          } finally {
+            dropCopy(own);
+          }
+        },
+      };
+    },
+
+    sweep: clearRunBrowserCopies,
+  };
 }

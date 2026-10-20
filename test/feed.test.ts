@@ -62,11 +62,12 @@ test('tools mcp: refs primero y campos cortos, sin textos largos', () => {
 
 test('tecleado de tools ajenas a la plataforma: solo su longitud; las de la plataforma, tal cual (t#495)', () => {
   const run: FeedContext = { ...ctx, platformServer: 'duckhunt' };
-  const fill = summarizeToolUse('mcp__res_browser_jira__fill', { selector: '#password', value: 'hunter2' }, run);
+  // un mcp ajeno cualquiera (las sesiones de navegador del daemon tienen su resumen propio: el test de abajo).
+  const fill = summarizeToolUse('mcp__odysea__fill', { selector: '#password', value: 'hunter2' }, run);
   assert.equal(fill, 'selector=#password value=‹7›');
   assert.ok(!fill.includes('hunter2'));
-  assert.equal(summarizeToolUse('mcp__res_browser_jira__evaluate', { expression: 'document.cookie' }, run), 'expression=‹15›');
-  assert.equal(summarizeToolUse('mcp__res_browser_jira__handle_dialog', { action: 'accept', promptText: 'secreto' }, run), 'action=accept promptText=‹7›');
+  assert.equal(summarizeToolUse('mcp__odysea__evaluate', { expression: 'document.cookie' }, run), 'expression=‹15›');
+  assert.equal(summarizeToolUse('mcp__odysea__handle_dialog', { action: 'accept', promptText: 'secreto' }, run), 'action=accept promptText=‹7›');
   // la plataforma ya recibe sus propios argumentos con la llamada: ocultarlos no protege nada.
   assert.equal(summarizeToolUse('mcp__duckhunt__duckhunt-set-custom-field', { targetId: 5, value: 'Alta' }, run), 't#5 value=Alta');
   // sin servidor de la plataforma conocido, todo se redacta.
@@ -102,4 +103,16 @@ test('texto y notas de sistema recortados al tope del claim', () => {
   assert.deepEqual(systemEvent(`checkout ${ctx.home}/dev/app`, ctx), { kind: 'system', body: 'checkout ~/dev/app' });
   assert.equal(clip('abc', 5), 'abc');
   assert.equal(redactPaths(`${ctx.cwd}/x y ${ctx.home}/z`, ctx), './x y ~/z');
+});
+
+test('tools de una sesión de navegador: el selector, la tecla, la acción o el largo del js; nunca lo tecleado (t#495, M7)', () => {
+  const b = (tool: string): string => `mcp__res_browser_jira__${tool}`;
+  assert.equal(summarizeToolUse(b('fill'), { selector: '#password', value: 'hunter2' }, ctx), '#password');
+  assert.equal(summarizeToolUse(b('select_option'), { selector: '#pais', values: ['es'] }, ctx), '#pais');
+  assert.equal(summarizeToolUse(b('evaluate'), { expression: 'document.cookie' }, ctx), 'js ‹15›');
+  assert.equal(summarizeToolUse(b('evaluate'), { expression: 'el => el.value', selector: 'input' }, ctx), 'js ‹14› input');
+  assert.equal(summarizeToolUse(b('handle_dialog'), { action: 'accept', promptText: 'secreto' }, ctx), 'accept');
+  assert.equal(summarizeToolUse(b('press_key'), { key: 'Enter' }, ctx), 'Enter');
+  // el resto, el genérico: la url sin query.
+  assert.equal(summarizeToolUse(b('navigate'), { url: 'https://acme.atlassian.net/x?token=1' }, ctx), 'url=https://acme.atlassian.net/x?…');
 });

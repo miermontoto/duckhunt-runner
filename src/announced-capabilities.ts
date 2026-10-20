@@ -15,6 +15,8 @@ export interface MachineKit {
   remoteRepoEdits?: boolean;
   // defaults.toolsetRender de la config (false = el interruptor del flip de toolset_v1: solo en sombra, como 0.13).
   toolsetRender?: boolean;
+  // odysea hallado en la máquina (t#495, M7): sabe poner una sesión de navegador en un run.
+  browser?: boolean;
 }
 
 /** capacidades del claim: prompt (y lo que va con él) solo si el cli puede cumplir su perfil, model solo con --model. */
@@ -40,5 +42,7 @@ export function announcedCapabilities(kit: MachineKit): RunnerCapability[] {
     RUNNER_CAPABILITY.toolsetV1,
     // el flip (t#495, M5): lanza los runs de duckhunt con su render (toolset/legacy-render.ts). salvo el interruptor.
     ...(kit.toolsetRender === false ? [] : [RUNNER_CAPABILITY.toolsetRender]),
+    // sesiones de navegador (t#495, M7): con odysea y con el flip (las tools del navegador solo las pinta el render).
+    ...(kit.browser && kit.toolsetRender !== false ? [RUNNER_CAPABILITY.browser] : []),
   ];
 }

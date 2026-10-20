@@ -366,3 +366,31 @@ test('`run` sin prompt sigue siendo `start` (con aviso de obsoleto); `run --help
   const help = await execFileP(process.execPath, [INDEX_JS, 'run', '--help'], { env: process.env });
   assert.match(help.stdout, /duckhunt-runner run \[--repo/);
 });
+
+test('--grant browser:<clave>:<acceso>: la sesión expuesta a la local llega al run con las tools de su acceso (t#495, M7)', async (t) => {
+  quiet(t);
+  const odysea = path.join(caseDir, 'odysea');
+  fs.writeFileSync(odysea, `#!${process.execPath}\nif (process.argv[2] === '--version') console.log('0.5.0');\n`, { mode: 0o755 });
+  const vault = path.join(caseDir, 'vault');
+  fs.mkdirSync(vault, { mode: 0o700 });
+  fs.writeFileSync(path.join(vault, 'jira.json'), JSON.stringify({ cookies: [{ name: 'sid', value: 's1', domain: 'acme.atlassian.net', path: '/', expires: -1 }], origins: [] }), { mode: 0o600 });
+  writeConfig({
+    version: 2,
+    resources: { browser: { jira: { session: 'jira', origins: ['https://acme.atlassian.net'] } } },
+    providers: { browser: { bin: odysea, vaultDir: vault } },
+    platforms: { local: { expose: { browser: '*' } } },
+  });
+  // interact es una escalada: se confirma en la tty.
+  const io = fakeIo(true, ['s']);
+  assert.equal(await runCommand(['--grant', 'browser:jira:interact', 'mira el ticket en jira'], io), RUN_EXIT.done, io.err.join(''));
+  const [spawn] = spawnsOf();
+  const list = (flag: string): string[] => spawn!.argv[spawn!.argv.indexOf(flag) + 1]!.split(',');
+  assert.ok(list('--allowedTools').includes('mcp__res_browser_jira__click'), 'interact: clic y teclear');
+  assert.ok(!list('--allowedTools').includes('mcp__res_browser_jira__evaluate'), 'nunca más de lo pedido');
+  assert.ok(list('--disallowedTools').includes('mcp__res_browser_jira__session'));
+  // sin exponerla a la local, se niega antes de lanzar con el comando que la expone.
+  writeConfig({ version: 2, resources: { browser: { jira: { session: 'jira', origins: ['https://acme.atlassian.net'] } } }, providers: { browser: { bin: odysea, vaultDir: vault } } });
+  const hidden = fakeIo(true, ['s']);
+  assert.equal(await runCommand(['--grant', 'browser:jira:read', 'mira'], hidden), RUN_EXIT.refused);
+  assert.match(hidden.err.join(''), /`duckhunt-runner platforms expose local browser jira`/);
+});
