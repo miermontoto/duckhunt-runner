@@ -19,7 +19,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { isToolId, type ClaimResponse } from './claim.js';
+import { isToolId, type McpServer } from './claim.js';
 import { runConfigDir } from './paths.js';
 
 const MCP_CONFIG_PREFIX = 'mcp-';
@@ -49,11 +49,15 @@ export function runConfigDeny(dir: string): string[] {
   return rules;
 }
 
-/** escribe el mcp-config de un segmento (0600, en exclusiva) y devuelve su ruta. */
-export function writeRunMcpConfig(runId: string, mcp: ClaimResponse['mcp'], platform: string): string {
+// la entrada de un servidor mcp de la plataforma con su token per-run.
+const mcpEntry = (mcp: McpServer): [string, object] => [mcp.serverName, { type: 'http', url: mcp.url, headers: { Authorization: `Bearer ${mcp.token}` } }];
+
+/** escribe el mcp-config de un segmento (0600, en exclusiva) y devuelve su ruta. `extra`: los servidores de la
+ *  plataforma además del primero (mcpServers[] del cable v0; el legacy solo tiene uno). */
+export function writeRunMcpConfig(runId: string, mcp: McpServer, platform: string, extra: readonly McpServer[] = []): string {
   const name = `${MCP_CONFIG_PREFIX}${runId}-${crypto.randomBytes(MCP_CONFIG_RANDOM_BYTES).toString('hex')}${MCP_CONFIG_SUFFIX}`;
   const file = path.join(runConfigDir(platform), name);
-  const config = { mcpServers: { [mcp.serverName]: { type: 'http', url: mcp.url, headers: { Authorization: `Bearer ${mcp.token}` } } } };
+  const config = { mcpServers: Object.fromEntries([mcp, ...extra].map(mcpEntry)) };
   // wx: nunca reutiliza ni sigue nada que ya estuviera en esa ruta.
   fs.writeFileSync(file, JSON.stringify(config), { mode: MCP_CONFIG_MODE, flag: 'wx' });
   return file;

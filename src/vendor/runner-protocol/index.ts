@@ -9,7 +9,8 @@
 //   `@duckhunt/runner-protocol/fixtures`: este barrel no toca el fs, así sirve igual a quien no es node.
 // - pasará a platform/ como @platform/runner-protocol cuando sus interfaces estén estables.
 // toolset_v1 (M5, toolset.ts): la política neutra del run, en sombra junto a las listas de tools.
-// non-goals por ahora: validación (zod) y el cable v0, que llegan con su router (M4).
+// spec v0 (M4, v0.ts): discovery, el claim con ids opacos y mcpServers[], lease, result idempotente y el sobre de
+// error. non-goals por ahora: validación (zod), que cada lado hace con lo suyo.
 
 export * from './aws.js';
 export * from './capabilities.js';
@@ -18,3 +19,4 @@ export * from './errors.js';
 export * from './events.js';
 export * from './limits.js';
 export * from './toolset.js';
+export * from './v0.js';

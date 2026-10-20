@@ -143,9 +143,9 @@ import { RunLease, signalGroup } from './run-lease.js';
 import { compareRunIds } from './run-id.js';
 import { allRunConfigDirs, LEGACY_PLATFORM_ID, logsDir, runConfigDir, scratchDir } from './paths.js';
 import { runnerVersion } from './version.js';
-import { PlatformRejectedError, PROTOCOL, type ClaimAnnounce, type Platform, type PlatformFactories, type Protocol, type RunSegment } from './platforms/platform.js';
-import { EXPOSE_ALL, isExposed, PLATFORM_DEFAULT_SLOTS, type PlatformConfig } from './platforms/types.js';
-import { PLATFORM_FACTORIES } from './platforms/duckhunt42.js';
+import { PlatformRejectedError, PROTOCOL, type ClaimAnnounce, type Platform, type PlatformContext, type PlatformFactories, type Protocol, type RunSegment } from './platforms/platform.js';
+import { DEFAULT_CEILING, EXPOSE_ALL, isExposed, PLATFORM_DEFAULT_SLOTS, type PlatformConfig } from './platforms/types.js';
+import { PLATFORM_FACTORIES } from './platforms/factories.js';
 import { Scheduler } from './platforms/scheduler.js';
 import { PLATFORM_STATE, PlatformSupervisor, type SupervisorHooks } from './platforms/supervisor.js';
 import { RUNNER_LABEL_MAX_CHARS, type ToolsetShadow } from './vendor/runner-protocol/index.js';
@@ -247,7 +247,7 @@ export class RunnerDaemon {
     this.cfg = local;
     this.factories = opts.factories ?? PLATFORM_FACTORIES;
     this.legacyCredential = credential;
-    this.addSupervisor(this.factories[PROTOCOL.duckhunt42]!(LEGACY_PLATFORM_ID, credential));
+    this.addSupervisor(this.factories[PROTOCOL.duckhunt42]!(LEGACY_PLATFORM_ID, credential, this.platformContext(LEGACY_PLATFORM_ID)));
   }
 
   // la plataforma legacy: siempre está (su credencial vive en las claves de siempre de la config).
@@ -278,6 +278,19 @@ export class RunnerDaemon {
   private quota(sup: PlatformSupervisor): number {
     const slots = this.platformsCfg[sup.id]?.slots ?? (sup.id === LEGACY_PLATFORM_ID ? this.slots : PLATFORM_DEFAULT_SLOTS);
     return Math.min(slots, this.slots);
+  }
+
+  // lo que una plataforma que manda con toolset_v1 (v0) aplica a sus claims: su techo y su exposición de la config de
+  // AHORA (sin config, el techo más bajo y nada expuesto), los tipos de recurso de este daemon y su aws cli.
+  private platformContext(id: string): PlatformContext {
+    return {
+      enforcement: () => ({
+        ceiling: this.platformsCfg[id]?.ceiling ?? DEFAULT_CEILING,
+        expose: this.platformsCfg[id]?.expose ?? {},
+        resourceTypes: this.registry.types(),
+        awsCli: this.hasAws,
+      }),
+    };
   }
 
   // lo que la plataforma ve de la máquina (su `expose`; sin config, nada).
@@ -472,6 +485,8 @@ export class RunnerDaemon {
       repoCandidates: !legacy ? null : allRepos ? this.repoChoices : (this.repoChoices?.filter((c) => repos.includes(c.repo)) ?? null),
       // solo ids de cuenta: `default` (y cualquier otra clave) no es una cuenta que duckhunt conozca.
       awsAccounts: Object.keys(this.cfg.aws).filter((key) => AWS_ACCOUNT_ID_RE.test(key) && seen(RESOURCE_TYPE.aws)(key)),
+      // el cable v0 anuncia recursos por clave: también `default` si el usuario la expone.
+      awsKeys: Object.keys(this.cfg.aws).filter(seen(RESOURCE_TYPE.aws)),
       kept: sup.keptWorktrees,
     };
   }
@@ -670,7 +685,7 @@ export class RunnerDaemon {
         : !legacy && (current.platform.protocol !== protocol || identity!.baseUrl !== credential.baseUrl));
     if (!current || replace) {
       if (!legacy) this.prepare(id);
-      this.addSupervisor(factory(id, credential), cfg.paused === true);
+      this.addSupervisor(factory(id, credential, this.platformContext(id)), cfg.paused === true);
       // el poll de la sustituida termina en cuanto despierta.
       current?.wake();
       if (!legacy || current) console.log(`[runner] plataforma ${id} → ${credential.baseUrl}${cfg.paused ? ' (en pausa)' : ''}`);
@@ -802,7 +817,9 @@ export class RunnerDaemon {
       // legacy también: sin compatibilidad que guardar, una plataforma nueva no hereda la aws del usuario. uno
       // legacy de duckhunt, nunca.
       const isolate = claim.toolset !== null || sup.id !== LEGACY_PLATFORM_ID;
-      const plan = this.registry.plan(legacyRequests(run), (type, key) => this.refOf(sup, type, key), isolate);
+      // los recursos de un claim que manda con toolset_v1 (v0) son los de sus grants, ya validados contra el techo y
+      // la exposición (platforms/claim-v0.ts); los de uno legacy salen de sus campos.
+      const plan = this.registry.plan(claim.resources ?? legacyRequests(run), (type, key) => this.refOf(sup, type, key), isolate);
       res = await materializeRun(plan, { platform: sup.id, runId: run.id, env, gitLocks: this.gitLocks }, { dir: () => scratchDir(sup.id), exclusive: legacyScratchExclusive(run) });
     } catch (err) {
       clearInterval(heartbeat);
@@ -829,7 +846,7 @@ export class RunnerDaemon {
     let mcpFile: string | null = null;
     let report: StatusReport;
     try {
-      mcpFile = writeRunMcpConfig(run.id, claim.mcp, sup.id);
+      mcpFile = writeRunMcpConfig(run.id, claim.mcp, sup.id, claim.extraMcp);
       report = await this.runAttempts(sup, claim, lease, res, mcpFile, feed, ctx, note);
     } catch (err) {
       report = { status: 'failed', error: (err as Error).message };

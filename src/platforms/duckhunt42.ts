@@ -27,7 +27,6 @@ import {
   type ClaimResult,
   type HeartbeatVerdict,
   type Platform,
-  type PlatformFactories,
   type RunSegment,
   type UnpairOutcome,
 } from './platform.js';
@@ -41,8 +40,8 @@ const CLAUDE_VERSION_MAX_CHARS = RUNNER_CLAUDE_VERSION_MAX_CHARS;
 // estado del run que el latido espera mientras el proceso es su dueño.
 const RUN_STATUS_RUNNING = 'running';
 // POST /status: intentos con backoff exponencial (2 s, 4 s, 8 s, 16 s).
-const STATUS_POST_ATTEMPTS = 5;
-const STATUS_POST_BACKOFF_MS = 2_000;
+export const STATUS_POST_ATTEMPTS = 5;
+export const STATUS_POST_BACKOFF_MS = 2_000;
 const HTTP_NO_CONTENT = 204;
 const HTTP_OK = 200;
 const HTTP_UNAUTHORIZED = 401;
@@ -53,8 +52,8 @@ const HTTP_TOO_MANY = 429;
 const HTTP_SERVER_ERROR = 500;
 const KEEP: HeartbeatVerdict = { stop: false };
 
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
-const isTransient = (status: number): boolean => status === HTTP_TIMEOUT || status === HTTP_TOO_MANY || status >= HTTP_SERVER_ERROR;
+export const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+export const isTransient = (status: number): boolean => status === HTTP_TIMEOUT || status === HTTP_TOO_MANY || status >= HTTP_SERVER_ERROR;
 
 export class Duckhunt42Platform implements Platform {
   readonly protocol = PROTOCOL.duckhunt42;
@@ -225,7 +224,6 @@ export class Duckhunt42Platform implements Platform {
   }
 }
 
-/** los protocolos que este runner habla y cómo se crea cada plataforma. */
-export const PLATFORM_FACTORIES: PlatformFactories = {
-  [PROTOCOL.duckhunt42]: (id, credential) => new Duckhunt42Platform(id, new HttpTransport(credential, credentialStore(id))),
-};
+/** la plataforma duckhunt-42 de un id, sobre el transporte de siempre. */
+export const createDuckhunt42Platform = (id: string, credential: RunnerCredential): Duckhunt42Platform =>
+  new Duckhunt42Platform(id, new HttpTransport(credential, credentialStore(id)));

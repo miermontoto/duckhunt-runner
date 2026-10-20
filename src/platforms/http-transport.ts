@@ -18,6 +18,14 @@ const HTTP_UNAUTHORIZED = 401;
 // path del recurso runner en el server: la audiencia oauth de sus tokens y la base de su api.
 export const RUNNER_API_PATH = '/api/runner';
 
+/** dónde cuelgan las rutas y qué cabeceras van en toda petición (el cable legacy: RUNNER_API_PATH y ninguna). */
+export interface TransportOptions {
+  // prefijo de las rutas que se le pasan a post ('' = rutas desde la raíz del server, las del discovery de v0).
+  apiPath: string;
+  headers: Readonly<Record<string, string>>;
+}
+const LEGACY_TRANSPORT: TransportOptions = { apiPath: RUNNER_API_PATH, headers: {} };
+
 export class HttpTransport {
   private readonly auth: AccessTokenSource;
   // el último refresh rotado no se pudo escribir: al cambiar el fichero se fuerza otro refresh.
@@ -27,6 +35,7 @@ export class HttpTransport {
     private current: RunnerCredential,
     // de dónde se lee y dónde se guarda esta credencial (la de duckhunt: las claves de siempre).
     private readonly store: CredentialStore = LEGACY_CREDENTIALS,
+    private readonly options: TransportOptions = LEGACY_TRANSPORT,
   ) {
     this.auth = new AccessTokenSource(async () => {
       const { access, credential, saved } = await refreshAccess(this.current, this.store);
@@ -56,9 +65,10 @@ export class HttpTransport {
   }
 
   private send(pathname: string, body: unknown, token: string): Promise<Response> {
-    return fetch(`${this.current.baseUrl}${RUNNER_API_PATH}${pathname}`, {
+    return fetch(`${this.current.baseUrl}${this.options.apiPath}${pathname}`, {
       method: 'POST',
       headers: {
+        ...this.options.headers,
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
