@@ -11,6 +11,9 @@
 // tools de la plataforma no se redactan: sus argumentos ya le llegan a ella con la llamada misma, así que
 // ocultarlos del feed no protege nada. y de toda url solo salen origen y ruta: query y fragmento (tokens,
 // ids de sesión) nunca.
+// tools de una sesión de navegador (t#495, M7, mcp__res_browser_<clave>__<tool>): un resumen propio de las que
+// teclean o ejecutan algo, sin lo tecleado ni el js: fill / select_option, su selector; evaluate, `js ‹n›` (el largo
+// de la expresión) y su selector si lo hay; handle_dialog, la acción; press_key, la tecla. el resto, el genérico.
 
 import path from 'node:path';
 import type { StreamContent, StreamLine } from './claude.js';
@@ -76,6 +79,24 @@ const PATH_KEY_BY_TOOL: ReadonlyMap<string, string> = new Map([
   ['NotebookEdit', 'notebook_path'],
   ['NotebookRead', 'notebook_path'],
 ]);
+
+// tools de una sesión de navegador (ver cabecera): prefijo del servidor y el resumen de las que teclean o ejecutan.
+const BROWSER_TOOL_PREFIX = `${MCP_PREFIX}res_browser_`;
+const browserArg = (args: Args, key: string): string => (typeof args[key] === 'string' ? (args[key] as string) : '');
+const BROWSER_SUMMARY: ReadonlyMap<string, (args: Args) => string> = new Map([
+  ['fill', (a: Args) => browserArg(a, 'selector')],
+  ['select_option', (a: Args) => browserArg(a, 'selector')],
+  ['evaluate', (a: Args) => [`js ‹${browserArg(a, 'expression').length}›`, browserArg(a, 'selector')].filter(Boolean).join(' ')],
+  ['handle_dialog', (a: Args) => browserArg(a, 'action')],
+  ['press_key', (a: Args) => browserArg(a, 'key')],
+]);
+
+// el resumen propio de una tool de navegador, o null si no es una (o no lo tiene).
+function browserSummary(name: string, args: Args): string | null {
+  if (!name.startsWith(BROWSER_TOOL_PREFIX)) return null;
+  const summary = BROWSER_SUMMARY.get(name.slice(name.lastIndexOf(MCP_SEPARATOR) + MCP_SEPARATOR.length));
+  return summary ? summary(args) : null;
+}
 
 // tools internas del cli (carga diferida de otras tools): no son trabajo del agente, fuera del feed.
 const INTERNAL_TOOLS: ReadonlySet<string> = new Set(['ToolSearch']);
@@ -179,7 +200,7 @@ export function summarizeToolUse(name: string, input: unknown, ctx: FeedContext)
     if (name === 'WebSearch') return str('query') ?? '';
     if (name === 'Task' || name === 'Agent') return str('description') ?? '';
     if (name === 'TodoWrite') return Array.isArray(args.todos) ? `${args.todos.length} tareas` : '';
-    return summarizeArgs(args, !isPlatformTool(name, ctx));
+    return browserSummary(name, args) ?? summarizeArgs(args, !isPlatformTool(name, ctx));
   })();
   return sanitize(oneLine(raw), ctx, ctx.toolArgMaxChars);
 }

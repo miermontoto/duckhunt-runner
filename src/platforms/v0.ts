@@ -134,6 +134,8 @@ export class V0Platform implements Platform {
       ...(a.repoCandidates ? { repoCandidates: a.repoCandidates } : {}),
       ...(a.kept ? { keptWorktrees: a.kept } : {}),
     };
+    const repoHealth = (a.repoIssues ?? []).flatMap((i) => (i.repo === null ? [] : [{ type: RESOURCE_TYPE.repo, key: i.repo, kind: i.kind, ...(i.count !== undefined ? { count: i.count } : {}) }]));
+    const browserHealth = (a.browsers?.health ?? []).map((h) => ({ type: RESOURCE_TYPE.browser, key: h.key, kind: h.kind }));
     return {
       runner: {
         label: a.label,
@@ -147,10 +149,10 @@ export class V0Platform implements Platform {
       resources: [
         { type: RESOURCE_TYPE.repo, keys: [...a.repos] },
         { type: RESOURCE_TYPE.aws, keys: [...a.awsKeys] },
+        // las sesiones de navegador expuestas (t#495, M7).
+        ...(a.browsers ? [{ type: RESOURCE_TYPE.browser, keys: [...a.browsers.keys] }] : []),
       ],
-      ...(a.repoIssues
-        ? { health: a.repoIssues.flatMap((i) => (i.repo === null ? [] : [{ type: RESOURCE_TYPE.repo, key: i.repo, kind: i.kind, ...(i.count !== undefined ? { count: i.count } : {}) }])) }
-        : {}),
+      ...(a.repoIssues || browserHealth.length > 0 ? { health: [...repoHealth, ...browserHealth] } : {}),
       ...(duckhuntExt && Object.keys(ext).length > 0 ? { ext: { [DUCKHUNT_EXT_NS]: ext } } : {}),
     };
   }

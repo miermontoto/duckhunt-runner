@@ -4,7 +4,7 @@
 // (toolset/shadow.ts, el mismo toolsetShadow del status). lo apaga `defaults.toolsetRender: false` (daemon.ts).
 // lo que corre sale de aquí:
 // - antes de nada, cada grant contra la máquina (platforms/claim-v0.ts::checkGrants): un tipo que este daemon no sirve
-//   en un run (browser hasta M7 fase 2), una clave que el usuario no expuso a la plataforma o un tipo sin acceso en el
+//   en un run, una clave que el usuario no expuso a la plataforma o un tipo sin acceso en el
 //   techo rechazan el claim entero con su código (ClaimRejectedError). nunca se corre quitando un grant en silencio.
 // - recursos = los grants: el repo con la rama del claim y el aislamiento de siempre (kind / isolation: los mismos
 //   worktrees conv-<id> de este cable), la aws con su clave (la cuenta, o `default`) y la región del claim.

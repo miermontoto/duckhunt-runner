@@ -137,7 +137,7 @@ import {
   type StoredConfig,
 } from './config.js';
 import { derivedMachineId, ensureMachineId, ensureMachineSecret } from './machine.js';
-import { otherPlatformsDeny, otherScratchDeny, secretPathsDeny } from './secret-paths.js';
+import { browserVaultDeny, otherPlatformsDeny, otherScratchDeny, secretPathsDeny } from './secret-paths.js';
 import { CLAIM_OUTCOME } from './server-state.js';
 import { consumeStreamLine, detectClaude, newStreamState, type ClaudeInfo } from './claude.js';
 import { buildClaudeArgs } from './claude-args.js';
@@ -155,7 +155,11 @@ import { CONVERSATION_GC_INTERVAL_MS, listWorktreeCandidates, removeWorktrees, s
 import { KeyedMutex } from './keyed-mutex.js';
 import { describeFinding, REPO_HEALTH_INTERVAL_MS, repoChoices, repoFindings, repoIssues, scanRepos, type RepoChoice, type RepoIssue } from './resources/repo/health.js';
 import { ProviderRegistry } from './resources/registry.js';
-import { holdLocks, materializeRun, type MaterializedRun } from './resources/lifecycle.js';
+import { holdLocks, materializeRun, type MaterializedRun, type RunMcp } from './resources/lifecycle.js';
+import { browserProvider } from './resources/browser/provider.js';
+import { vaultDirOf, type BrowserRef, type ProvidersConfig } from './resources/browser/config.js';
+import { BROWSER_HEALTH_INTERVAL_MS, browserHealth, PROBE_MODE, type BrowserFinding } from './resources/browser/health.js';
+import { detectOdysea, type OdyseaDetection } from './resources/browser/odysea-cli.js';
 import { legacyRequests, legacyResourceError, legacyScratchExclusive } from './resources/legacy.js';
 import { repoProvider } from './resources/repo/provider.js';
 import { AWS_ACCOUNT_ID_RE, AWS_DEFAULT_KEY, awsProvider, machineHasAws } from './resources/aws.js';
@@ -219,6 +223,13 @@ function rejectCode(error: string): string {
 // lo que la auditoría sabe del intento que cerró un segmento: cómo acabó, nunca su salida.
 const attemptFacts = (a: Attempt): AttemptFacts => ({ killedBy: a.killedBy, exitCode: a.exitCode, isError: a.stream.result?.isError ?? false, subtype: a.stream.result?.subtype ?? null });
 
+// las tools de los recursos del run (mcp__res_<tipo>_<clave>__*, t#495 M7) en las listas con que se lanza: al allow
+// las suyas, al deny las que se le niegan. sin recursos mcp, el claim tal cual (el argv de siempre).
+const withResourceTools = (claim: ClaimResponse, mcp: RunMcp): ClaimResponse =>
+  mcp.allowed.length === 0 && mcp.deny.length === 0
+    ? claim
+    : { ...claim, tools: { allowed: [...claim.tools.allowed, ...mcp.allowed], disallowed: [...claim.tools.disallowed, ...mcp.deny] } };
+
 // cómo suelta sus recursos un run según su cierre.
 const RELEASE_BY_STATUS: Readonly<Record<StatusReport['status'], ReleaseOutcome>> = {
   done: RELEASE.done,
@@ -269,8 +280,27 @@ export class RunnerDaemon {
   // compartidos (clave: la del recurso, hoy el cwd resuelto).
   private readonly gitLocks = new KeyedMutex();
   private readonly cwdLocks = new KeyedMutex();
+  // sesiones de navegador de la config v2 (resources.browser), dónde están odysea y su vault, odysea hallado (null =
+  // sin sesiones configuradas: ni se busca), la última salud de cada sesión y el mutex de los ficheros del vault.
+  private browserRefs: Readonly<Record<string, BrowserRef>> = {};
+  private providersCfg: ProvidersConfig | undefined;
+  private odysea: OdyseaDetection | null = null;
+  private browserFindings: BrowserFinding[] = [];
+  private lastBrowserHealthAt = 0;
+  private browserHealthRun: Promise<void> | null = null;
+  private readonly lastProbe = new Map<string, number>();
+  private readonly vaultLocks = new KeyedMutex();
   // proveedores de recursos de los runs (resources/registry.ts).
-  private readonly registry = new ProviderRegistry([repoProvider, awsProvider]);
+  private readonly registry = new ProviderRegistry([
+    repoProvider,
+    awsProvider,
+    browserProvider({
+      odysea: () => this.odysea,
+      vaultDir: () => vaultDirOf(this.providersCfg),
+      vaultLocks: this.vaultLocks,
+      health: (key) => this.browserFindings.filter((f) => f.key === key).map((f) => f.kind),
+    }),
+  ]);
   private stopping = false;
   private exitCode = 0;
   // espera del loop principal (la parada y el cierre de los runs en vuelo).
@@ -463,7 +493,14 @@ export class RunnerDaemon {
   // capacidades que se anuncian: prompt solo si el cli puede cumplir su perfil (permission mode
   // explícito, sin mcp del repo, deny list y settings solo del usuario en lectura), model solo con --model.
   private capabilities(): string[] {
-    return announcedCapabilities({ hasAws: this.hasAws, supported: this.claude.supported, remoteRepoEdits: this.cfg.defaults.remoteRepoEdits, toolsetRender: this.cfg.defaults.toolsetRender });
+    return announcedCapabilities({
+      hasAws: this.hasAws,
+      supported: this.claude.supported,
+      remoteRepoEdits: this.cfg.defaults.remoteRepoEdits,
+      toolsetRender: this.cfg.defaults.toolsetRender,
+      // odysea hallado: solo se busca con alguna sesión de navegador configurada.
+      browser: this.odysea?.ok === true,
+    });
   }
 
   /** loop principal: gc → claim → ejecutar en un slot libre → repetir, hasta SIGINT/SIGTERM.
@@ -517,6 +554,8 @@ export class RunnerDaemon {
       );
       await this.refreshRepoHealth();
     }
+    // la salud de las sesiones de navegador (y odysea) antes del primer claim, también sin daemon (`runner run`).
+    await this.refreshBrowserHealth();
     await this.hostLocal();
     this.running = true;
     this.supervisors.forEach((sup) => this.polls.push(this.poll(sup)));
@@ -540,6 +579,7 @@ export class RunnerDaemon {
       // también con los slots llenos: un maxConcurrent más alto vale sin esperar a que acabe un run.
       await this.reloadConfig();
       if (!this.opts.localOnly) void this.refreshRepoHealth();
+      void this.refreshBrowserHealth();
       if (this.supervisors.get(sup.id) !== sup) break;
       if (!(await this.pollOnce(sup)) && !this.stopping) await sup.idle(CLAIM_POLL_MS);
     }
@@ -725,8 +765,47 @@ export class RunnerDaemon {
       awsKeys: Object.keys(this.cfg.aws).filter(seen(RESOURCE_TYPE.aws)),
       // el legacy, aparte y solo con el flip: con el interruptor, el cable de 0.13.0.
       awsDefault: this.toolsetRender ? this.awsDefaultExposed(sup) : null,
+      browsers: this.browsersFor(sup),
       kept: sup.keptWorktrees,
     };
+  }
+
+  // las sesiones de navegador expuestas a una plataforma y su salud (t#495, M7): solo con el flip (el interruptor deja
+  // el cable de 0.13.0, que no las conoce) y alguna expuesta; si no, null y el claim de siempre.
+  private browsersFor(sup: PlatformSupervisor): ClaimAnnounce['browsers'] {
+    if (!this.toolsetRender) return null;
+    const keys = Object.keys(this.browserRefs).filter((key) => isExposed(this.exposure(sup), RESOURCE_TYPE.browser, key));
+    if (keys.length === 0) return null;
+    return { keys, health: this.browserFindings.filter((f) => keys.includes(f.key)).map(({ key, kind }) => ({ key, kind })) };
+  }
+
+  // salud de las sesiones de navegador (t#495, M7, resources/browser/health.ts) cada BROWSER_HEALTH_INTERVAL_MS (o ya,
+  // con `force`), con odysea buscado de nuevo; sin ninguna configurada, ni se busca odysea. nunca lanza.
+  private refreshBrowserHealth(force = false): Promise<void> {
+    if (this.browserHealthRun) return this.browserHealthRun;
+    if (!force && this.lastBrowserHealthAt !== 0 && Date.now() - this.lastBrowserHealthAt < BROWSER_HEALTH_INTERVAL_MS) return Promise.resolve();
+    this.lastBrowserHealthAt = Date.now();
+    this.browserHealthRun = (async () => {
+      if (Object.keys(this.browserRefs).length === 0) {
+        this.odysea = null;
+        this.browserFindings = [];
+        return;
+      }
+      try {
+        this.odysea = await detectOdysea(this.providersCfg?.browser?.bin);
+        this.browserFindings = await browserHealth({
+          entries: this.browserRefs,
+          vaultDir: vaultDirOf(this.providersCfg),
+          odysea: this.odysea,
+          probe: PROBE_MODE.due,
+          lastProbe: this.lastProbe,
+          nowMs: Date.now(),
+        });
+      } catch (err) {
+        console.error(`[runner] salud de las sesiones de navegador: ${(err as Error).message}`);
+      }
+    })().finally(() => (this.browserHealthRun = null));
+    return this.browserHealthRun;
   }
 
   // registra el run en el slot que reservó su plataforma y lo ejecuta en segundo plano; al terminar libera el
@@ -856,16 +935,24 @@ export class RunnerDaemon {
     let credential: RunnerCredential | null;
     let local: LocalConfig;
     let platforms: RunnerConfigV2['platforms'];
+    let browser: { refs: Readonly<Record<string, BrowserRef>>; providers: ProvidersConfig | undefined };
     try {
       // sin daemon (`runner run`) la credencial de duckhunt no hace falta: el fichero vale sin ella.
       ({ credential, local } = this.opts.localOnly ? { credential: null, local: localPart(parseStoredConfig(text)) } : splitConfig(parseConfig(text)));
-      platforms = parseConfigV2(text).platforms;
+      const v2 = parseConfigV2(text);
+      platforms = v2.platforms;
+      browser = { refs: (v2.resources[RESOURCE_TYPE.browser] ?? {}) as Readonly<Record<string, BrowserRef>>, providers: v2.providers };
     } catch (err) {
       console.error(`[runner] ${(err as Error).message} — sigo con la config cargada`);
       return;
     }
     this.legacyCredential = credential;
     this.platformsCfg = platforms;
+    // otras sesiones de navegador (o su odysea, su vault): su salud se rehace ya.
+    const browserChanged = JSON.stringify(browser) !== JSON.stringify({ refs: this.browserRefs, providers: this.providersCfg });
+    this.browserRefs = browser.refs;
+    this.providersCfg = browser.providers;
+    if (browserChanged) void this.refreshBrowserHealth(true);
     // la credencial del fichero, a cada plataforma que ya corre (las nuevas nacen con ella: syncSupervisors).
     this.supervisors.forEach((sup) => {
       const cred = sup.id === LEGACY_PLATFORM_ID ? credential : platforms[sup.id]?.credential;
@@ -1004,7 +1091,8 @@ export class RunnerDaemon {
   // config (config-legacy.ts).
   private refOf(sup: PlatformSupervisor, type: string, key: string | null): unknown {
     const field = Object.hasOwn(LEGACY_RESOURCE_KEYS, type) ? LEGACY_RESOURCE_KEYS[type] : undefined;
-    const map: Readonly<Record<string, unknown>> | undefined = field ? this.cfg[field] : undefined;
+    // las sesiones de navegador viven en la config v2 (resources.browser).
+    const map: Readonly<Record<string, unknown>> | undefined = field ? this.cfg[field] : type === RESOURCE_TYPE.browser ? this.browserRefs : undefined;
     return key !== null && map && Object.hasOwn(map, key) && isExposed(this.exposure(sup), type, key) ? map[key] : null;
   }
 
@@ -1015,7 +1103,9 @@ export class RunnerDaemon {
     // la local solo desde que tiene estado en disco: un daemon que nunca sirvió un `runner run` deja el deny como estaba.
     const localOnDisk = fs.existsSync(platformHome(LOCAL_PLATFORM_ID));
     const configured = [...new Set([...Object.keys(this.platformsCfg), ...this.supervisors.keys()])].filter((id) => id !== LOCAL_PLATFORM_ID || localOnDisk);
-    return [...allRunConfigDirs().flatMap(runConfigDeny), ...otherScratchDeny(sup.id, configured), ...otherPlatformsDeny(sup.id, configured)];
+    // el vault de las sesiones de navegador (t#495, M7) a todo kit, no solo a los de lectura: una edición tampoco lo
+    // lee. sin navegador configurado, nada.
+    return [...allRunConfigDirs().flatMap(runConfigDeny), ...otherScratchDeny(sup.id, configured), ...otherPlatformsDeny(sup.id, configured), ...browserVaultDeny()];
   }
 
   // latido del run desde el claim hasta el cierre: transporta el soft-cancel del server (y refresca
@@ -1097,6 +1187,10 @@ export class RunnerDaemon {
     };
     note(res.note);
     [...claim.warnings, ...res.warnings].forEach(note);
+    // con el interruptor del flip el daemon no anuncia sesiones de navegador: un grant que llegara se queda sin usar.
+    if (!this.toolsetRender && claim.toolsetShadow?.toolset.grants.some((g) => g.type === RESOURCE_TYPE.browser)) {
+      note('la sesión de navegador del run no se usa: defaults.toolsetRender está en false (solo en sombra)');
+    }
 
     const lockStart = Date.now();
     const releaseLocks = await holdLocks(res.locks, this.cwdLocks, lease.killed, note);
@@ -1105,22 +1199,27 @@ export class RunnerDaemon {
     let mcpFile: string | null = null;
     let report: StatusReport;
     let attempt: Attempt | null = null;
+    // los servidores mcp de los recursos (t#495, M7), con los turnos ya tomados; null = no se pudieron preparar.
+    let resourceMcp: RunMcp | null = null;
     try {
-      mcpFile = writeRunMcpConfig(run.id, claim.mcp, sup.id, claim.extraMcp);
-      ({ report, attempt } = await this.runAttempts(sup, claim, lease, res, mcpFile, feed, ctx, note));
+      resourceMcp = await res.mcp();
+      mcpFile = writeRunMcpConfig(run.id, claim.mcp, sup.id, claim.extraMcp, resourceMcp.servers);
+      ({ report, attempt } = await this.runAttempts(sup, withResourceTools(claim, resourceMcp), lease, res, mcpFile, feed, ctx, note));
     } catch (err) {
-      report = { status: 'failed', error: (err as Error).message };
+      report = { status: 'failed', error: resourceMcp === null ? legacyResourceError(err) : (err as Error).message };
     } finally {
       if (mcpFile !== null) fs.rmSync(mcpFile, { force: true });
       clearInterval(heartbeat);
     }
     // los recursos se sueltan (el worktree se marca o se borra) ANTES de reportar: ver cabecera. y con sus
     // turnos aún tomados: un recurso exclusivo se suelta entero antes de que lo reciba el siguiente run.
-    await res.release(RELEASE_BY_STATUS[report.status]);
+    // un recurso que no se pudo preparar: nada se lanzó, se suelta todo como aborted (sin devolver nada al vault).
+    await res.release(resourceMcp === null ? RELEASE.aborted : RELEASE_BY_STATUS[report.status]);
     releaseLocks();
 
     await feed?.close();
-    audited({ lockWaitMs, materialized: res.resources, report, toolsByName: attempt?.stream.toolsByName ?? {}, code: outcomeCode(report.status, attempt && attemptFacts(attempt)) });
+    const code = resourceMcp === null ? AUDIT_OUTCOME.resourceUnavailable : outcomeCode(report.status, attempt && attemptFacts(attempt));
+    audited({ lockWaitMs, materialized: res.resources, report, toolsByName: attempt?.stream.toolsByName ?? {}, code });
     await sup.platform.result(run.id, { ...report, ...withShadow, ...seg });
     console.log(`${log} ${tag} terminado (${report.status}${report.error ? `: ${report.error}` : ''})`);
   }

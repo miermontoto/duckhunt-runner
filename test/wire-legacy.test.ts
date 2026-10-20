@@ -206,3 +206,33 @@ test('al arrancar avisa una vez si la máquina tiene aws y duckhunt no ve su `de
   assert.deepEqual(await warnings({ ...cfg, aws: { ...cfg.aws, default: { profile: 'personal' } } }), [], 'con `default` expuesta');
   assert.deepEqual(await warnings({ ...cfg, defaults: { ...cfg.defaults, toolsetRender: false } }), [], 'con el interruptor');
 });
+
+test('las sesiones de navegador solo se anuncian expuestas a duckhunt y con el flip: resources, su salud y la capability browser (t#495, M7)', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  t.mock.method(console, 'error', () => {});
+  const dir = fs.mkdtempSync(path.join(root, 'browser-'));
+  const odysea = path.join(dir, 'odysea');
+  fs.writeFileSync(odysea, `#!${process.execPath}\nif (process.argv[2] === '--version') console.log('0.5.0');\n`, { mode: 0o755 });
+  const vault = path.join(dir, 'vault');
+  fs.mkdirSync(vault, { mode: 0o700 });
+  // el cuerpo del claim de un daemon con esta config (con la salud de sus sesiones ya mirada, como al arrancar).
+  const announce = async (extra: object): Promise<string> => {
+    fs.writeFileSync(configPath(), JSON.stringify({ ...cfg, ...extra }), { mode: 0o600 });
+    const calls = capture();
+    const d = internals(loadConfig()!) as ReturnType<typeof internals> & { refreshBrowserHealth(force?: boolean): Promise<void> };
+    await d.reloadConfig();
+    await d.refreshBrowserHealth(true);
+    await legacyOf(d).claim();
+    return calls[0]!;
+  };
+  const browser = { version: 2, resources: { browser: { jira: { session: 'jira', origins: ['https://acme.atlassian.net'] } } }, providers: { browser: { bin: odysea, vaultDir: vault } } };
+  const exposed = { platforms: { duckhunt: { expose: { repo: '*', aws: '*', browser: '*' } } } };
+  const hidden = await announce(browser);
+  assert.ok(!hidden.includes('"resources"'), `sin exponerla a duckhunt, ni la clave: ${hidden}`);
+  assert.match(hidden, /"toolset_render","browser"\]/, 'la capability es de la máquina: odysea está');
+  const shown = await announce({ ...browser, ...exposed });
+  // sin sesión guardada en el vault: su salud lo dice.
+  assert.match(shown, /,"resources":\[\{"type":"browser","keys":\["jira"\]\}\],"health":\[\{"type":"browser","key":"jira","kind":"missing"\}\]\}$/);
+  const off = await announce({ ...browser, ...exposed, defaults: { ...cfg.defaults, toolsetRender: false } });
+  assert.ok(!off.includes('"resources"') && !off.includes('"browser"'), `el interruptor: el cable de 0.13.0: ${off}`);
+});

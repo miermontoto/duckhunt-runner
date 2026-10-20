@@ -12,6 +12,10 @@
 // - una petición legacy puede no llevar clave (key null): la aws de un claim que solo trae región.
 // - el error de un recurso que no se pudo materializar viaja sin paths: tipo, clave y motivo (el detalle, al
 //   log local por `cause`).
+// - fase mcp (t#495, M7): un recurso puede poner en el run un servidor mcp propio (res_<tipo>_<clave>, el prefijo
+//   `res_` lo reserva el daemon) con sus tools. ese servidor se prepara DESPUÉS de tomar los turnos del run
+//   (Materialized.mcp): la copia de una sesión de navegador exclusiva solo cuando el turno es suyo, o un run que
+//   esperaba copiaría el vault antes de que el anterior devolviera lo suyo y lo pisaría al soltar.
 
 import type { KeyedMutex } from '../keyed-mutex.js';
 
@@ -87,6 +91,22 @@ export interface ResourceLock {
   waitNote: string;
 }
 
+/** un servidor mcp que un recurso pone en el run (la forma stdio del mcp-config de claude). */
+export interface McpServerEntry {
+  type: 'stdio';
+  command: string;
+  args: readonly string[];
+  env: Readonly<Record<string, string>>;
+}
+
+/** lo que pone un recurso de la fase mcp con los turnos del run ya tomados: su servidor (el ciclo de vida lo nombra
+ *  res_<tipo>_<clave>) y sus tools sin prefijo, las que el run puede llamar y las que se le niegan. */
+export interface ResourceMcp {
+  server: McpServerEntry;
+  tools: readonly string[];
+  denied: readonly string[];
+}
+
 /** un recurso ya preparado para el run. */
 export interface Materialized {
   cwd?: RunCwd;
@@ -97,6 +117,8 @@ export interface Materialized {
   // avisos para el log y el feed (rama ignorada, cuenta sin mapear…).
   warnings: readonly string[];
   locks?: readonly ResourceLock[];
+  // su servidor mcp, preparado con los turnos del run tomados (ver cabecera). lanza si no se puede: el run no se lanza.
+  mcp?: () => Promise<ResourceMcp>;
   // al cerrar el run (o al deshacer si otro recurso falló). no debe lanzar, pero si lanza no frena a los demás.
   release(outcome: ReleaseOutcome): Promise<void>;
 }

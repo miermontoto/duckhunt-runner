@@ -56,6 +56,9 @@ export interface ClaimAnnounce {
   // expone su identidad aws por defecto (el cable legacy la anuncia aparte, LegacyClaimAwsDefault del protocolo).
   // null = no se anuncia (el interruptor del flip de toolset_v1: el cable de 0.13.0).
   awsDefault: boolean | null;
+  // sesiones de navegador expuestas a la plataforma y su salud (t#495, M7; códigos de health.ts). null = no se anuncian
+  // (ninguna expuesta, o el interruptor del flip: el cable de 0.13.0).
+  browsers: { keys: readonly string[]; health: readonly { key: string; kind: string }[] } | null;
   // null = el gc aún no recogió: no se anuncia.
   kept: readonly KeptWorktree[] | null;
 }
