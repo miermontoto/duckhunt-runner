@@ -156,7 +156,7 @@ export function platformsStatus(cfg: StoredConfig, findings: readonly RepoFindin
     // lo que dijo su server, con el nombre de la plataforma donde `status` dice duckhunt.
     const said = credentialId ? describeServerState(readServerState(id), credentialId, now).map((line) => `  ${legacy ? line : line.replace(SERVER_SAID_PREFIX, `en ${id}`)}`) : [];
     return [
-      `${id} · ${p.protocol ?? PROTOCOL.duckhunt42} · ${baseUrl ?? '(sin login)'} · credencial ${credentialId ? 'sí' : 'no'}${p.trusted ? ' · trusted' : ''}`,
+      `${id}${p.name ? ` «${p.name}»` : ''} · ${p.protocol ?? PROTOCOL.duckhunt42} · ${baseUrl ?? '(sin login)'} · credencial ${credentialId ? 'sí' : 'no'}${p.trusted ? ' · trusted' : ''}`,
       `  estado: ${localState(id, p, credentialId, now)}`,
       ...said,
       `  cuota: ${quota} slot${quota === 1 ? '' : 's'} (de ${slots}) · hoy ${limits.join(' · ')}`,

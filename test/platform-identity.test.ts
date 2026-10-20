@@ -65,7 +65,8 @@ test('el secreto de la máquina se genera una vez y se guarda en la config (0600
 });
 
 test('a la legacy, el machine id de siempre y la config sin secreto; a otra, el derivado de su emisor y su etiqueta', async (t) => {
-  const { d, created } = await daemon(t, { beta: entry('beta', { label: 'portátil de beta' }), gamma: entry('gamma') });
+  // gamma con el emisor que guardó su `login --as` (M6.4): es lo que firma su id, no la base de la credencial.
+  const { d, created } = await daemon(t, { beta: entry('beta', { label: 'portátil de beta' }), gamma: entry('gamma', { issuer: 'https://id.gamma.test' }) });
   const supervisor = (id: string): SupervisorInternals => d.supervisors.get(id)!;
   await d.pollOnce(legacyOf(d));
   assert.equal(readJson().machineSecret, undefined, 'con la legacy sola no hace falta: la config no cambia');
@@ -75,7 +76,7 @@ test('a la legacy, el machine id de siempre y la config sin secreto; a otra, el 
   assert.deepEqual([legacy!.machineId, legacy!.label], ['m-1', 'fa']);
   const secret = readJson().machineSecret as string;
   assert.equal(beta!.machineId, derivedMachineId(secret, 'https://beta.test'));
-  assert.equal(gamma!.machineId, derivedMachineId(secret, 'https://gamma.test'));
+  assert.equal(gamma!.machineId, derivedMachineId(secret, 'https://id.gamma.test'));
   assert.deepEqual([beta!.label, gamma!.label], ['portátil de beta', 'fa']);
 });
 

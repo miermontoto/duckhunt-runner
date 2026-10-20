@@ -9,6 +9,9 @@
 //   su clave no está expuesta a esta plataforma o si el techo no da acceso a su tipo, y si una entrada de
 //   resources[] no tiene grant. el acceso efectivo es el mínimo del grant y del techo.
 // - un campo del núcleo de `policy` que no conozco rechaza el claim (fail closed); lo desconocido de `ext` se ignora.
+// - (M6.4) cada servidor mcp del claim, en el MISMO origen que la plataforma (y esta en https, o en loopback para
+//   desarrollo): una plataforma no puede hacer que el agente hable con otro host ni con un servicio de localhost
+//   del usuario (platforms/origin.ts).
 // - las listas pre-renderizadas de `backend.claude_code`, si vienen, SOLO alimentan la comparación en sombra.
 // - el resultado pasa por la misma validación que un claim legacy (claim.ts::parseClaimBody): ids de tool para argv,
 //   perfil de lectura sin escritura, permission mode, sesión, modelo, rama, bloque mcp.
@@ -22,6 +25,7 @@ import { intersectToolset } from '../toolset/intersect.js';
 import { parseToolsetV1 } from '../toolset/parse.js';
 import { renderClaudeTools } from '../toolset/render.js';
 import { DUCKHUNT_EXT_NS, GRANT_ACCESS, RUN_ID_V0_RE, TOOLSET_SHELL, TOOLSET_V1, V0_BACKEND, type ToolsetGrant, type ToolsetV1 } from '../vendor/runner-protocol/index.js';
+import { sameSecureOrigin } from './origin.js';
 import { isExposed, type Exposure, type ToolsetCeiling } from './types.js';
 
 /** por qué se rechaza un claim de v0 (el código viaja en el error del result). */
@@ -32,6 +36,7 @@ export const CLAIM_REJECT = {
   notExposed: 'resource_not_exposed',
   notAllowed: 'resource_not_allowed',
   withoutGrant: 'resource_without_grant',
+  mcpOrigin: 'mcp_server_not_allowed',
 } as const;
 export type ClaimRejectCode = (typeof CLAIM_REJECT)[keyof typeof CLAIM_REJECT];
 
@@ -52,6 +57,8 @@ export interface V0Enforcement {
   // tipos de recurso que sirve este daemon (resources/registry.ts).
   resourceTypes: readonly string[];
   awsCli: boolean;
+  // base de la plataforma (su credencial): el único origen en el que pueden vivir sus servidores mcp.
+  platformBaseUrl: string;
 }
 
 /** el claim listo para ejecutar y lo que el techo (o el perfil) le recortó al toolset. */
@@ -92,8 +99,9 @@ function onlyKeys(v: Obj, allowed: ReadonlySet<string>, where: string): void {
   if (extra.length > 0) reject(CLAIM_REJECT.unknownPolicy, `${where} con campos que este runner no conoce (${extra.join(', ')})`);
 }
 
-// los servidores mcp de la plataforma: al menos uno, nombres válidos, sin el prefijo reservado ni repetidos.
-function mcpServersOf(raw: unknown): McpServer[] {
+// los servidores mcp de la plataforma: al menos uno, nombres válidos, sin el prefijo reservado ni repetidos, y en el
+// origen de la plataforma.
+function mcpServersOf(raw: unknown, platformBaseUrl: string): McpServer[] {
   if (!Array.isArray(raw) || raw.length === 0) return reject(CLAIM_REJECT.invalid, 'mcpServers vacío');
   const servers = raw.map((s, i): McpServer => {
     if (!isObj(s)) return reject(CLAIM_REJECT.invalid, `mcpServers[${i}] no es un objeto`);
@@ -101,9 +109,10 @@ function mcpServersOf(raw: unknown): McpServer[] {
     if (typeof name !== 'string' || !PLATFORM_MCP_NAME_RE.test(name) || name.startsWith(RESERVED_MCP_PREFIX)) {
       return reject(CLAIM_REJECT.invalid, `mcpServers[${i}].name no válido`);
     }
-    if (typeof url !== 'string' || !/^https?:\/\//i.test(url) || typeof token !== 'string' || !token) {
+    if (typeof url !== 'string' || typeof token !== 'string' || !token) {
       return reject(CLAIM_REJECT.invalid, `mcpServers[${i}] sin url o token`);
     }
+    if (!sameSecureOrigin(url, platformBaseUrl)) return reject(CLAIM_REJECT.mcpOrigin, `mcpServers[${i}] fuera del origen de la plataforma`);
     return { serverName: name, url, token, expiresAt: typeof expiresAt === 'number' && Number.isFinite(expiresAt) ? expiresAt : 0 };
   });
   if (new Set(servers.map((s) => s.serverName)).size !== servers.length) reject(CLAIM_REJECT.invalid, 'mcpServers con nombres repetidos');
@@ -186,7 +195,7 @@ export function claimOfV0(raw: unknown, e: V0Enforcement): AdaptedClaim {
   const params = resourceParams(raw.resources, requested);
   const ceiled = intersectToolset(requested, e.ceiling);
   const { toolset, narrowed: byProfile } = forProfile(ceiled.toolset, profile);
-  const servers = mcpServersOf(raw.mcpServers);
+  const servers = mcpServersOf(raw.mcpServers, e.platformBaseUrl);
   const [platform, ...extra] = servers;
   const rendered = renderClaudeTools(toolset, { mcpServerName: platform!.serverName, awsCli: e.awsCli });
   // las tools de la plataforma también sobre sus demás servidores mcp.

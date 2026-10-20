@@ -155,7 +155,7 @@ import { compareRunIds } from './run-id.js';
 import { allRunConfigDirs, LEGACY_PLATFORM_ID, logsDir, runConfigDir, scratchDir } from './paths.js';
 import { runnerVersion } from './version.js';
 import { PlatformRejectedError, PROTOCOL, type ClaimAnnounce, type Platform, type PlatformContext, type PlatformFactories, type Protocol, type RunSegment } from './platforms/platform.js';
-import { DEFAULT_CEILING, EXPOSE_ALL, isExposed, issuerOf, PLATFORM_DEFAULT_SLOTS, type PlatformConfig } from './platforms/types.js';
+import { DEFAULT_CEILING, EXPOSE_ALL, isExposed, PLATFORM_DEFAULT_SLOTS, type PlatformConfig } from './platforms/types.js';
 import { PLATFORM_FACTORIES } from './platforms/factories.js';
 import { Scheduler } from './platforms/scheduler.js';
 import { PLATFORM_STATE, PlatformSupervisor, type SupervisorHooks } from './platforms/supervisor.js';
@@ -355,7 +355,8 @@ export class RunnerDaemon {
         this.machineSecret = null;
       }
     }
-    return this.machineSecret === null ? null : derivedMachineId(this.machineSecret, issuerOf(this.platformsCfg[sup.id], sup.platform.identity().baseUrl));
+    // firma el emisor que guardó su `login --as` (M6.4); una escrita a mano, sin él, la base de su credencial.
+    return this.machineSecret === null ? null : derivedMachineId(this.machineSecret, this.platformsCfg[sup.id]?.issuer ?? sup.platform.identity().baseUrl);
   }
 
   // prefijo del log de una plataforma: el de siempre para la legacy, con su id para las demás.

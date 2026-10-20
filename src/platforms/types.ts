@@ -63,19 +63,17 @@ export interface PlatformConfig {
   // runs a la vez de esta plataforma, dentro del pool de la máquina (ausente: la legacy todo el pool, una nueva
   // PLATFORM_DEFAULT_SLOTS).
   slots?: number;
+  // (M6.4) quién la emite: el `issuer` de su discovery al hacer `login --as` (sin discovery, su base). distingue un
+  // re-login de la misma plataforma de otra con el mismo id. ausente en la legacy y en una escrita a mano.
+  issuer?: string;
+  // (M6.4) nombre para enseñar (`login --name`); el id es la clave local e inmutable.
+  name?: string;
   // (M6.5) etiqueta con la que se anuncia a esta plataforma (ausente: la de la máquina o su hostname).
   label?: string;
   // (M6.6) cuota diaria (día local), contada en su auditoría: coste en usd de sus runs y segmentos reclamados. al
   // agotarla no reclama hasta medianoche. ausente = sin tope.
   budgetUsdPerDay?: number;
   runsPerDay?: number;
-}
-
-/** el emisor de una plataforma (su `issuer` del discovery, M6.4) o, sin él, la base de su credencial: lo que firma su
- *  machine id derivado (machine.ts). el campo lo guarda el `login` de M6.4. */
-export function issuerOf(cfg: PlatformConfig | undefined, baseUrl: string): string {
-  const issuer = (cfg as { issuer?: unknown } | undefined)?.issuer;
-  return typeof issuer === 'string' && issuer ? issuer : baseUrl;
 }
 
 /** el techo de duckhunt: lo que su kit puede pedir hoy. */
