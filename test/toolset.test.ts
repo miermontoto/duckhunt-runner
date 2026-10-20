@@ -62,14 +62,15 @@ test('render: cada caso de la matriz del server da sus listas; la única diferen
     const ctx = { mcpServerName: fx.mcpServerName, awsCli: fx.capabilities.includes(RUNNER_CAPABILITY.aws) };
     const server: ClaudeTools = { ...fx.tools, permissionMode: fx.permissionMode };
     const rendered = renderClaudeTools(toolset, ctx);
-    const { shadow, explained } = compareToolset(server, toolset, ctx);
-    assert.ok(explained, `${file}: ${JSON.stringify(shadow.diff)}`);
+    const shadow = compareToolset(server, toolset, ctx);
+    assert.equal(shadow.explained, true, `${file}: ${JSON.stringify(shadow.diff)}`);
     if (shadow.match) {
       // orden incluido: el render repite el del server.
       assert.deepEqual(rendered, server, file);
       return 'match';
     }
-    // allowlist (ver cabecera): sin grant de aws, lo único que falta son los patrones de la aws en lectura.
+    // allowlist (ver cabecera): sin grant de aws, lo único que falta son los patrones de la aws en lectura (y lo dice
+    // explained: el server no lo avisa).
     assert.deepEqual(shadow.known, [TOOLSET_SHADOW_KNOWN.awsWithoutGrant], file);
     assert.deepEqual(rendered, { ...server, allowed: server.allowed.filter((id) => !AWS_READ.has(id)) }, file);
     return 'awsWithoutGrant';
@@ -139,12 +140,12 @@ test('sombra: el diff se recorta a los topes del server; el permission mode del 
   const ctx = { mcpServerName: 'duckhunt', awsCli: true };
   const many = Array.from({ length: RUNNER_TOOLSET_SHADOW_IDS_MAX + 5 }, (_, i) => `mcp__duckhunt__tool-${i}-${'x'.repeat(RUNNER_TOOLSET_SHADOW_ID_MAX_CHARS)}`);
   const server: ClaudeTools = { ...renderClaudeTools(toolset, ctx), permissionMode: 'default' };
-  const { shadow, explained } = compareToolset({ ...server, allowed: [...server.allowed, ...many] }, toolset, ctx);
+  const shadow = compareToolset({ ...server, allowed: [...server.allowed, ...many] }, toolset, ctx);
   assert.equal(shadow.match, false);
-  assert.equal(explained, false);
+  assert.equal(shadow.explained, false);
   assert.deepEqual(shadow.known, []);
   assert.equal(shadow.diff?.allowedMissing.length, RUNNER_TOOLSET_SHADOW_IDS_MAX);
   assert.ok(shadow.diff?.allowedMissing.every((id) => id.length <= RUNNER_TOOLSET_SHADOW_ID_MAX_CHARS));
   assert.equal(shadow.diff?.permissionMode, 'dontAsk');
-  assert.deepEqual(compareToolset({ ...server, permissionMode: 'dontAsk' }, toolset, ctx).shadow, { match: true, known: [], diff: null });
+  assert.deepEqual(compareToolset({ ...server, permissionMode: 'dontAsk' }, toolset, ctx), { match: true, explained: true, known: [], diff: null });
 });

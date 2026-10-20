@@ -12,6 +12,9 @@
 //   cuenta anunciada no hay grant de aws: la identidad aws por defecto de la máquina es una clave que el usuario
 //   expone a mano (`default`), nunca implícita. es la única diferencia buscada con las listas legacy, que dan la
 //   aws en lectura a un run de lectura sin cuenta (TOOLSET_SHADOW_KNOWN.awsWithoutGrant).
+// - explained: el daemon dice si la diferencia es SOLO la buscada, calculado sobre el diff entero (el que viaja va
+//   recortado y no basta para decidirlo). el server solo avisa de lo que no casa y no está explicado: la diferencia
+//   buscada de cada run de lectura sin cuenta taparía las de verdad.
 // - vcsPush = el run puede empujar y tocar remotos (false = el deny de push y remotos de un prompt de regla
 //   desatendido en edición por debajo del tier world).
 
@@ -81,6 +84,8 @@ export interface ToolsetShadowDiff {
 /** el resultado de la sombra en el status de un segmento: match = el render es idéntico a las listas del server. */
 export interface ToolsetShadow {
   match: boolean;
+  // casa, o lo único que no casa es lo que explica `known` (sobre el diff entero, antes de recortar).
+  explained: boolean;
   // lo que explica la diferencia, si hay alguna explicada (TOOLSET_SHADOW_KNOWN).
   known: string[];
   // null con match.

@@ -481,5 +481,5 @@ test('toolset_v1 en sombra: el spawn es el de siempre y solo el status lleva too
   assert.equal(more.length, 0);
   const { toolsetShadow, ...rest } = closed!;
   assert.deepEqual(rest, statusOf(legacy)[0], 'lo demás del status, igual');
-  assert.deepEqual(toolsetShadow, { match: true, known: [], diff: null });
+  assert.deepEqual(toolsetShadow, { match: true, explained: true, known: [], diff: null });
 });

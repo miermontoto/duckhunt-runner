@@ -853,11 +853,11 @@ export class RunnerDaemon {
   private toolsetShadow(sup: PlatformSupervisor, claim: ClaimResponse, tag: string): ToolsetShadow | null {
     if (claim.toolsetShadow === null) return null;
     const ceiling = this.platformsCfg[sup.id]?.ceiling ?? legacyPlatform().ceiling;
-    const { shadow, explained, narrowed } = shadowOf(claim.toolsetShadow, ceiling, { mcpServerName: claim.mcp.serverName, awsCli: this.hasAws });
+    const { shadow, narrowed } = shadowOf(claim.toolsetShadow, ceiling, { mcpServerName: claim.mcp.serverName, awsCli: this.hasAws });
     if (narrowed.length > 0) console.log(`[runner] ${tag}: toolset_v1 acotado por el techo de ${sup.id}: ${narrowed.join(', ')}`);
     if (!shadow.match) {
       const known = shadow.known.length > 0 ? ` (${shadow.known.join(', ')})` : '';
-      if (explained) console.log(`[runner] ${tag}: toolset_v1 en sombra: solo la diferencia buscada${known}`);
+      if (shadow.explained) console.log(`[runner] ${tag}: toolset_v1 en sombra: solo la diferencia buscada${known}`);
       else console.warn(`[runner] ${tag}: toolset_v1 en sombra no casa con las listas del server${known}`);
     }
     return shadow;
