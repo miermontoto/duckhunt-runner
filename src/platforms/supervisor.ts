@@ -3,7 +3,9 @@
 // (server-state.ts, en su directorio) y su estado:
 // - active: reclama. paused: no reclama, sus runs siguen latiendo hasta acabar (M6.3, desde la config).
 // - unpaired: su credencial murió (desvinculada, revocada o caducada). deja de reclamar y sus runs se cortan;
-//   si era la última plataforma usable, el daemon sale con EXIT_CODE_UNPAIRED como siempre.
+//   si era la última plataforma usable, el daemon sale con EXIT_CODE_UNPAIRED como siempre. un `login` nuevo
+//   (otro clientId en la config) la sustituye por otra activa (M6.3).
+// - removing: ya no está en la config. no reclama; cuando acaban sus runs, el daemon la suelta (M6.3).
 // lo que es de la máquina (los slots, la config, los recursos, cómo se ejecuta un run) sigue en el daemon.
 
 import type { ClaimResponse } from '../claim.js';
@@ -15,6 +17,7 @@ export const PLATFORM_STATE = {
   active: 'active',
   paused: 'paused',
   unpaired: 'unpaired',
+  removing: 'removing',
 } as const;
 export type PlatformState = (typeof PLATFORM_STATE)[keyof typeof PLATFORM_STATE];
 

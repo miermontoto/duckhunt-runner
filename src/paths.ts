@@ -52,10 +52,15 @@ const ensureDir = (dir: string): string => {
   return dir;
 };
 
+/** ruta del scratch de una plataforma, sin crearlo (el deny del de las demás: secret-paths.ts). */
+export function scratchPath(platform: string): string {
+  return path.join(platformHome(platform), SCRATCH_SUBDIR);
+}
+
 /** cwd FIJO de los runs sin repo de una plataforma: la auto-memory de claude code se indexa por ruta, así el
  *  conocimiento de infra (alarmas sin código) acumula entre runs, y no se mezcla con el de otra plataforma. */
 export function scratchDir(platform: string): string {
-  return ensureDir(path.join(platformHome(platform), SCRATCH_SUBDIR));
+  return ensureDir(scratchPath(platform));
 }
 
 /** logs de los runs con --verbose. */

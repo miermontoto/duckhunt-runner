@@ -17,13 +17,15 @@
 // Glob honran estos deny, también en búsquedas recursivas y a través de symlinks; la shell de solo lectura
 // no aprueba nada fuera de su cwd (vetado o no) y dentro honra una ruta nombrada, pero no una lectura
 // recursiva (`grep -r`), que read-shell-guard.ts cierra quitando la shell si un symlink sale del cwd.
+// el scratch de las OTRAS plataformas (t#495, M6.3, otherScratchDeny): no va en secretPathsDeny porque es de
+// cada run (el propio es su cwd) y se calcula en cada segmento, como el run-config de todas.
 
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { configPath, runnerHome } from './config.js';
 import { readDenyRule } from './run-mcp-config.js';
-import { PLATFORM_PRIVATE_ENTRIES, PLATFORM_SCRATCH_SUBDIR, PLATFORMS_DIR_NAME } from './paths.js';
+import { LEGACY_PLATFORM_ID, PLATFORM_ID_RE, PLATFORM_PRIVATE_ENTRIES, PLATFORM_SCRATCH_SUBDIR, PLATFORMS_DIR_NAME, scratchPath } from './paths.js';
 
 // lo que el daemon escribe en su estado aunque aún no exista al arrancar (logs con --verbose, el lock y
 // lo último que dijo el server): directorios con `/` final.
@@ -105,4 +107,16 @@ export function secretPathsDeny(env: NodeJS.ProcessEnv = process.env, home: stri
     rules: Array.from(new Set(rules.filter((r): r is string => r !== null))),
     skipped: candidates.filter((_, i) => rules[i] === null).map((c) => c.path),
   };
+}
+
+/** deny de Read del scratch de las plataformas que no son `own` (el cwd de sus runs sin repo y la auto-memory de su
+ *  cli): las de la config (`configured`) y las que tienen estado en disco, con su realpath si difiere. vacío con
+ *  una sola plataforma. */
+export function otherScratchDeny(own: string, configured: readonly string[]): string[] {
+  const onDisk = listed(path.join(runnerHome(), PLATFORMS_DIR_NAME))
+    .filter((d) => d.isDirectory() && PLATFORM_ID_RE.test(d.name))
+    .map((d) => d.name);
+  const others = Array.from(new Set([LEGACY_PLATFORM_ID, ...configured, ...onDisk])).filter((id) => id !== own);
+  const rules = others.flatMap((id) => withRealpath({ path: path.resolve(scratchPath(id)), dir: true })).map((c) => readDenyRule(c.path, c.dir));
+  return Array.from(new Set(rules.filter((r): r is string => r !== null)));
 }

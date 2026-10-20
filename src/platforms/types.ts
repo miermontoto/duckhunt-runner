@@ -8,6 +8,9 @@
 //   del techo: es un invariante del daemon para toda plataforma.
 // - una plataforma nueva arranca sin nada expuesto y con el techo más bajo.
 // - shell:'full' solo en una plataforma marcada trusted (duckhunt y la local); el resto, como mucho 'read'.
+// - (M6.3) protocolo, pausa y cuota de slots por plataforma. la legacy habla duckhunt-42 y tiene todo el pool; una
+//   nueva, PLATFORM_DEFAULT_SLOTS. un protocolo que este runner no habla deja la plataforma sin reclamar (con un
+//   aviso), nunca la config inválida: un runner más nuevo puede haberla escrito.
 
 import type { RunnerCredential } from '../config.js';
 import { ACCESS, RESOURCE_TYPE, type Access } from '../resources/types.js';
@@ -22,6 +25,15 @@ export type Shell = (typeof SHELL)[keyof typeof SHELL];
 // todas las claves de un tipo de recurso expuestas (las que haya ahora y las que se mapeen después).
 export const EXPOSE_ALL = '*';
 export type Exposure = typeof EXPOSE_ALL | readonly string[];
+
+/** ¿la plataforma ve esta clave de este tipo? (tipo ausente = ninguna). */
+export const isExposed = (expose: PlatformConfig['expose'], type: string, key: string): boolean => {
+  const keys = Object.hasOwn(expose, type) ? expose[type] : undefined;
+  return keys === EXPOSE_ALL || (keys?.includes(key) ?? false);
+};
+
+/** cuota de slots de una plataforma nueva sin `slots` en su config. */
+export const PLATFORM_DEFAULT_SLOTS = 1;
 
 /** lo más que una plataforma puede pedir para un run. un tipo de recurso ausente en `access` = sin grants de él. */
 export interface ToolsetCeiling {
@@ -43,6 +55,13 @@ export interface PlatformConfig {
   // tipo de recurso → claves que ve (ausente = ninguna).
   expose: Readonly<Record<string, Exposure>>;
   ceiling: ToolsetCeiling;
+  // protocolo con el que habla (platforms/platform.ts::PROTOCOL). ausente en la legacy: duckhunt-42.
+  protocol?: string;
+  // en pausa: no reclama; sus runs en vuelo siguen hasta acabar.
+  paused?: boolean;
+  // runs a la vez de esta plataforma, dentro del pool de la máquina (ausente: la legacy todo el pool, una nueva
+  // PLATFORM_DEFAULT_SLOTS).
+  slots?: number;
 }
 
 /** el techo de duckhunt: lo que su kit puede pedir hoy. */

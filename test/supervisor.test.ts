@@ -52,20 +52,23 @@ interface Two {
   finish: (runId: string) => Promise<void>;
 }
 
-// daemon con la legacy y `beta`, ambas falsas; executeRun no lanza claude: espera a que la prueba lo termine.
-async function two(t: TestContext, maxConcurrent = 1): Promise<Two> {
-  fs.writeFileSync(configPath(), JSON.stringify({ ...cfg, defaults: { maxConcurrent } }), { mode: 0o600 });
+// la entrada de `beta` en la config v2: otra plataforma duckhunt-42 con su credencial.
+const betaEntry = (extra: object = {}): object => ({ protocol: 'duckhunt-42', credential: { baseUrl: 'https://beta.test', clientId: 'b1', refreshToken: 'rb' }, ...extra });
+
+// daemon con la legacy y `beta` (de la config), ambas falsas; executeRun no lanza claude: espera a que la prueba
+// lo termine.
+async function two(t: TestContext, maxConcurrent = 1, beta: object = betaEntry()): Promise<Two> {
+  fs.writeFileSync(configPath(), JSON.stringify({ ...cfg, defaults: { maxConcurrent }, version: 2, platforms: { [BETA]: beta } }), { mode: 0o600 });
   const { factories, created } = fakeFactories();
   const d = internals(loadConfig()!, { factories });
   await d.reloadConfig();
-  const beta = d.addSupervisor(new FakePlatform(BETA, { baseUrl: 'https://beta.test', clientId: 'b1', refreshToken: 'rb' }));
   const running = new Map<string, () => void>();
   t.mock.method(d, 'executeRun', ((_sup: SupervisorInternals, claim: ClaimResponse) => new Promise<void>((resolve) => running.set(claim.run.id, resolve))) as never);
   const finish = async (runId: string): Promise<void> => {
     running.get(runId)!();
     await settle();
   };
-  return { d, legacy: legacyOf(d), beta, fakes: { legacy: created.get('duckhunt')!, beta: beta.platform as FakePlatform }, finish };
+  return { d, legacy: legacyOf(d), beta: d.supervisors.get(BETA)!, fakes: { legacy: created.get('duckhunt')!, beta: created.get(BETA)! }, finish };
 }
 
 before(() => {
@@ -120,19 +123,23 @@ test('reservar antes de reclamar: sin run (o sin respuesta) la reserva vuelve; c
   assert.equal(fakes.beta.announces.length, 1);
 });
 
-test('cada plataforma anuncia su cuota, no los slots libres del pool', async (t) => {
+test('cada plataforma anuncia su cuota, no los slots libres del pool: la legacy todo el pool, una nueva 1 o la suya', async (t) => {
   t.mock.method(console, 'log', () => {});
   const { d, legacy, beta, fakes } = await two(t, 3);
   fakes.legacy.claims = [runResult(claimFor('1'))];
   await d.pollOnce(legacy);
   await d.pollOnce(beta);
-  assert.deepEqual([fakes.legacy.announces[0]!.slots, fakes.beta.announces[0]!.slots], [3, 3]);
+  assert.deepEqual([fakes.legacy.announces[0]!.slots, fakes.beta.announces[0]!.slots], [3, 1]);
+  fakes.beta.claims = [runResult(claimFor('2'))];
+  await d.pollOnce(beta);
+  assert.equal(await d.pollOnce(beta), false, 'su cuota de 1 llena aunque quede pool');
+  assert.equal(beta.blocked, true);
 });
 
 test('la credencial muerta de una plataforma solo para a esa; la de la última para el daemon con EXIT_CODE_UNPAIRED', async (t) => {
   t.mock.method(console, 'log', () => {});
   const error = t.mock.method(console, 'error', () => {});
-  const { d, legacy, beta, fakes } = await two(t, 2);
+  const { d, legacy, beta, fakes } = await two(t, 2, betaEntry({ slots: 2 }));
   const [mine, theirs] = [new RunLease('1'), new RunLease('2')];
   legacy.leases.add(mine);
   beta.leases.add(theirs);

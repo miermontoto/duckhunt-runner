@@ -286,10 +286,15 @@ export function mergeEntries<T>(current: Record<string, T>, before: Record<strin
   return { ...Object.fromEntries(Object.entries(current).filter(([key]) => !removed.has(key))), ...Object.fromEntries(changed) };
 }
 
-/** el fichero como modelo v2 (también un v1, vía fromLegacy); null si no existe. lanza si es inválido. */
+/** el modelo v2 a partir del texto del fichero (también un v1, vía fromLegacy). lanza si es inválido. */
+export function parseConfigV2(text: string): RunnerConfigV2 {
+  return fromFile(parseObject(text));
+}
+
+/** el fichero como modelo v2; null si no existe. lanza si es inválido. */
 export function loadConfigV2(): RunnerConfigV2 | null {
   const text = readConfigText();
-  return text === null ? null : fromFile(parseObject(text));
+  return text === null ? null : parseConfigV2(text);
 }
 
 /**
