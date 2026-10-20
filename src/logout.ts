@@ -12,38 +12,18 @@
 import path from 'node:path';
 import { configPath, loadStoredConfig, saveConfig, type RunnerCredential } from './config.js';
 import { daemonLockHolder } from './daemon-lock.js';
-import { CredentialRejectedError, refreshAccess } from './oauth.js';
 import { clearServerState } from './server-state.js';
 import { LEGACY_PLATFORM_ID } from './paths.js';
+import { Duckhunt42Platform } from './platforms/duckhunt42.js';
+import { HttpTransport } from './platforms/http-transport.js';
+import type { UnpairOutcome } from './platforms/platform.js';
 
-// sin respuesta del server en este plazo = fallo (no se borra nada).
-const UNPAIR_TIMEOUT_MS = 30_000;
-const HTTP_NOT_FOUND = 404;
-const HTTP_UNAUTHORIZED = 401;
+export type { UnpairOutcome };
 
-/** qué dijo el server: desvinculada (con los runs que canceló), sin el endpoint, o la credencial ya no valía. */
-export type UnpairOutcome = { kind: 'unpaired'; canceled: number } | { kind: 'unsupported' } | { kind: 'gone' };
-
-/** pide al server que desvincule la máquina de esta credencial. lanza ante un fallo de red o un error del server. */
-export async function unpairOnServer(cred: RunnerCredential): Promise<UnpairOutcome> {
-  let token: string;
-  try {
-    token = (await refreshAccess(cred)).access.token;
-  } catch (err) {
-    if (err instanceof CredentialRejectedError) return { kind: 'gone' };
-    throw err;
-  }
-  const res = await fetch(`${cred.baseUrl}/api/runner/unpair`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: '{}',
-    signal: AbortSignal.timeout(UNPAIR_TIMEOUT_MS),
-  });
-  if (res.status === HTTP_NOT_FOUND) return { kind: 'unsupported' };
-  if (res.status === HTTP_UNAUTHORIZED) return { kind: 'gone' };
-  if (!res.ok) throw new Error(`el server respondió http ${res.status} ${await res.text().catch(() => '')}`);
-  const body = (await res.json().catch(() => ({}))) as { canceled?: unknown };
-  return { kind: 'unpaired', canceled: Array.isArray(body.canceled) ? body.canceled.length : 0 };
+/** pide al server que desvincule la máquina de esta credencial (platforms/duckhunt42.ts::unpair). lanza ante un
+ *  fallo de red o un error del server. */
+export function unpairOnServer(cred: RunnerCredential): Promise<UnpairOutcome> {
+  return new Duckhunt42Platform(LEGACY_PLATFORM_ID, new HttpTransport(cred)).unpair();
 }
 
 /** borra la credencial de la config (y lo último que dijo el server), dejando todo lo demás. */

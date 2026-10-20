@@ -17,6 +17,7 @@ import readline from 'node:readline/promises';
 import { configPath, DEFAULT_BASE_URL, loadConfig, saveConfig, type RunnerCredential } from './config.js';
 import { daemonLockHolder } from './daemon-lock.js';
 import { loginIdentity } from './machine.js';
+import { PlatformRejectedError } from './platforms/platform.js';
 
 // path del recurso runner en el server (espejo de canonicalRunnerResourceUrl).
 const RUNNER_RESOURCE_PATH = '/api/runner';
@@ -38,8 +39,9 @@ class TokenEndpointError extends Error {
   }
 }
 
-/** el token endpoint rechazó el refresh (invalid_grant): desvinculada, revocada o caducada. no se recupera sin `login`. */
-export class CredentialRejectedError extends Error {
+/** el token endpoint rechazó el refresh (invalid_grant): desvinculada, revocada o caducada. no se recupera sin
+ *  `login`. es el rechazo de la plataforma duckhunt (platforms/platform.ts::PlatformRejectedError). */
+export class CredentialRejectedError extends PlatformRejectedError {
   constructor(description: string) {
     super(`la credencial de esta máquina ya no vale (desvinculada desde duckhunt, revocada o caducada: ${description}): vuelve a hacer \`duckhunt-runner login\``);
     this.name = 'CredentialRejectedError';
