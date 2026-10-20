@@ -16,10 +16,13 @@
 //   `trusted`, o repo/aws dentro de `resources` (viven en repos/aws) hacen la config inválida.
 // - (M6.3) protocolo, pausa y cuota de cada plataforma: un protocolo desconocido es válido (la plataforma no
 //   reclama, platforms/types.ts); la legacy solo habla el suyo.
+// - (M6.4) issuer y nombre de cada plataforma, y el token endpoint de su credencial si no es el de siempre: solo en
+//   el origen de su base (el refresh token no sale de él).
 
 import type { RepoConfig, AwsAccountConfig, RunnerConfigV2, RunnerCredential, ResourcesConfig } from './config.js';
 import { CONFIG_VERSION } from './config.js';
 import { LEGACY_PLATFORM_ID, PLATFORM_ID_RE } from './paths.js';
+import { sameSecureOrigin, urlOf } from './platforms/origin.js';
 import { PROTOCOL } from './platforms/platform.js';
 import { DEFAULT_CEILING, EXPOSE_ALL, LEGACY_CEILING, LEGACY_EXPOSE, SHELL, type Exposure, type PlatformConfig, type ToolsetCeiling } from './platforms/types.js';
 import { ACCESS, RESOURCE_TYPE } from './resources/types.js';
@@ -107,8 +110,13 @@ function platformOf(id: string, v: unknown, base: PlatformConfig): PlatformConfi
   if (!isObj(v)) throw invalid(`${where} no es un objeto`);
   const legacy = id === LEGACY_PLATFORM_ID;
   if (legacy && v.credential !== undefined) throw invalid(`${where}.credential: la de ${LEGACY_PLATFORM_ID} vive en baseUrl/clientId/refreshToken`);
-  const credential = legacy ? base.credential : isObj(v.credential) ? credentialOf(v.credential) : undefined;
-  if (!legacy && v.credential !== undefined && !credential) throw invalid(`${where}.credential incompleta (baseUrl, clientId, refreshToken)`);
+  const own = !legacy && isObj(v.credential) ? credentialOf(v.credential) : undefined;
+  if (!legacy && v.credential !== undefined && !own) throw invalid(`${where}.credential incompleta (baseUrl, clientId, refreshToken)`);
+  const tokenEndpoint = own && isObj(v.credential) ? str(v.credential.tokenEndpoint) : undefined;
+  if (own && tokenEndpoint && !sameSecureOrigin(tokenEndpoint, own.baseUrl)) throw invalid(`${where}.credential.tokenEndpoint fuera del origen de su baseUrl`);
+  const credential = legacy ? base.credential : own && { ...own, ...(tokenEndpoint ? { tokenEndpoint } : {}) };
+  if (v.issuer !== undefined && (typeof v.issuer !== 'string' || !urlOf(v.issuer))) throw invalid(`${where}.issuer no es una url`);
+  if (v.name !== undefined && (typeof v.name !== 'string' || !v.name)) throw invalid(`${where}.name no es un texto`);
   if (v.trusted !== undefined && typeof v.trusted !== 'boolean') throw invalid(`${where}.trusted no es booleano`);
   const trusted = (v.trusted as boolean | undefined) ?? base.trusted;
   if (v.expose !== undefined && !isObj(v.expose)) throw invalid(`${where}.expose no es un objeto`);
@@ -125,6 +133,8 @@ function platformOf(id: string, v: unknown, base: PlatformConfig): PlatformConfi
     ...(v.protocol !== undefined ? { protocol: v.protocol as string } : {}),
     ...(v.paused !== undefined ? { paused: v.paused as boolean } : {}),
     ...(v.slots !== undefined ? { slots: v.slots as number } : {}),
+    ...(v.issuer !== undefined ? { issuer: v.issuer as string } : {}),
+    ...(v.name !== undefined ? { name: v.name as string } : {}),
   };
 }
 

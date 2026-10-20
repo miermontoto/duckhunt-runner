@@ -13,6 +13,9 @@
 // plataformas (t#495, M6.3): de dónde se lee y dónde se guarda la credencial es un CredentialStore
 // (platforms/credentials.ts): la de duckhunt en las claves de siempre, la de otra plataforma en su entrada de
 // `platforms`. cada refresh escribe solo la suya.
+// (M6.4) el flujo (dcr + pkce + code pegado) va contra unos OAuthEndpoints: los de duckhunt, fijos bajo su base
+// (legacyOAuth, el `login` de siempre byte a byte), o los que publica la metadata rfc 8414 de otra plataforma
+// (platform-login.ts). el refresh usa el token endpoint de la credencial si lo trae.
 
 import crypto from 'node:crypto';
 import path from 'node:path';
@@ -27,6 +30,13 @@ import { LEGACY_CREDENTIALS, type CredentialStore } from './platforms/credential
 const RUNNER_RESOURCE_PATH = '/api/runner';
 // redirect out-of-band: página del server que muestra el code para pegar.
 const OOB_REDIRECT_PATH = '/oauth/authorized';
+// endpoints del authorization server de duckhunt bajo su base.
+const REGISTER_PATH = '/oauth/register';
+const AUTHORIZE_PATH = '/oauth/authorize';
+const TOKEN_PATH = '/oauth/token';
+const PKCE_VERIFIER_BYTES = 32;
+const PKCE_METHOD = 'S256';
+const CODE_PROMPT = 'código: ';
 // sin respuesta del token endpoint en este plazo = fallo (un refresh colgado pararía el daemon).
 const TOKEN_TIMEOUT_MS = 30_000;
 // error oauth (rfc 6749) con el que el token endpoint rechaza una credencial que ya no vale.
@@ -56,14 +66,14 @@ function b64url(buf: Buffer): string {
   return buf.toString('base64url');
 }
 
-interface TokenResponse {
+export interface TokenResponse {
   access_token: string;
   expires_in: number;
   refresh_token: string;
 }
 
-async function postToken(baseUrl: string, form: Record<string, string>): Promise<TokenResponse> {
-  const res = await fetch(`${baseUrl}/oauth/token`, {
+async function postToken(tokenUrl: string, form: Record<string, string>): Promise<TokenResponse> {
+  const res = await fetch(tokenUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams(form).toString(),
@@ -91,49 +101,81 @@ export function parseLoginArgs(rest: string[]): { baseUrl: string; label?: strin
   return { baseUrl: /^https?:\/\//i.test(first) ? first : `https://${first}`, label: second };
 }
 
-export async function login(baseUrl: string, label?: string): Promise<void> {
-  const base = baseUrl.replace(/\/+$/, '');
-  const redirectUri = `${base}${OOB_REDIRECT_PATH}`;
-  const resource = `${base}${RUNNER_RESOURCE_PATH}`;
+/** dónde hace el oauth una plataforma: registro (dcr), autorización, token, el redirect out-of-band y la audiencia
+ *  (rfc 8707) de sus tokens. */
+export interface OAuthEndpoints {
+  registration: string;
+  authorization: string;
+  token: string;
+  redirectUri: string;
+  resource: string;
+}
 
-  const reg = await fetch(`${base}/oauth/register`, {
+/** el oauth de duckhunt: todo fijo bajo su base (el contrato de siempre). */
+export const legacyOAuth = (base: string): OAuthEndpoints => ({
+  registration: `${base}${REGISTER_PATH}`,
+  authorization: `${base}${AUTHORIZE_PATH}`,
+  token: `${base}${TOKEN_PATH}`,
+  redirectUri: `${base}${OOB_REDIRECT_PATH}`,
+  resource: `${base}${RUNNER_RESOURCE_PATH}`,
+});
+
+/** token endpoint de una credencial: el suyo si lo trae, el de duckhunt bajo su base si no. */
+export const tokenUrlOf = (cred: Pick<RunnerCredential, 'baseUrl' | 'tokenEndpoint'>): string => cred.tokenEndpoint ?? `${cred.baseUrl}${TOKEN_PATH}`;
+
+/** lee el code que el usuario pega (la terminal; los tests pasan el suyo). */
+export type AskCode = (prompt: string) => Promise<string>;
+
+const askTerminal: AskCode = async (prompt) => {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const answer = await rl.question(prompt);
+  rl.close();
+  return answer;
+};
+
+/** dcr de cliente público + pkce S256 + code out-of-band contra `ep`: el client_id y los tokens. lanza si algo falla. */
+export async function authorizeClient(ep: OAuthEndpoints, clientName: string, ask: AskCode = askTerminal): Promise<{ clientId: string; tokens: TokenResponse }> {
+  const reg = await fetch(ep.registration, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ client_name: `duckhunt-runner (${label ?? 'local'})`, redirect_uris: [redirectUri] }),
+    body: JSON.stringify({ client_name: clientName, redirect_uris: [ep.redirectUri] }),
   });
   const client = (await reg.json().catch(() => ({}))) as { client_id?: string };
   if (!reg.ok || !client.client_id) throw new Error(`dcr falló: http ${reg.status}`);
 
-  const verifier = b64url(crypto.randomBytes(32));
+  const verifier = b64url(crypto.randomBytes(PKCE_VERIFIER_BYTES));
   const challenge = b64url(crypto.createHash('sha256').update(verifier).digest());
-  const authorizeUrl = new URL(`${base}/oauth/authorize`);
+  const authorizeUrl = new URL(ep.authorization);
   authorizeUrl.searchParams.set('response_type', 'code');
   authorizeUrl.searchParams.set('client_id', client.client_id);
-  authorizeUrl.searchParams.set('redirect_uri', redirectUri);
+  authorizeUrl.searchParams.set('redirect_uri', ep.redirectUri);
   authorizeUrl.searchParams.set('code_challenge', challenge);
-  authorizeUrl.searchParams.set('code_challenge_method', 'S256');
-  authorizeUrl.searchParams.set('resource', resource);
+  authorizeUrl.searchParams.set('code_challenge_method', PKCE_METHOD);
+  authorizeUrl.searchParams.set('resource', ep.resource);
 
   console.log('\nabre esta url en tu navegador, autoriza y pega aquí el código:\n');
   console.log(`  ${authorizeUrl.toString()}\n`);
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  const code = (await rl.question('código: ')).trim();
-  rl.close();
+  const code = (await ask(CODE_PROMPT)).trim();
   if (!code) throw new Error('código vacío');
 
-  const tokens = await postToken(base, {
+  const tokens = await postToken(ep.token, {
     grant_type: 'authorization_code',
     code,
     code_verifier: verifier,
-    redirect_uri: redirectUri,
+    redirect_uri: ep.redirectUri,
     client_id: client.client_id,
-    resource,
+    resource: ep.resource,
   });
+  return { clientId: client.client_id, tokens };
+}
+
+export async function login(baseUrl: string, label?: string): Promise<void> {
+  const base = baseUrl.replace(/\/+$/, '');
+  const { clientId, tokens } = await authorizeClient(legacyOAuth(base), `duckhunt-runner (${label ?? 'local'})`);
 
   // solo la credencial, la identidad de la máquina (y la etiqueta si se pasó): mapas, defaults y lo demás
   // del fichero se quedan. replacesClientId ausente = undefined, que el json omite (borra uno viejo).
   const previous: { baseUrl?: string } = {};
-  const clientId = client.client_id;
   saveConfig((current) => {
     previous.baseUrl = current.baseUrl;
     const identity = loginIdentity(current, base);
@@ -196,6 +238,7 @@ function credentialToRefresh(current: RunnerCredential, store: CredentialStore):
     clientId: disk.clientId,
     refreshToken: disk.refreshToken,
     ...(disk.replacesClientId ? { replacesClientId: disk.replacesClientId } : {}),
+    ...(disk.tokenEndpoint ? { tokenEndpoint: disk.tokenEndpoint } : {}),
   };
 }
 
@@ -218,7 +261,7 @@ function persistRefreshToken(cred: RunnerCredential, store: CredentialStore): bo
  *  ya rotó, así que la credencial nueva vuelve igual y el daemon la sigue usando. */
 export async function refreshAccess(current: RunnerCredential, store: CredentialStore = LEGACY_CREDENTIALS): Promise<RefreshResult> {
   const cred = credentialToRefresh(current, store);
-  const tokens = await postToken(cred.baseUrl, {
+  const tokens = await postToken(tokenUrlOf(cred), {
     grant_type: 'refresh_token',
     refresh_token: cred.refreshToken,
     client_id: cred.clientId,

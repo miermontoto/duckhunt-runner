@@ -16,6 +16,12 @@ export function urlOf(raw: string): URL | null {
   }
 }
 
+/** la misma url una vez normalizada (`https://a.test` y `https://a.test/` lo son); una que no parsea, ninguna. */
+export function sameUrl(a: string, b: string): boolean {
+  const [ua, ub] = [urlOf(a), urlOf(b)];
+  return ua !== null && ub !== null && ua.href === ub.href;
+}
+
 /** localhost, 127.0.0.0/8 o ::1. */
 export const isLoopbackHost = (hostname: string): boolean => LOOPBACK_HOSTS.has(hostname) || LOOPBACK_V4_RE.test(hostname);
 

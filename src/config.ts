@@ -88,6 +88,9 @@ export interface RunnerCredential {
   // client_id del login anterior de esta máquina, hasta el primer claim con éste (0.11.0): duckhunt
   // adopta su fila y revoca la credencial vieja.
   replacesClientId?: string;
+  // token endpoint de una plataforma cuyo oauth no lo tiene en <baseUrl>/oauth/token (su metadata rfc 8414, t#495
+  // M6.4). la de duckhunt nunca lo lleva.
+  tokenEndpoint?: string;
 }
 
 export interface RunnerConfig extends RunnerCredential {

@@ -19,6 +19,7 @@ import {
   type V0Limits,
 } from '../vendor/runner-protocol/index.js';
 import { RUNNER_API_PATH } from './http-transport.js';
+import { sameSecureOrigin, sameUrl } from './origin.js';
 
 const DISCOVERY_TIMEOUT_MS = 10_000;
 // una ruta de la raíz del server: una sola `/` delante (`//host` sería otro origen) y sin query ni fragmento.
@@ -49,13 +50,6 @@ type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
 const invalid = (what: string): Error => new Error(`discovery v0 inválido: ${what}`);
 const isPath = (v: unknown): v is string => typeof v === 'string' && ENDPOINT_PATH_RE.test(v);
-const sameUrl = (a: string, b: string): boolean => {
-  try {
-    return new URL(a).href === new URL(b).href;
-  } catch {
-    return false;
-  }
-};
 
 /** valida el documento de discovery de la plataforma de `baseUrl` (ver cabecera). lanza con el motivo. */
 export function parseDiscovery(raw: unknown, baseUrl: string): V0Discovery {
@@ -86,9 +80,37 @@ export function parseDiscovery(raw: unknown, baseUrl: string): V0Discovery {
   };
 }
 
+/** lo que `login --as` usa del discovery para el oauth (M6.4): quién la emite, su metadata rfc 8414, el redirect
+ *  out-of-band y la audiencia. */
+export interface V0DiscoveryAuth {
+  issuer: string;
+  metadataUrl: string;
+  oobRedirectUri: string;
+  resource: string;
+}
+
+/** el oauth del discovery de `baseUrl` (ya validado con parseDiscovery): todo en el origen de la plataforma (el
+ *  code, el verifier y los tokens no salen de él). lanza con el motivo. */
+export function parseDiscoveryAuth(raw: unknown, baseUrl: string): V0DiscoveryAuth {
+  const doc = isObj(raw) ? raw : {};
+  const field = (key: string): string => {
+    const v = doc[key];
+    if (typeof v !== 'string' || !sameSecureOrigin(v, baseUrl)) throw invalid(`${key} fuera del origen de la plataforma`);
+    return v;
+  };
+  return { issuer: field('issuer'), metadataUrl: field('authorization_server_metadata'), oobRedirectUri: field('oob_redirect_uri'), resource: field('resource') };
+}
+
 /** GET del discovery de `baseUrl` y su validación. lanza si no se puede leer o no vale. */
 export async function fetchDiscovery(baseUrl: string): Promise<V0Discovery> {
-  const res = await fetch(`${baseUrl}/.well-known/${AGENT_RUNNER_WELL_KNOWN}`, { signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS) });
+  const res = await getDiscovery(baseUrl);
   if (!res.ok) throw new Error(`discovery v0: http ${res.status}`);
-  return parseDiscovery(await res.json().catch(() => null), baseUrl);
+  return parseDiscovery(res.body, baseUrl);
+}
+
+/** GET del discovery de `baseUrl` sin validar: su status y su cuerpo (null si no es json). `login --as` distingue
+ *  un 404 (sin discovery: el contrato legacy) de un error. lanza en un fallo de red. */
+export async function getDiscovery(baseUrl: string): Promise<{ ok: boolean; status: number; body: unknown }> {
+  const res = await fetch(`${baseUrl}/.well-known/${AGENT_RUNNER_WELL_KNOWN}`, { signal: AbortSignal.timeout(DISCOVERY_TIMEOUT_MS) });
+  return { ok: res.ok, status: res.status, body: res.ok ? await res.json().catch(() => null) : null };
 }

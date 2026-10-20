@@ -62,6 +62,11 @@ export interface PlatformConfig {
   // runs a la vez de esta plataforma, dentro del pool de la máquina (ausente: la legacy todo el pool, una nueva
   // PLATFORM_DEFAULT_SLOTS).
   slots?: number;
+  // (M6.4) quién la emite: el `issuer` de su discovery al hacer `login --as` (sin discovery, su base). distingue un
+  // re-login de la misma plataforma de otra con el mismo id. ausente en la legacy y en una escrita a mano.
+  issuer?: string;
+  // (M6.4) nombre para enseñar (`login --name`); el id es la clave local e inmutable.
+  name?: string;
 }
 
 /** el techo de duckhunt: lo que su kit puede pedir hoy. */

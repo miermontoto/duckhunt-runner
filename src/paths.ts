@@ -16,6 +16,10 @@ import path from 'node:path';
 import { runnerHome } from './config.js';
 
 export const LEGACY_PLATFORM_ID = 'duckhunt';
+// la plataforma local en proceso (`runner run`, por venir).
+export const LOCAL_PLATFORM_ID = 'local';
+// ids que `login --as` no da: la legacy (su `login` es el de siempre) y la local.
+export const RESERVED_PLATFORM_IDS: ReadonlySet<string> = new Set([LEGACY_PLATFORM_ID, LOCAL_PLATFORM_ID]);
 export const PLATFORM_ID_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
 const PLATFORMS_SUBDIR = 'platforms';
