@@ -13,7 +13,7 @@
 import type { ClaimResponse } from '../claim.js';
 import type { RunLease } from '../run-lease.js';
 import { serverStateChanged, writeServerState, type KeptWorktree, type RunnerBlock, type ServerState } from '../server-state.js';
-import { CLAIM_RESULT, PlatformRejectedError, type ClaimAnnounce, type ClaimResult, type Platform } from './platform.js';
+import { CLAIM_RESULT, PlatformRejectedError, PROTOCOL, type ClaimAnnounce, type ClaimResult, type Platform } from './platform.js';
 
 export const PLATFORM_STATE = {
   active: 'active',
@@ -92,6 +92,8 @@ export class PlatformSupervisor {
 
   /** guarda lo que el server acaba de decir de esta máquina para `status` (solo si cambió o envejeció). */
   recordServerState(state: string | null, runner: RunnerBlock | null): void {
+    // la plataforma local (`runner run`, t#495 M7) no tiene server que diga nada de la máquina.
+    if (this.platform.protocol === PROTOCOL.local) return;
     const next: ServerState = { at: Date.now(), ...this.platform.identity(), state, runner, kept: this.keptWorktrees };
     if (!serverStateChanged(this.serverState, next)) return;
     try {

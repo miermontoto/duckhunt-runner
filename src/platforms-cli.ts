@@ -9,12 +9,14 @@
 //   tipo, las de ahora y las que se mapeen después. una exposición con `*` no se recorta clave a clave.
 // - untrust baja una shell entera del techo a la de lectura (solo una trusted puede tenerla) y lo dice.
 // - remove deja sus directorios (scratch, logs, worktrees): pueden guardar trabajo; se dice dónde están.
+// - (M7) la local (`runner run`) existe sin entrada en la config, con sus valores por defecto: editarla (expose, pausa,
+//   confianza) crea su entrada; no tiene server ni credencial.
 
 import { configPath, loadConfigV2, saveConfigV2, type RunnerConfigV2 } from './config.js';
 import { reportUnpair, unpairPlatform } from './logout.js';
-import { LEGACY_PLATFORM_ID, platformHome } from './paths.js';
+import { LEGACY_PLATFORM_ID, LOCAL_PLATFORM_ID, platformHome } from './paths.js';
 import { PROTOCOL } from './platforms/platform.js';
-import { EXPOSE_ALL, PLATFORM_DEFAULT_SLOTS, SHELL, type Exposure, type PlatformConfig } from './platforms/types.js';
+import { EXPOSE_ALL, LOCAL_PLATFORM_DEFAULTS, PLATFORM_DEFAULT_SLOTS, SHELL, type Exposure, type PlatformConfig } from './platforms/types.js';
 import { clearServerState } from './server-state.js';
 
 const USAGE = `uso:
@@ -54,9 +56,10 @@ const exposureText = (keys: Exposure): string => (keys === EXPOSE_ALL ? EXPOSE_A
 /** las líneas de `list` de una plataforma: id, protocolo, a quién habla, confianza, estado, cuota y lo que ve. */
 export function describePlatform(id: string, p: PlatformConfig): string[] {
   const legacy = id === LEGACY_PLATFORM_ID;
-  const protocol = p.protocol ?? (legacy ? PROTOCOL.duckhunt42 : 'sin protocolo');
-  const where = p.issuer ?? p.credential?.baseUrl ?? 'sin login';
-  const state = !p.credential ? 'sin credencial' : p.paused ? 'en pausa' : 'activa';
+  const local = id === LOCAL_PLATFORM_ID;
+  const protocol = p.protocol ?? (legacy ? PROTOCOL.duckhunt42 : local ? PROTOCOL.local : 'sin protocolo');
+  const where = local ? 'esta máquina' : (p.issuer ?? p.credential?.baseUrl ?? 'sin login');
+  const state = !p.credential && !local ? 'sin credencial' : p.paused ? 'en pausa' : 'activa';
   const slots = p.slots ?? (legacy ? 'todo el pool' : PLATFORM_DEFAULT_SLOTS);
   const exposed = Object.entries(p.expose).map(([type, keys]) => `${type} ${exposureText(keys)}`);
   return [
@@ -65,10 +68,14 @@ export function describePlatform(id: string, p: PlatformConfig): string[] {
   ];
 }
 
+// la plataforma `id` de la config; la local, con sus valores por defecto aunque no tenga entrada.
+const platformIn = (cfg: RunnerConfigV2, id: string): PlatformConfig | undefined =>
+  Object.hasOwn(cfg.platforms, id) ? cfg.platforms[id] : id === LOCAL_PLATFORM_ID ? LOCAL_PLATFORM_DEFAULTS : undefined;
+
 // escribe la plataforma `id` tal como la deja `update`, calculada sobre el fichero de AHORA.
 function save(id: string, update: (p: PlatformConfig) => PlatformConfig): void {
   saveConfigV2((cfg) => {
-    const current = cfg.platforms[id];
+    const current = platformIn(cfg, id);
     return current ? { ...cfg, platforms: { ...cfg.platforms, [id]: update(current) } } : null;
   });
 }
@@ -142,7 +149,7 @@ export async function platformsCommand(args: string[]): Promise<void> {
     process.exitCode = 1;
     return;
   }
-  const p = Object.hasOwn(cfg.platforms, id!) ? cfg.platforms[id!] : undefined;
+  const p = platformIn(cfg, id!);
   if (!p) return fail(`no hay ninguna plataforma ${id} en ${configPath()} (\`duckhunt-runner platforms list\`)`);
   if ((sub === SUB.expose || sub === SUB.unexpose) && !Object.hasOwn(cfg.resources, type!)) {
     return fail(`tipo de recurso desconocido: ${type} (${Object.keys(cfg.resources).join(', ')})`);

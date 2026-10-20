@@ -9,6 +9,9 @@
 // - una plataforma nueva arranca sin nada expuesto y con el techo más bajo.
 // - shell:'full' solo en una plataforma marcada trusted (duckhunt y la local); el resto, como mucho 'read'.
 // - (M6.5/M6.6) etiqueta por plataforma y cuota diaria (coste y segmentos), contada en la auditoría local (audit.ts).
+// - (M7) la plataforma local (`runner run`): el usuario es la plataforma. trusted y con el techo entero (lo que pida
+//   está acotado por lo que le expone, vacío por defecto como toda plataforma que no es la legacy), y sin escaladas
+//   desatendidas salvo que el usuario las active (unattendedEscalation).
 // - (M6.3) protocolo, pausa y cuota de slots por plataforma. la legacy habla duckhunt-42 y tiene todo el pool; una
 //   nueva, PLATFORM_DEFAULT_SLOTS. un protocolo que este runner no habla deja la plataforma sin reclamar (con un
 //   aviso), nunca la config inválida: un runner más nuevo puede haberla escrito.
@@ -74,6 +77,9 @@ export interface PlatformConfig {
   // agotarla no reclama hasta medianoche. ausente = sin tope.
   budgetUsdPerDay?: number;
   runsPerDay?: number;
+  // (M7) solo la local: una escalada (más que lectura) sin tty vale con `--yes` solo si esto es true. ausente = false,
+  // así una línea de cron no edita en silencio.
+  unattendedEscalation?: boolean;
 }
 
 /** el techo de duckhunt: lo que su kit puede pedir hoy. */
@@ -100,3 +106,17 @@ export const DEFAULT_CEILING: ToolsetCeiling = {
   access: {},
   platformTools: EXPOSE_ALL,
 };
+
+/** el techo de la plataforma local (`runner run`): todo lo que la máquina sirve; lo acota lo que se le expone. */
+export const LOCAL_CEILING: ToolsetCeiling = {
+  shell: SHELL.full,
+  fsWrite: true,
+  memory: true,
+  web: true,
+  vcsPush: true,
+  access: { [RESOURCE_TYPE.repo]: ACCESS.full, [RESOURCE_TYPE.aws]: ACCESS.full, [RESOURCE_TYPE.browser]: ACCESS.full },
+  platformTools: EXPOSE_ALL,
+};
+
+/** la plataforma local sin entrada en la config: trusted, nada expuesto y el techo entero. */
+export const LOCAL_PLATFORM_DEFAULTS: PlatformConfig = { trusted: true, expose: {}, ceiling: LOCAL_CEILING };

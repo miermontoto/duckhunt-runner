@@ -224,10 +224,15 @@ export function loadConfig(): RunnerConfig | null {
   return text === null ? null : parseConfig(text);
 }
 
+/** el texto del fichero tal cual, también sin credencial. lanza si el json es inválido. */
+export function parseStoredConfig(text: string): StoredConfig {
+  return stored(parseObject(text));
+}
+
 /** el fichero tal cual, también sin credencial (tras `logout`); null si no existe. lanza si el json es inválido. */
 export function loadStoredConfig(): StoredConfig | null {
   const text = readConfigText();
-  return text === null ? null : stored(parseObject(text));
+  return text === null ? null : parseStoredConfig(text);
 }
 
 // path real del fichero: el tmp va a su lado y un symlink (dotfiles) sigue siendo symlink, también
