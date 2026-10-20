@@ -622,11 +622,11 @@ const VAULT_STATE = {
 };
 type BrowserSpawn = Spawn & { copies?: { name: string; state: { cookies: { name: string; domain: string }[] } }[] };
 
-// odysea falso (solo --version: el run no lo lanza, lo lanzaría claude).
+// odysea falso (solo --identify: el run no lo lanza, lo lanzaría claude).
 function fakeOdysea(): string {
   const file = path.join(root, 'odysea-bin', 'odysea');
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, `#!${process.execPath}\nif (process.argv[2] === '--version') console.log('0.5.0');\n`, { mode: 0o755 });
+  fs.writeFileSync(file, `#!${process.execPath}\nif (process.argv[2] === '--identify') console.log(JSON.stringify({ name: '@miermontoto/odysea', tool: 'odysea', protocol: 1, version: '0.5.1' }));\n`, { mode: 0o755 });
   return file;
 }
 

@@ -1,7 +1,9 @@
 // odysea desde el runner (t#495, M7): el navegador de los runs es el binario `odysea`, nunca playwright importado aquí
 // (el daemon sigue sin dependencias de runtime). de su cli se usa:
-// - `odysea --version`: la versión, que tiene que ser al menos MIN_ODYSEA_VERSION (la del modo fichero único, la
-//   allowlist de orígenes, el autosave y `login`/`probe`).
+// - `odysea --identify`: una línea json {name, tool, protocol, version}. solo se usa un binario que dice ser
+//   ODYSEA_PACKAGE (en npm, `odysea` a secas es otro proyecto), con un protocolo (el contrato de las env vars y de
+//   `login`/`probe`) que este runner habla y al menos MIN_ODYSEA_VERSION. evita coger por accidente otro `odysea`
+//   del PATH; no protege de un binario hecho a propósito para hacerse pasar por él (lo del PATH ya corre como tú).
 // - `odysea login --state-file <f> --url <u>`: un navegador visible para que la persona inicie sesión; guarda al pulsar
 //   enter (exit 0) o deja el último autosave si cierra la ventana antes (exit LOGIN_ABORTED).
 // - `odysea probe --state-file <f> --url <u> [--login-pattern <re>]`: headless, sin escribir el fichero; una línea
@@ -16,12 +18,18 @@ import { promisify } from 'node:util';
 const execFileP = promisify(execFile);
 
 export const ODYSEA_BIN = 'odysea';
-// la primera con ODYSEA_STATE_FILE, ODYSEA_ALLOWED_ORIGINS, ODYSEA_SESSION_TOOL, ODYSEA_AUTOSAVE_MS, login y probe.
-export const MIN_ODYSEA_VERSION = '0.5.0';
+// el paquete de npm y la tool que contesta `--identify` (odysea/src/constants.ts::PACKAGE_NAME, TOOL_NAME).
+export const ODYSEA_PACKAGE = '@miermontoto/odysea';
+export const ODYSEA_TOOL = 'odysea';
+// contrato de cara al runner (ODYSEA_STATE_FILE, ODYSEA_ALLOWED_ORIGINS, ODYSEA_SESSION_TOOL, ODYSEA_AUTOSAVE_MS, login
+// y probe): el mínimo que este runner habla (odysea/src/constants.ts::PROTOCOL).
+export const ODYSEA_PROTOCOL_MIN = 1;
+// la primera con `--identify` (y con todo lo del contrato 1).
+export const MIN_ODYSEA_VERSION = '0.5.1';
 // exit codes de `odysea login` (odysea/src/constants.ts::EXIT_CODE).
 export const ODYSEA_LOGIN_EXIT = { ok: 0, aborted: 3 } as const;
-const VERSION_FLAG = '--version';
-const VERSION_TIMEOUT_MS = 10_000;
+const IDENTIFY_FLAG = '--identify';
+const IDENTIFY_TIMEOUT_MS = 10_000;
 // el probe arranca un chromium headless y navega: margen amplio, pero acotado.
 const PROBE_TIMEOUT_MS = 90_000;
 const PROBE_MAX_BUFFER = 1024 * 1024;
@@ -68,18 +76,44 @@ export function versionAtLeast(a: string, min: string): boolean {
   return diff >= 0;
 }
 
-/** busca odysea y comprueba su versión. */
+/** lo que contesta `odysea --identify`. */
+interface OdyseaIdentity {
+  name: string;
+  tool: string;
+  protocol: number;
+  version: string;
+}
+
+const isIdentity = (v: unknown): v is OdyseaIdentity => {
+  const o = v as Partial<OdyseaIdentity> | null;
+  return typeof o === 'object' && o !== null && typeof o.name === 'string' && typeof o.tool === 'string' && Number.isInteger(o.protocol) && typeof o.version === 'string';
+};
+
+// la identidad de la última línea de la salida de `--identify`, o null si no la hay.
+function identityOf(stdout: string): OdyseaIdentity | null {
+  const line = stdout.trim().split('\n').at(-1);
+  try {
+    const parsed: unknown = line ? JSON.parse(line) : null;
+    return isIdentity(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/** busca odysea y comprueba que es el nuestro (`--identify`): paquete, tool, protocolo y versión. */
 export async function detectOdysea(configured: string | undefined, env: NodeJS.ProcessEnv = process.env): Promise<OdyseaDetection> {
   const bin = findOdysea(configured, env);
   if (bin === null) return { ok: false, reason: configured !== undefined ? `${configured} no es un ejecutable` : `\`${ODYSEA_BIN}\` no está en el PATH` };
-  let version: string;
-  try {
-    version = (await execFileP(bin, [VERSION_FLAG], { encoding: 'utf-8', timeout: VERSION_TIMEOUT_MS })).stdout.trim();
-  } catch (err) {
-    return { ok: false, reason: `${bin} ${VERSION_FLAG} falló: ${(err as Error).message}` };
-  }
-  if (!versionAtLeast(version, MIN_ODYSEA_VERSION)) return { ok: false, reason: `odysea ${version || '?'}: hace falta ${MIN_ODYSEA_VERSION} o posterior` };
-  return { ok: true, info: { bin, version } };
+  const notOurs = `${bin} no es ${ODYSEA_PACKAGE}, o es anterior a ${MIN_ODYSEA_VERSION}`;
+  // un binario que no conoce --identify (odysea 0.5.0, u otro programa que se llame odysea) sale con error o sin json.
+  const id = await execFileP(bin, [IDENTIFY_FLAG], { encoding: 'utf-8', timeout: IDENTIFY_TIMEOUT_MS }).then(
+    ({ stdout }) => identityOf(stdout),
+    () => null,
+  );
+  if (id === null || id.name !== ODYSEA_PACKAGE || id.tool !== ODYSEA_TOOL) return { ok: false, reason: notOurs };
+  if (id.protocol < ODYSEA_PROTOCOL_MIN) return { ok: false, reason: `odysea con protocolo ${id.protocol}: este runner necesita ${ODYSEA_PROTOCOL_MIN} o posterior` };
+  if (!versionAtLeast(id.version, MIN_ODYSEA_VERSION)) return { ok: false, reason: `odysea ${id.version || '?'}: hace falta ${MIN_ODYSEA_VERSION} o posterior` };
+  return { ok: true, info: { bin, version: id.version } };
 }
 
 /** `odysea login` con la terminal de la persona; devuelve su exit code (null si no se pudo lanzar o murió por señal). */

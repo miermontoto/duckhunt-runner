@@ -623,9 +623,22 @@ match; duckhunt logs only a difference the daemon cannot explain. With
 
 A run can browse with a session you logged into yourself, such as your Jira or an admin console, without
 the agent ever seeing your password. The browser is [odysea](https://github.com/miermontoto/odysea), an
-MCP server installed separately (0.5.0 or later): the daemon finds it on `PATH` or at
+MCP server installed separately (0.5.1 or later): the daemon finds it on `PATH` or at
 `providers.browser.bin`, and launches it as its own process for each run. It never loads a browser
 itself.
+
+On npm it is `@miermontoto/odysea` (the unscoped `odysea` package is an unrelated project). Set
+`providers.browser.bin` to the installed binary's absolute path, so the daemon never depends on what
+`PATH` resolves:
+
+```sh
+npm i -g @miermontoto/odysea
+```
+
+Before using a binary, the daemon asks it for its identity (`odysea --identify`) and only accepts
+`@miermontoto/odysea` 0.5.1 or later; anything else counts as odysea missing. That keeps an unrelated
+program called `odysea` from being handed a copy of your session by accident. It is not protection
+against a binary made to impersonate it: whatever is on your `PATH` already runs as you.
 
 ```sh
 duckhunt-runner browser login jira https://acme.atlassian.net --origin https://acme.atlassian.net --origin https://id.atlassian.com

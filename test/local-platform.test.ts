@@ -370,7 +370,7 @@ test('`run` sin prompt sigue siendo `start` (con aviso de obsoleto); `run --help
 test('--grant browser:<clave>:<acceso>: la sesión expuesta a la local llega al run con las tools de su acceso (t#495, M7)', async (t) => {
   quiet(t);
   const odysea = path.join(caseDir, 'odysea');
-  fs.writeFileSync(odysea, `#!${process.execPath}\nif (process.argv[2] === '--version') console.log('0.5.0');\n`, { mode: 0o755 });
+  fs.writeFileSync(odysea, `#!${process.execPath}\nif (process.argv[2] === '--identify') console.log(JSON.stringify({ name: '@miermontoto/odysea', tool: 'odysea', protocol: 1, version: '0.5.1' }));\n`, { mode: 0o755 });
   const vault = path.join(caseDir, 'vault');
   fs.mkdirSync(vault, { mode: 0o700 });
   fs.writeFileSync(path.join(vault, 'jira.json'), JSON.stringify({ cookies: [{ name: 'sid', value: 's1', domain: 'acme.atlassian.net', path: '/', expires: -1 }], origins: [] }), { mode: 0o600 });

@@ -212,7 +212,7 @@ test('las sesiones de navegador solo se anuncian expuestas a duckhunt y con el f
   t.mock.method(console, 'error', () => {});
   const dir = fs.mkdtempSync(path.join(root, 'browser-'));
   const odysea = path.join(dir, 'odysea');
-  fs.writeFileSync(odysea, `#!${process.execPath}\nif (process.argv[2] === '--version') console.log('0.5.0');\n`, { mode: 0o755 });
+  fs.writeFileSync(odysea, `#!${process.execPath}\nif (process.argv[2] === '--identify') console.log(JSON.stringify({ name: '@miermontoto/odysea', tool: 'odysea', protocol: 1, version: '0.5.1' }));\n`, { mode: 0o755 });
   const vault = path.join(dir, 'vault');
   fs.mkdirSync(vault, { mode: 0o700 });
   // el cuerpo del claim de un daemon con esta config (con la salud de sus sesiones ya mirada, como al arrancar).
