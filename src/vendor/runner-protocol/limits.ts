@@ -56,3 +56,12 @@ export const RUNNER_REPO_CANDIDATE_BRANCH_MAX_CHARS = 250;
 export const RUNNER_TOOLSET_SHADOW_IDS_MAX = 50;
 export const RUNNER_TOOLSET_SHADOW_ID_MAX_CHARS = 200;
 export const RUNNER_TOOLSET_SHADOW_KNOWN_MAX = 8;
+
+// recursos que anuncia un daemon (resources.ts, t#495 M7): tipos por claim, claves por tipo y su largo, y avisos de
+// salud. presencia: lo que pasa se recorta, nunca tumba el claim.
+export const RUNNER_RESOURCE_TYPES_MAX = 16;
+export const RUNNER_RESOURCE_TYPE_MAX_CHARS = 32;
+export const RUNNER_RESOURCE_KEYS_MAX = 64;
+export const RUNNER_RESOURCE_KEY_MAX_CHARS = 64;
+export const RUNNER_RESOURCE_HEALTH_MAX = 64;
+export const RUNNER_RESOURCE_HEALTH_KIND_MAX_CHARS = 40;

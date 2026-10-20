@@ -51,5 +51,9 @@ export const RUNNER_CAPABILITY = {
   // el techo que el usuario le puso a la plataforma). las listas de `tools` el server las sigue mandando igual: pasan
   // a ser la entrada de la comparación que el daemon devuelve en toolsetShadow. solo con toolset_v1.
   toolsetRender: 'toolset_render',
+  // t#495, M7: sabe poner en un run una sesión de navegador guardada (odysea >= la mínima que sabe usar, hallada en la
+  // máquina): copia filtrada a sus orígenes, su servidor mcp res_browser_<clave> y las tools del acceso del grant. sin
+  // ella el server nunca concede un grant de browser. solo con toolset_render (las listas las pinta el daemon).
+  browser: 'browser',
 } as const;
 export type RunnerCapability = (typeof RUNNER_CAPABILITY)[keyof typeof RUNNER_CAPABILITY];

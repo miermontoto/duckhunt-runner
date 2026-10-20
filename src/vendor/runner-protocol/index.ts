@@ -10,7 +10,8 @@
 // - pasará a platform/ como @platform/runner-protocol cuando sus interfaces estén estables.
 // toolset_v1 (M5, toolset.ts): la política neutra del run, en sombra junto a las listas de tools.
 // spec v0 (M4, v0.ts): discovery, el claim con ids opacos y mcpServers[], lease, result idempotente y el sobre de
-// error. non-goals por ahora: validación (zod), que cada lado hace con lo suyo.
+// error. recursos de la máquina (M7, resources.ts): lo que anuncia (sesiones de navegador, la aws por defecto) y su
+// salud. non-goals por ahora: validación (zod), que cada lado hace con lo suyo.
 
 export * from './aws.js';
 export * from './capabilities.js';
@@ -18,5 +19,6 @@ export * from './claim.js';
 export * from './errors.js';
 export * from './events.js';
 export * from './limits.js';
+export * from './resources.js';
 export * from './toolset.js';
 export * from './v0.js';
