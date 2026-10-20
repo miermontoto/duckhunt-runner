@@ -23,10 +23,10 @@
 
 import type { RepoConfig, AwsAccountConfig, RunnerConfigV2, RunnerCredential, ResourcesConfig } from './config.js';
 import { CONFIG_VERSION } from './config.js';
-import { LEGACY_PLATFORM_ID, PLATFORM_ID_RE } from './paths.js';
+import { LEGACY_PLATFORM_ID, LOCAL_PLATFORM_ID, PLATFORM_ID_RE } from './paths.js';
 import { sameSecureOrigin, urlOf } from './platforms/origin.js';
 import { PROTOCOL } from './platforms/platform.js';
-import { DEFAULT_CEILING, EXPOSE_ALL, LEGACY_CEILING, LEGACY_EXPOSE, SHELL, type Exposure, type PlatformConfig, type ToolsetCeiling } from './platforms/types.js';
+import { DEFAULT_CEILING, EXPOSE_ALL, LEGACY_CEILING, LEGACY_EXPOSE, LOCAL_PLATFORM_DEFAULTS, SHELL, type Exposure, type PlatformConfig, type ToolsetCeiling } from './platforms/types.js';
 import { ACCESS, RESOURCE_TYPE } from './resources/types.js';
 import { parseBrowserRef, parseProviders } from './resources/browser/config.js';
 
@@ -133,6 +133,7 @@ function platformOf(id: string, v: unknown, base: PlatformConfig): PlatformConfi
     throw invalid(`${where}.budgetUsdPerDay: un número desde 0`);
   }
   if (v.runsPerDay !== undefined && !(typeof v.runsPerDay === 'number' && Number.isSafeInteger(v.runsPerDay) && v.runsPerDay >= 0)) throw invalid(`${where}.runsPerDay: un entero desde 0`);
+  if (v.unattendedEscalation !== undefined && typeof v.unattendedEscalation !== 'boolean') throw invalid(`${where}.unattendedEscalation no es booleano`);
   return {
     ...(credential ? { credential } : {}),
     trusted,
@@ -146,10 +147,15 @@ function platformOf(id: string, v: unknown, base: PlatformConfig): PlatformConfi
     ...(v.label !== undefined ? { label: v.label as string } : {}),
     ...(v.budgetUsdPerDay !== undefined ? { budgetUsdPerDay: v.budgetUsdPerDay as number } : {}),
     ...(v.runsPerDay !== undefined ? { runsPerDay: v.runsPerDay as number } : {}),
+    ...(v.unattendedEscalation !== undefined ? { unattendedEscalation: v.unattendedEscalation as boolean } : {}),
   };
 }
 
 const newPlatform: PlatformConfig = { trusted: false, expose: {}, ceiling: DEFAULT_CEILING };
+
+// los valores por defecto de una plataforma del fichero: los de la legacy, los de la local (`runner run`, M7) o los de
+// una nueva.
+const baseOf = (id: string, base: RunnerConfigV2): PlatformConfig => base.platforms[id] ?? (id === LOCAL_PLATFORM_ID ? LOCAL_PLATFORM_DEFAULTS : newPlatform);
 
 // las sesiones de navegador de `resources.browser`, cada una validada (resources/browser/config.ts).
 const browserEntries = (entries: Raw): Raw =>
@@ -178,7 +184,7 @@ export function fromFile(raw: Raw): RunnerConfigV2 {
   if (raw.version !== CONFIG_VERSION) throw new Error(`config de otra versión (version ${JSON.stringify(raw.version)}): este runner lee hasta la ${CONFIG_VERSION}, actualízalo`);
   if (raw.platforms !== undefined && !isObj(raw.platforms)) throw invalid('platforms no es un objeto');
   if (raw.resources !== undefined && !isObj(raw.resources)) throw invalid('resources no es un objeto');
-  const platforms = Object.entries(isObj(raw.platforms) ? raw.platforms : {}).map(([id, v]) => [id, platformOf(id, v, base.platforms[id] ?? newPlatform)] as const);
+  const platforms = Object.entries(isObj(raw.platforms) ? raw.platforms : {}).map(([id, v]) => [id, platformOf(id, v, baseOf(id, base))] as const);
   const resources = Object.entries(isObj(raw.resources) ? raw.resources : {}).map(([type, entries]) => {
     if (Object.hasOwn(LEGACY_RESOURCE_KEYS, type)) throw invalid(`resources.${type}: vive en ${LEGACY_RESOURCE_KEYS[type]}`);
     if (!isObj(entries)) throw invalid(`resources.${type} no es un objeto`);

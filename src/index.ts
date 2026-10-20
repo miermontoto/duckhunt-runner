@@ -8,7 +8,8 @@
 // de los recursos de la máquina por tipo: `repos` y `aws` son sus tipos repo y aws (resource.ts).
 // (t#495, M6.4) `login <url> --as [id]` da de alta otra plataforma (platform-login.ts), `platforms` las gestiona
 // (platforms-cli.ts) y `logout <id>` desvincula una; `login` y `logout` a secas son los de siempre (duckhunt).
-// (t#495, M7) `browser` gestiona las sesiones de navegador guardadas por odysea (browser-cli.ts).
+// (t#495, M7) `browser` gestiona las sesiones de navegador guardadas por odysea (browser-cli.ts). `run "<prompt>"` lanza
+// un run por la plataforma local, sin ningún server (run-cli.ts); `run` sin prompt sigue siendo `start`, obsoleto.
 
 import { configPath, DEFAULT_BASE_URL, loadConfig } from './config.js';
 import { acquireDaemonLock } from './daemon-lock.js';
@@ -23,7 +24,10 @@ import { resourceCommand } from './resource.js';
 import { statusCommand } from './status.js';
 import { auditCommand } from './audit-cli.js';
 import { browserCommand } from './browser-cli.js';
+import { RUN_USAGE, runCommand } from './run-cli.js';
 import { runnerVersion } from './version.js';
+
+const VERBOSE_FLAG = '--verbose';
 
 const USAGE = `duckhunt-runner — daemon local de agent runs
 
@@ -39,6 +43,7 @@ uso:
   duckhunt-runner status                     kit de esta máquina y lo que duckhunt dice de ella
   duckhunt-runner status --platforms         cada plataforma: estado, cuota, techo, lo expuesto y su auditoría
   duckhunt-runner start [--verbose]          arranca el daemon
+  duckhunt-runner run [flags] "<prompt>"     un run en esta máquina sin server (\`run --help\`)
   duckhunt-runner repos list|add|remove|discover
   duckhunt-runner aws list|add|remove
   duckhunt-runner resource list|add|remove|check [repo|aws|browser]   los recursos de la máquina por tipo
@@ -99,6 +104,15 @@ async function main(): Promise<void> {
     await browserCommand(rest);
     return;
   }
+  if (cmd === 'run' && rest.length === 1 && (rest[0] === '--help' || rest[0] === '-h')) {
+    console.log(RUN_USAGE);
+    return;
+  }
+  // `run` con prompt o flags es la plataforma local; sin nada (o solo --verbose), el alias viejo de `start`.
+  if (cmd === 'run' && rest.some((a) => a !== VERBOSE_FLAG)) {
+    process.exit(await runCommand(rest));
+  }
+  if (cmd === 'run') console.warn('[runner] `run` sin prompt arranca el daemon como `start`: está obsoleto, usa `duckhunt-runner start`');
   if (cmd !== undefined && cmd !== 'start' && cmd !== 'run') {
     console.error(USAGE);
     process.exitCode = 1;
@@ -112,7 +126,7 @@ async function main(): Promise<void> {
   }
   process.once('exit', acquireDaemonLock());
   // salida explícita: los sockets keep-alive de fetch no deben alargar la parada.
-  process.exit(await new RunnerDaemon(cfg, { verboseLog: rest.includes('--verbose') }).run());
+  process.exit(await new RunnerDaemon(cfg, { verboseLog: rest.includes(VERBOSE_FLAG) }).run());
 }
 
 main().catch((err) => {

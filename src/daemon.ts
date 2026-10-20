@@ -109,6 +109,11 @@
 //   <runnerHome>/audit/<id>/, sin prompts, resultados, argumentos, paths ni tokens; podada al arrancar y a diario.
 //   la cuota diaria de una plataforma (budgetUsdPerDay, runsPerDay) se cuenta ahí: agotada, no reclama hasta
 //   medianoche (estado budget).
+// - plataforma local (t#495, M7, platforms/local.ts): el daemon la aloja y la sirve en local.sock (local/socket.ts)
+//   para `runner run`; sus runs comparten slots, cuota, lock de git y auditoría con los demás. no cuenta para el exit
+//   78 (no tiene credencial que muera), no sale de la config y su estado solo entra en el deny de las demás desde que
+//   existe en disco. sin daemon, `runner run` arranca este mismo núcleo solo con ella (localOnly): sin duckhunt ni
+//   las demás de la config, sin socket ni señales propias (las lleva el cli).
 
 import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
@@ -121,6 +126,7 @@ import {
   mergeEntries,
   parseConfig,
   parseConfigV2,
+  parseStoredConfig,
   readConfigText,
   saveConfig,
   splitConfig,
@@ -128,6 +134,7 @@ import {
   type RunnerConfig,
   type RunnerConfigV2,
   type RunnerCredential,
+  type StoredConfig,
 } from './config.js';
 import { derivedMachineId, ensureMachineId, ensureMachineSecret } from './machine.js';
 import { otherPlatformsDeny, otherScratchDeny, secretPathsDeny } from './secret-paths.js';
@@ -157,10 +164,10 @@ import { RELEASE, RESOURCE_TYPE, ResourceUnavailableError, type ReleaseOutcome }
 import { applyRepoCommand, type RepoCommandResult } from './repo-commands.js';
 import { RunLease, signalGroup } from './run-lease.js';
 import { compareRunIds } from './run-id.js';
-import { allRunConfigDirs, LEGACY_PLATFORM_ID, logsDir, runConfigDir, scratchDir } from './paths.js';
+import { allRunConfigDirs, LEGACY_PLATFORM_ID, LOCAL_PLATFORM_ID, logsDir, platformHome, runConfigDir, scratchDir } from './paths.js';
 import { runnerVersion } from './version.js';
 import { PlatformRejectedError, PROTOCOL, type ClaimAnnounce, type Platform, type PlatformContext, type PlatformFactories, type Protocol, type RunSegment } from './platforms/platform.js';
-import { DEFAULT_CEILING, EXPOSE_ALL, isExposed, PLATFORM_DEFAULT_SLOTS, type PlatformConfig } from './platforms/types.js';
+import { DEFAULT_CEILING, EXPOSE_ALL, isExposed, LOCAL_PLATFORM_DEFAULTS, PLATFORM_DEFAULT_SLOTS, type PlatformConfig } from './platforms/types.js';
 import { PLATFORM_FACTORIES } from './platforms/factories.js';
 import { Scheduler } from './platforms/scheduler.js';
 import { PLATFORM_STATE, PlatformSupervisor, type SupervisorHooks } from './platforms/supervisor.js';
@@ -170,6 +177,9 @@ import { intersectToolset } from './toolset/intersect.js';
 import { v0Announce } from './platforms/v0.js';
 import { CLAIM_REJECT, ClaimRejectedError } from './platforms/claim-v0.js';
 import { renderLegacyClaim } from './toolset/legacy-render.js';
+import { LocalPlatform } from './platforms/local.js';
+import { evaluateRequest, type LocalRequest } from './local/policy.js';
+import { serveLocal, type LocalEvaluation } from './local/socket.js';
 
 const execFileP = promisify(execFile);
 
@@ -220,7 +230,15 @@ export interface DaemonOptions {
   verboseLog?: boolean;
   // cómo se crea la plataforma de cada protocolo (platforms/duckhunt42.ts; las pruebas, una falsa).
   factories?: PlatformFactories;
+  // `runner run` sin daemon (t#495, M7): el núcleo solo con la plataforma local (ver cabecera).
+  localOnly?: boolean;
 }
+
+// la parte de la config que el daemon recarga (sin la credencial de duckhunt, que un `runner run` no necesita).
+const localPart = (cfg: StoredConfig): LocalConfig => {
+  const { baseUrl: _b, clientId: _c, refreshToken: _r, replacesClientId: _p, ...local } = cfg;
+  return local;
+};
 
 export class RunnerDaemon {
   // una por plataforma (platforms/supervisor.ts): hoy la legacy, con las rutas de siempre (paths.ts).
@@ -233,8 +251,12 @@ export class RunnerDaemon {
   private readonly factories: PlatformFactories;
   // la config de cada plataforma (config v2, se recarga con el fichero); hasta leerlo, la legacy con lo de siempre.
   private platformsCfg: Readonly<Record<string, PlatformConfig>> = { [LEGACY_PLATFORM_ID]: legacyPlatform() };
-  // la credencial de duckhunt en el fichero (las claves de siempre): con otro clientId reaviva su supervisor.
-  private legacyCredential: RunnerCredential;
+  // la credencial de duckhunt en el fichero (las claves de siempre): con otro clientId reaviva su supervisor. null en
+  // un `runner run` sin daemon (localOnly).
+  private legacyCredential: RunnerCredential | null;
+  // la plataforma local alojada aquí (null hasta hostLocal) y con qué cerrar su socket.
+  private local: LocalPlatform | null = null;
+  private closeLocalSocket: (() => Promise<void>) | null = null;
   // plataformas de la config que no reclaman (sin credencial, o con un protocolo que este runner no habla) y por qué.
   private readonly skipped = new Map<string, string>();
   private claude: ClaudeInfo = { version: null, supported: new Set() };
@@ -280,12 +302,17 @@ export class RunnerDaemon {
   };
 
   constructor(
-    cfg: RunnerConfig,
+    cfg: RunnerConfig | StoredConfig,
     private readonly opts: DaemonOptions = {},
   ) {
-    const { credential, local } = splitConfig(cfg);
-    this.cfg = local;
     this.factories = opts.factories ?? PLATFORM_FACTORIES;
+    if (opts.localOnly) {
+      this.cfg = localPart(cfg);
+      this.legacyCredential = null;
+      return;
+    }
+    const { credential, local } = splitConfig(cfg as RunnerConfig);
+    this.cfg = local;
     this.legacyCredential = credential;
     this.addSupervisor(this.factories[PROTOCOL.duckhunt42]!(LEGACY_PLATFORM_ID, credential, this.platformContext(LEGACY_PLATFORM_ID)));
   }
@@ -316,7 +343,7 @@ export class RunnerDaemon {
   // cuota de una plataforma dentro del pool: la de su config; sin ella, la legacy todo el pool y una nueva
   // PLATFORM_DEFAULT_SLOTS.
   private quota(sup: PlatformSupervisor): number {
-    const slots = this.platformsCfg[sup.id]?.slots ?? (sup.id === LEGACY_PLATFORM_ID ? this.slots : PLATFORM_DEFAULT_SLOTS);
+    const slots = this.platformCfg(sup.id)?.slots ?? (sup.id === LEGACY_PLATFORM_ID ? this.slots : PLATFORM_DEFAULT_SLOTS);
     return Math.min(slots, this.slots);
   }
 
@@ -325,8 +352,8 @@ export class RunnerDaemon {
   private platformContext(id: string): PlatformContext {
     return {
       enforcement: () => ({
-        ceiling: this.platformsCfg[id]?.ceiling ?? DEFAULT_CEILING,
-        expose: this.platformsCfg[id]?.expose ?? {},
+        ceiling: this.platformCfg(id)?.ceiling ?? DEFAULT_CEILING,
+        expose: this.platformCfg(id)?.expose ?? {},
         resourceTypes: this.registry.types(),
         awsCli: this.hasAws,
       }),
@@ -335,7 +362,63 @@ export class RunnerDaemon {
 
   // lo que la plataforma ve de la máquina (su `expose`; sin config, nada).
   private exposure(sup: PlatformSupervisor): PlatformConfig['expose'] {
-    return this.platformsCfg[sup.id]?.expose ?? {};
+    return this.platformCfg(sup.id)?.expose ?? {};
+  }
+
+  // la config de una plataforma; la local, con sus valores por defecto aunque no tenga entrada (t#495, M7).
+  private platformCfg(id: string): PlatformConfig | undefined {
+    return this.platformsCfg[id] ?? (id === LOCAL_PLATFORM_ID ? LOCAL_PLATFORM_DEFAULTS : undefined);
+  }
+
+  /**
+   * aloja la plataforma local (t#495, M7): su servidor mcp, su supervisor y, con el daemon, local.sock. una vez; la
+   * devuelve (null si no se pudo: el daemon sigue sin ella). un `runner run` sin daemon la pide antes de run().
+   */
+  async hostLocal(): Promise<LocalPlatform | null> {
+    if (this.local) return this.local;
+    const local = new LocalPlatform(this.platformContext(LOCAL_PLATFORM_ID));
+    try {
+      await local.start();
+    } catch (err) {
+      console.warn(`[${LOG_PREFIX}] plataforma local: no arranca su mcp: ${(err as Error).message}`);
+      return null;
+    }
+    // lo que dejó un daemon muerto, solo si ya hay estado suyo en disco (sin él, nada que barrer ni que crear).
+    if (fs.existsSync(platformHome(LOCAL_PLATFORM_ID))) this.prepare(LOCAL_PLATFORM_ID);
+    const sup = this.addSupervisor(local);
+    local.onWork = () => sup.wake();
+    this.local = local;
+    if (this.opts.localOnly) return local;
+    try {
+      this.closeLocalSocket = await serveLocal({ platform: local, evaluate: (request) => this.evaluateLocal(request) });
+    } catch (err) {
+      console.warn(`[${LOG_PREFIX}] plataforma local: sin local.sock (\`runner run\` no llegará a este daemon): ${(err as Error).message}`);
+    }
+    return local;
+  }
+
+  /** una petición de `runner run` contra la plataforma local de AHORA (local/policy.ts); lanza RequestRefusedError. */
+  evaluateLocal(request: LocalRequest): LocalEvaluation {
+    const platform = this.platformCfg(LOCAL_PLATFORM_ID)!;
+    return { toolset: evaluateRequest(request, platform, this.registry.types()).toolset, unattendedEscalation: platform.unattendedEscalation === true };
+  }
+
+  /** relee la config (lo que hace cada vuelta del poll), para un `runner run` sin daemon antes de evaluar. */
+  async refreshConfig(): Promise<void> {
+    await this.reloadConfig();
+  }
+
+  /** para el núcleo: cada run en vuelo se corta y run() vuelve en cuanto cierran (un `runner run` sin daemon). */
+  stop(): void {
+    if (this.stopping) return;
+    this.stopping = true;
+    this.leases.forEach((lease) => lease.kill('shutdown'));
+    this.wakeAll();
+  }
+
+  /** mata en el acto el grupo de procesos de cada run en vuelo (la segunda señal de un `runner run`). */
+  forceStop(): void {
+    this.leases.forEach((lease) => lease.forceKill());
   }
 
   // el loop principal ya arrancó (los supervisores nuevos arrancan su poll al crearse).
@@ -353,6 +436,8 @@ export class RunnerDaemon {
   // otra uno derivado de su emisor (machine.ts). sin secreto guardable (config de solo lectura), ninguno.
   private machineIdFor(sup: PlatformSupervisor): string | null {
     if (sup.id === LEGACY_PLATFORM_ID) return this.cfg.machineId ?? null;
+    // la local no tiene server al que anunciarse.
+    if (sup.id === LOCAL_PLATFORM_ID) return null;
     if (this.machineSecret === undefined) {
       try {
         this.machineSecret = ensureMachineSecret();
@@ -397,7 +482,7 @@ export class RunnerDaemon {
   // aviso del arranque (una vez): con el flip, un run de duckhunt sin cuenta aws ya no hereda la aws de la máquina;
   // solo si la hay y su identidad por defecto no está expuesta a duckhunt.
   private warnAwsDefault(): void {
-    if (!this.toolsetRender || this.awsDefaultExposed(this.legacy) || !machineHasAws(process.env, this.hasAws, os.homedir())) return;
+    if (this.opts.localOnly || !this.toolsetRender || this.awsDefaultExposed(this.legacy) || !machineHasAws(process.env, this.hasAws, os.homedir())) return;
     console.warn(
       `[runner] los runs de duckhunt sin cuenta aws ya no heredan la aws de esta máquina (toolset_v1): para dársela, \`duckhunt-runner resource add aws ${AWS_DEFAULT_KEY} <perfil>\` (o defaults.toolsetRender: false para volver a como era)`,
     );
@@ -422,14 +507,17 @@ export class RunnerDaemon {
     const secrets = secretPathsDeny(process.env);
     this.secretDeny = secrets.rules;
     secrets.skipped.forEach((p) => console.warn(`[runner] secret_paths: ${p} no cabe en una regla de permisos de claude: queda solo la lista genérica del server`));
-    this.adoptMachineId();
-    this.warnAwsDefault();
     this.pruneAudit();
-    this.installSignalHandlers();
-    console.log(
-      `[runner] duckhunt-runner ${runnerVersion() ?? '?'} · ${this.label()} → ${this.legacy.platform.identity().baseUrl} (claude ${this.claude.version}, aws cli ${this.hasAws ? 'sí' : 'no'}, ${Object.keys(this.cfg.repos).length} repos, ${Object.keys(this.cfg.aws).length} cuentas aws, capacidades ${this.capabilities().join(',')}, ${this.slots} slot${this.slots === 1 ? '' : 's'}, poll ${CLAIM_POLL_MS / 1000}s)`,
-    );
-    await this.refreshRepoHealth();
+    if (!this.opts.localOnly) {
+      this.adoptMachineId();
+      this.warnAwsDefault();
+      this.installSignalHandlers();
+      console.log(
+        `[runner] duckhunt-runner ${runnerVersion() ?? '?'} · ${this.label()} → ${this.legacy.platform.identity().baseUrl} (claude ${this.claude.version}, aws cli ${this.hasAws ? 'sí' : 'no'}, ${Object.keys(this.cfg.repos).length} repos, ${Object.keys(this.cfg.aws).length} cuentas aws, capacidades ${this.capabilities().join(',')}, ${this.slots} slot${this.slots === 1 ? '' : 's'}, poll ${CLAIM_POLL_MS / 1000}s)`,
+      );
+      await this.refreshRepoHealth();
+    }
+    await this.hostLocal();
     this.running = true;
     this.supervisors.forEach((sup) => this.polls.push(this.poll(sup)));
     while (!this.stopping) {
@@ -439,6 +527,8 @@ export class RunnerDaemon {
     await Promise.all(this.polls);
     // parada: cada run en vuelo recibió kill('shutdown'); se espera a que reporte su cierre.
     while (this.leases.length > 0) await this.idle(CLAIM_POLL_MS);
+    await this.closeLocalSocket?.();
+    await this.local?.close();
     console.log('[runner] detenido');
     return this.exitCode;
   }
@@ -449,7 +539,7 @@ export class RunnerDaemon {
     while (!this.stopping && this.supervisors.get(sup.id) === sup) {
       // también con los slots llenos: un maxConcurrent más alto vale sin esperar a que acabe un run.
       await this.reloadConfig();
-      void this.refreshRepoHealth();
+      if (!this.opts.localOnly) void this.refreshRepoHealth();
       if (this.supervisors.get(sup.id) !== sup) break;
       if (!(await this.pollOnce(sup)) && !this.stopping) await sup.idle(CLAIM_POLL_MS);
     }
@@ -542,7 +632,8 @@ export class RunnerDaemon {
   // se detiene y sale con EXIT_CODE_UNPAIRED.
   private platformRejected(sup: PlatformSupervisor, err: PlatformRejectedError): void {
     if (this.stopping || sup.state === PLATFORM_STATE.unpaired) return;
-    const last = ![...this.supervisors.values()].some((other) => other !== sup && other.usable);
+    // la local no cuenta: no tiene credencial que muera y un daemon solo con ella no reclamaría nada de nadie.
+    const last = ![...this.supervisors.values()].some((other) => other !== sup && other.id !== LOCAL_PLATFORM_ID && other.usable);
     console.error(`${this.tagOf(sup)} ${err.message}. ${last ? 'el daemon se detiene' : `la plataforma ${sup.id} deja de reclamar`}`);
     sup.state = PLATFORM_STATE.unpaired;
     sup.recordServerState(CLAIM_OUTCOME.unpaired, null);
@@ -762,16 +853,17 @@ export class RunnerDaemon {
       console.warn('[runner] el fichero de config ya no existe: sigo con la cargada');
       return;
     }
-    let next: RunnerConfig;
+    let credential: RunnerCredential | null;
+    let local: LocalConfig;
     let platforms: RunnerConfigV2['platforms'];
     try {
-      next = parseConfig(text);
+      // sin daemon (`runner run`) la credencial de duckhunt no hace falta: el fichero vale sin ella.
+      ({ credential, local } = this.opts.localOnly ? { credential: null, local: localPart(parseStoredConfig(text)) } : splitConfig(parseConfig(text)));
       platforms = parseConfigV2(text).platforms;
     } catch (err) {
       console.error(`[runner] ${(err as Error).message} — sigo con la config cargada`);
       return;
     }
-    const { credential, local } = splitConfig(next);
     this.legacyCredential = credential;
     this.platformsCfg = platforms;
     // la credencial del fichero, a cada plataforma que ya corre (las nuevas nacen con ella: syncSupervisors).
@@ -791,14 +883,18 @@ export class RunnerDaemon {
   // alta de las nuevas, pausa y reanudación, reavivar la que perdió la credencial tras un `login` nuevo,
   // sustituir la que cambió de instancia o protocolo (sin runs en vuelo) y retirar las que ya no están.
   private syncSupervisors(): void {
-    Object.entries(this.platformsCfg).forEach(([id, cfg]) => this.syncPlatform(id, cfg));
-    [...this.supervisors.values()].filter((sup) => !Object.hasOwn(this.platformsCfg, sup.id)).forEach((sup) => this.retire(sup));
+    // sin daemon solo corre la local; con él, la local la aloja el daemon (hostLocal), no la config.
+    if (this.opts.localOnly) return;
+    Object.entries(this.platformsCfg)
+      .filter(([id]) => id !== LOCAL_PLATFORM_ID)
+      .forEach(([id, cfg]) => this.syncPlatform(id, cfg));
+    [...this.supervisors.values()].filter((sup) => sup.id !== LOCAL_PLATFORM_ID && !Object.hasOwn(this.platformsCfg, sup.id)).forEach((sup) => this.retire(sup));
     [...this.skipped.keys()].filter((id) => !Object.hasOwn(this.platformsCfg, id)).forEach((id) => this.skipped.delete(id));
   }
 
   private syncPlatform(id: string, cfg: PlatformConfig): void {
     const legacy = id === LEGACY_PLATFORM_ID;
-    const credential = legacy ? this.legacyCredential : cfg.credential;
+    const credential = (legacy ? this.legacyCredential : cfg.credential) ?? undefined;
     const protocol = cfg.protocol ?? (legacy ? PROTOCOL.duckhunt42 : undefined);
     const factory = protocol !== undefined && Object.hasOwn(this.factories, protocol) ? this.factories[protocol as Protocol] : undefined;
     const current = this.supervisors.get(id);
@@ -916,7 +1012,9 @@ export class RunnerDaemon {
   // las demás y lo privado de las demás (su estado y su auditoría). por segmento: una plataforma añadida en caliente
   // queda cubierta en el siguiente. con una sola plataforma, lo de las demás es vacío: el deny de siempre.
   private runDeny(sup: PlatformSupervisor): string[] {
-    const configured = [...new Set([...Object.keys(this.platformsCfg), ...this.supervisors.keys()])];
+    // la local solo desde que tiene estado en disco: un daemon que nunca sirvió un `runner run` deja el deny como estaba.
+    const localOnDisk = fs.existsSync(platformHome(LOCAL_PLATFORM_ID));
+    const configured = [...new Set([...Object.keys(this.platformsCfg), ...this.supervisors.keys()])].filter((id) => id !== LOCAL_PLATFORM_ID || localOnDisk);
     return [...allRunConfigDirs().flatMap(runConfigDeny), ...otherScratchDeny(sup.id, configured), ...otherPlatformsDeny(sup.id, configured)];
   }
 
