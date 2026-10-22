@@ -10,8 +10,9 @@
 //   textconv (lanzarían programas suyos) y rutas sin comillas (core.quotePath=false): la web busca cada fichero
 //   por su cabecera `diff --git a/<ruta> b/<ruta>`.
 // - un fichero más largo que filePatchMaxChars, o que ya no cabe en patchMaxChars, viaja con su cabecera sola (sin
-//   hunks): sale en la lista con sus recuentos y sin cuerpo. secretos enmascarados ANTES de medir con
-//   maskDiffSecrets, que no confunde `password: string` con un secreto (el server lo repite).
+//   hunks): sale en la lista con sus recuentos y sin cuerpo. secretos enmascarados ANTES de medir, por fichero
+//   (maskDiffChunk: en el código no confunde `password: string` con un secreto; en la configuración, el del feed
+//   entero). el server lo repite.
 // - nunca tumba el run: un git que falla deja el turno sin diff y una línea en el log.
 // - en checkout la foto incluye lo que la persona edite a la vez en su copia: se acepta (está en el contrato).
 
@@ -20,7 +21,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { maskDiffSecrets } from './secret-mask.js';
+import { maskDiffChunk, maskDiffSecrets } from './secret-mask.js';
 import {
   RUN_CHANGE_STATUS,
   RUN_CHANGES_PATH_MAX_CHARS,
@@ -104,13 +105,14 @@ export function parseNumstat(out: string): Map<string, { additions: number | nul
 export function budgetPatch(patch: string, limits: Pick<LegacyClaimChanges, 'filePatchMaxChars' | 'patchMaxChars'>): string {
   const chunks = patch
     .split(`\n${FILE_HEADER}`)
-    .map((c, i) => maskDiffSecrets(i === 0 ? c : `${FILE_HEADER}${c}`))
-    .filter((c) => c.startsWith(FILE_HEADER))
-    .map((c) => (c.endsWith('\n') ? c : `${c}\n`));
+    .map((c, i) => (i === 0 ? c : `${FILE_HEADER}${c}`))
+    .filter((c) => c.startsWith(FILE_HEADER));
+  // un fichero más largo que su tope ni se enmascara: viaja su cabecera sola (el enmascarado, acotado a lo que cabe).
+  const headerOf = (c: string): string => `${maskDiffChunk(c.split('\n', 1)[0]!)}\n`;
   return chunks.reduce<{ out: string[]; used: number }>(
-    (acc, chunk) => {
-      const fits = chunk.length <= limits.filePatchMaxChars && acc.used + chunk.length <= limits.patchMaxChars;
-      const piece = fits ? chunk : `${chunk.slice(0, chunk.indexOf('\n'))}\n`;
+    (acc, raw) => {
+      const masked = raw.length <= limits.filePatchMaxChars ? maskDiffChunk(raw).replace(/\n?$/, '\n') : null;
+      const piece = masked !== null && acc.used + masked.length <= limits.patchMaxChars ? masked : headerOf(raw);
       return { out: [...acc.out, piece], used: acc.used + piece.length };
     },
     { out: [], used: 0 },

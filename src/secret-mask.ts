@@ -34,21 +34,38 @@ const SECRET_MASK_PATTERNS: readonly RegExp[] = [
   /(?<![A-Za-z0-9])(?:password|passwd|secret|token|api[_-]?key)["']?\s*[=:]\s*["']?[^\s"',;]+/gi,
 ];
 // el diff de un turno (t#514) es código: la asignación genérica destrozaría `password: string` o
-// `token = getToken()`. ahí solo se enmascara si el valor es un literal entre comillas o la línea es de un .env
-// (`DB_PASSWORD=x`, con el prefijo +/-/espacio del diff y un `export` delante que se conservan). espejo de
-// SECRET_MASK_DIFF_PATTERNS del server.
+// `token = getToken()`. en un fichero de código solo se enmascara si el valor es un literal entre comillas o la línea
+// es de un .env (`DB_PASSWORD=x`, con el prefijo +/-/espacio del diff, sangría, un `- ` de lista o un `export`
+// delante, que se conservan); un fichero de configuración (CONFIG_FILE_RE) lleva el enmascarado entero del feed: ahí
+// `password: hunter2` sin comillas es un secreto. todo acotado y anclado (un diff puede traer líneas enormes: nada
+// de cuantificadores sin tope que retrocedan ni lookbehinds de largo variable). espejo de SECRET_MASK_DIFF_PATTERNS,
+// SECRET_MASK_ENV_LINE_RE, SECRET_MASK_KEY_RE y SECRET_MASK_CONFIG_FILE_RE del server.
 const SECRET_MASK_DIFF_PATTERNS: readonly RegExp[] = [
   ...SECRET_MASK_TOKEN_PATTERNS,
-  /(?<![A-Za-z0-9])(?:password|passwd|secret|token|api[_-]?key)["']?\s*[=:]\s*(?:"[^"\n]+"|'[^'\n]+'|`[^`\n]+`)/gi,
-  /(?<=^[+\- ]?(?:export[ \t]+)?)[A-Za-z0-9_]*(?:password|passwd|secret|token|api[_-]?key)[A-Za-z0-9_]*[ \t]*=[ \t]*\S+/gim,
+  /(?<![A-Za-z0-9])(?:password|passwd|secret|token|api[_-]?key)["']?[ \t]{0,16}[=:][ \t]{0,16}(?:"[^"\n]{1,512}"|'[^'\n]{1,512}'|`[^`\n]{1,512}`)/gi,
 ];
+// línea de un .env: prefijo (que se conserva) + clave + `=` + valor. la clave se mira aparte con KEY_RE.
+const ENV_LINE_RE = /^([+\- ]?[ \t]{0,64}(?:-[ \t]{1,8})?(?:export[ \t]{1,8})?)([A-Za-z0-9_]{1,128})[ \t]{0,8}=[ \t]{0,8}\S+/gm;
+// sin /g: se usa con .test().
+const KEY_RE = /password|passwd|secret|token|api[_-]?key/i;
+const CONFIG_FILE_RE = /(?:^|\/)(?:\.env[^/]*|Dockerfile[^/]*|[^/]+\.(?:ya?ml|env|properties|ini|toml|cfg|conf))$/i;
+// ruta nueva de la cabecera de un fichero en un diff de git (`diff --git a/<vieja> b/<nueva>`), en su primera línea.
+const DIFF_HEADER_RE = /^diff --git a\/[^\n]* b\/([^\n]*)/;
 
 /** sustituye cada secreto reconocible por `***`. aplícalo ANTES de recortar el texto. */
 export function maskSecrets(text: string): string {
   return SECRET_MASK_PATTERNS.reduce((acc, re) => acc.replace(re, SECRET_MASK), text);
 }
 
-/** lo mismo para el diff de un turno (t#514): sin destrozar el código (SECRET_MASK_DIFF_PATTERNS). */
+/** lo mismo para el diff de un turno (t#514): sin destrozar el código (SECRET_MASK_DIFF_PATTERNS + líneas de .env). */
 export function maskDiffSecrets(text: string): string {
-  return SECRET_MASK_DIFF_PATTERNS.reduce((acc, re) => acc.replace(re, SECRET_MASK), text);
+  return SECRET_MASK_DIFF_PATTERNS.reduce((acc, re) => acc.replace(re, SECRET_MASK), text).replace(ENV_LINE_RE, (line, prefix: string, key: string) =>
+    KEY_RE.test(key) ? `${prefix}${SECRET_MASK}` : line,
+  );
+}
+
+/** el trozo de UN fichero de un diff (desde su `diff --git`): el enmascarado entero si es de configuración. */
+export function maskDiffChunk(chunk: string): string {
+  const file = DIFF_HEADER_RE.exec(chunk)?.[1] ?? '';
+  return CONFIG_FILE_RE.test(file) ? maskSecrets(chunk) : maskDiffSecrets(chunk);
 }

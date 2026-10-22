@@ -11,7 +11,7 @@ import { after, test } from 'node:test';
 import { announcedCapabilities } from '../src/announced-capabilities.js';
 import { parseClaim } from '../src/claim.js';
 import { scrubEnv } from '../src/scrub-env.js';
-import { maskDiffSecrets, maskSecrets, SECRET_MASK } from '../src/secret-mask.js';
+import { maskDiffChunk, maskDiffSecrets, maskSecrets, SECRET_MASK } from '../src/secret-mask.js';
 import { budgetPatch, parseNameStatus, parseNumstat, snapshotTree, turnChanges } from '../src/turn-changes.js';
 import { RUN_CHANGES_FILE_PATCH_MAX_CHARS, RUN_CHANGES_FILES_MAX, RUN_CHANGES_PATCH_MAX_CHARS, RUNNER_CAPABILITY } from '../src/vendor/runner-protocol/index.js';
 
@@ -109,6 +109,24 @@ test('maskDiffSecrets: el código sigue legible; los literales, los .env y los t
   assert.equal(maskDiffSecrets('+DB_PASSWORD=hunter2'), `+${SECRET_MASK}`);
   assert.equal(maskDiffSecrets(' export API_TOKEN=abc123'), ` export ${SECRET_MASK}`);
   assert.equal(maskDiffSecrets('+secret=x\n+NEXT=1'), `+${SECRET_MASK}\n+NEXT=1`, 'por línea');
+  assert.equal(maskDiffSecrets('+    - DB_PASSWORD=hunter2'), `+    - ${SECRET_MASK}`, 'sangría y lista');
+});
+
+test('maskDiffSecrets es lineal: una línea enorme sin secreto ni comillas cerradas no bloquea', () => {
+  const inputs = [' '.repeat(200_000), 'a'.repeat(200_000), `+${' '.repeat(100_000)}x${'_'.repeat(100_000)}=`, `password="${'a'.repeat(200_000)}`, 'token: '.repeat(30_000)];
+  inputs.forEach((text) => {
+    const start = performance.now();
+    maskDiffSecrets(text);
+    assert.ok(performance.now() - start < 500, `${text.slice(0, 12)}… tardó demasiado`);
+  });
+});
+
+test('maskDiffChunk: un fichero de configuración lleva el enmascarado entero; uno de código, el del diff', () => {
+  const chunk = (file: string, line: string): string => `diff --git a/${file} b/${file}\n--- a/${file}\n+++ b/${file}\n@@ -0,0 +1 @@\n${line}\n`;
+  ['config/app.yml', 'deploy/values.yaml', '.env.example', 'app.properties', 'Dockerfile', 'my.cnf.conf'].forEach((file) =>
+    assert.equal(maskDiffChunk(chunk(file, '+  password: hunter2')), chunk(file, `+  ${SECRET_MASK}`), file),
+  );
+  assert.equal(maskDiffChunk(chunk('src/login.ts', '+  password: string;')), chunk('src/login.ts', '+  password: string;'));
 });
 
 test('parseo de -z: name-status y numstat con renombrados y binarios', () => {
