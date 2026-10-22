@@ -11,6 +11,7 @@ import { after, test } from 'node:test';
 import { announcedCapabilities } from '../src/announced-capabilities.js';
 import { parseClaim } from '../src/claim.js';
 import { scrubEnv } from '../src/scrub-env.js';
+import { maskDiffSecrets, maskSecrets, SECRET_MASK } from '../src/secret-mask.js';
 import { budgetPatch, parseNameStatus, parseNumstat, snapshotTree, turnChanges } from '../src/turn-changes.js';
 import { RUN_CHANGES_FILE_PATCH_MAX_CHARS, RUN_CHANGES_FILES_MAX, RUN_CHANGES_PATCH_MAX_CHARS, RUNNER_CAPABILITY } from '../src/vendor/runner-protocol/index.js';
 
@@ -97,6 +98,17 @@ test('budgetPatch: cada fichero entero o su cabecera, el presupuesto se agota en
   assert.equal(budgetPatch(patch, { filePatchMaxChars: 1000, patchMaxChars: 1000 }), patch);
   const tight = budgetPatch(patch, { filePatchMaxChars: 1000, patchMaxChars: file('a', '+uno').length + 30 });
   assert.equal(tight, `${file('a', '+uno')}diff --git a/b b/b\ndiff --git a/c b/c\n`);
+});
+
+test('maskDiffSecrets: el código sigue legible; los literales, los .env y los tokens no salen', () => {
+  ['+export async function login(email: string, password: string) {', '+  const token = getToken();', ' api_key: process.env.API_KEY,'].forEach((line) => {
+    assert.equal(maskDiffSecrets(line), line);
+    assert.notEqual(maskSecrets(line), line, 'el feed sigue con su asignación genérica');
+  });
+  assert.equal(maskDiffSecrets('+const password = "hunter2";'), `+const ${SECRET_MASK};`);
+  assert.equal(maskDiffSecrets('+DB_PASSWORD=hunter2'), `+${SECRET_MASK}`);
+  assert.equal(maskDiffSecrets(' export API_TOKEN=abc123'), ` export ${SECRET_MASK}`);
+  assert.equal(maskDiffSecrets('+secret=x\n+NEXT=1'), `+${SECRET_MASK}\n+NEXT=1`, 'por línea');
 });
 
 test('parseo de -z: name-status y numstat con renombrados y binarios', () => {

@@ -5,7 +5,8 @@
 export const SECRET_MASK = '***';
 
 // todas con /g: úsalas SOLO con String.replace (.test() arrastraría lastIndex entre llamadas).
-const SECRET_MASK_PATTERNS: readonly RegExp[] = [
+// formatos de token reconocibles: los comparten el feed y el diff de cada turno (t#514).
+const SECRET_MASK_TOKEN_PATTERNS: readonly RegExp[] = [
   // aws access key id (largo plazo AKIA / temporal ASIA) y secretos en formato credentials/env.
   /\b(?:AKIA|ASIA)[0-9A-Z]{16}\b/g,
   /\b(?:aws_secret_access_key|aws_session_token)\s*[=:]\s*\S+/gi,
@@ -26,11 +27,28 @@ const SECRET_MASK_PATTERNS: readonly RegExp[] = [
   /\bATATT[A-Za-z0-9_=-]{20,}/g,
   /\bATBB[A-Za-z0-9]{20,}/g,
   /\bsk-ant-[A-Za-z0-9_-]{20,}/g,
+];
+const SECRET_MASK_PATTERNS: readonly RegExp[] = [
+  ...SECRET_MASK_TOKEN_PATTERNS,
   // asignaciones genéricas (DB_PASSWORD=…, api_key: …, "token": "…"): se enmascara la clave y su valor.
   /(?<![A-Za-z0-9])(?:password|passwd|secret|token|api[_-]?key)["']?\s*[=:]\s*["']?[^\s"',;]+/gi,
+];
+// el diff de un turno (t#514) es código: la asignación genérica destrozaría `password: string` o
+// `token = getToken()`. ahí solo se enmascara si el valor es un literal entre comillas o la línea es de un .env
+// (`DB_PASSWORD=x`, con el prefijo +/-/espacio del diff y un `export` delante que se conservan). espejo de
+// SECRET_MASK_DIFF_PATTERNS del server.
+const SECRET_MASK_DIFF_PATTERNS: readonly RegExp[] = [
+  ...SECRET_MASK_TOKEN_PATTERNS,
+  /(?<![A-Za-z0-9])(?:password|passwd|secret|token|api[_-]?key)["']?\s*[=:]\s*(?:"[^"\n]+"|'[^'\n]+'|`[^`\n]+`)/gi,
+  /(?<=^[+\- ]?(?:export[ \t]+)?)[A-Za-z0-9_]*(?:password|passwd|secret|token|api[_-]?key)[A-Za-z0-9_]*[ \t]*=[ \t]*\S+/gim,
 ];
 
 /** sustituye cada secreto reconocible por `***`. aplícalo ANTES de recortar el texto. */
 export function maskSecrets(text: string): string {
   return SECRET_MASK_PATTERNS.reduce((acc, re) => acc.replace(re, SECRET_MASK), text);
+}
+
+/** lo mismo para el diff de un turno (t#514): sin destrozar el código (SECRET_MASK_DIFF_PATTERNS). */
+export function maskDiffSecrets(text: string): string {
+  return SECRET_MASK_DIFF_PATTERNS.reduce((acc, re) => acc.replace(re, SECRET_MASK), text);
 }
