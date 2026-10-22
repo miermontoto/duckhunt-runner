@@ -4,6 +4,7 @@
 // una tool mcp); `system` = notas del propio daemon (worktree, rama, fallback).
 // non-goals a propósito: NUNCA tool_result, contenido de ficheros ni salida de comandos, y ninguna
 // ruta absoluta (el worktree pasa a `.`, el home a `~`, un fichero fuera del worktree a `…/nombre`).
+// el diff de cada turno (t#514) no pasa por aquí: va por su propio canal, turn-changes.ts.
 // todo cuerpo pasa por redactar rutas → enmascarar secretos → recortar, en ese orden (recortar antes
 // de enmascarar podría dejar medio secreto sin reconocer).
 // valores tecleados (t#495): de una tool que NO es del mcp de la plataforma, lo que el agente escribe o
