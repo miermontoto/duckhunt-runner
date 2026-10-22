@@ -157,6 +157,8 @@ test('la foto no pierde una edición del mismo tamaño en el mismo segundo que e
 test('maskDiffSecrets: un literal largo o sin cerrar, y un identificador que lleva la palabra', () => {
   assert.equal(maskDiffSecrets('+  secretKey: "abc",'), `+  ${SECRET_MASK},`);
   assert.equal(maskDiffSecrets('+const name = "duck";'), '+const name = "duck";');
+  assert.equal(maskDiffSecrets(`+  headers: { 'x-api-key': 'abc' },`), `+  headers: { '${SECRET_MASK} },`, 'con guiones');
+  assert.equal(maskDiffSecrets('-password = "x"'), `-${SECRET_MASK}`, 'el prefijo de una línea quitada se conserva');
   assert.equal(maskDiffSecrets(`+const token = "${'a'.repeat(2000)}";`), `+const ${SECRET_MASK};`);
   assert.equal(maskDiffSecrets('+password = "sin cerrar\n+siguiente'), `+${SECRET_MASK}\n+siguiente`);
   assert.equal(maskDiffSecrets(`+api_key:${' '.repeat(40)}'x'`), `+${SECRET_MASK}`);
