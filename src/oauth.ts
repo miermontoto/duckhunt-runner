@@ -9,7 +9,9 @@
 // ciclo de vida (0.11.0, t#465 P12): `login` deja en la config el id de la máquina y el client_id al que
 // reemplaza (machine.ts::loginIdentity), y un rechazo del token endpoint (invalid_grant: credencial
 // desvinculada desde duckhunt, revocada por un replay o caducada) es un CredentialRejectedError: el
-// daemon para en vez de reintentar cada 5 s con una credencial que ya no vuelve.
+// daemon para en vez de reintentar cada 5 s con una credencial que ya no vuelve, y la borra del fichero
+// (t#510: desvincular desde la web es el `logout` de la máquina). lleva el clientId de la credencial que
+// se usó en el refresh: con un `login` hecho mientras tanto, el fichero ya es de otra y no se toca.
 // plataformas (t#495, M6.3): de dónde se lee y dónde se guarda la credencial es un CredentialStore
 // (platforms/credentials.ts): la de duckhunt en las claves de siempre, la de otra plataforma en su entrada de
 // `platforms`. cada refresh escribe solo la suya.
@@ -56,8 +58,11 @@ class TokenEndpointError extends Error {
 /** el token endpoint rechazó el refresh (invalid_grant): desvinculada, revocada o caducada. no se recupera sin
  *  `login`. es el rechazo de la plataforma duckhunt (platforms/platform.ts::PlatformRejectedError). */
 export class CredentialRejectedError extends PlatformRejectedError {
-  constructor(description: string) {
-    super(`la credencial de esta máquina ya no vale (desvinculada desde duckhunt, revocada o caducada: ${description}): vuelve a hacer \`duckhunt-runner login\``);
+  constructor(description: string, clientId?: string) {
+    super(
+      `la credencial de esta máquina ya no vale (desvinculada desde duckhunt, revocada o caducada: ${description}): vuelve a hacer \`duckhunt-runner login\``,
+      clientId,
+    );
     this.name = 'CredentialRejectedError';
   }
 }
@@ -266,7 +271,7 @@ export async function refreshAccess(current: RunnerCredential, store: Credential
     refresh_token: cred.refreshToken,
     client_id: cred.clientId,
   }).catch((err: unknown) => {
-    throw err instanceof TokenEndpointError && err.code === INVALID_GRANT ? new CredentialRejectedError(err.description) : err;
+    throw err instanceof TokenEndpointError && err.code === INVALID_GRANT ? new CredentialRejectedError(err.description, cred.clientId) : err;
   });
   const credential = { ...cred, refreshToken: tokens.refresh_token };
   return {

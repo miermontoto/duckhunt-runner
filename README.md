@@ -193,7 +193,10 @@ next call.
 
 When the credential is rejected (the machine was unpaired from duckhunt or with `logout`, or the
 credential was revoked or expired), the daemon stops claiming, stops its runs and exits with code
-**78** instead of retrying every few seconds. Run `login` again to pair it. With other platforms
+**78** instead of retrying every few seconds. It also deletes that credential from the config file,
+just like `logout` (0.13.1 or later), so unpairing a machine from duckhunt is enough: you don't need to
+run `logout` on it. If a `login` replaced the credential in the meantime, the new one is kept. A
+read-only config file is left as it is, with a warning. Run `login` again to pair it. With other platforms
 configured (0.13.0 or later), only the platform whose credential died stops, along with its runs; the
 daemon exits with 78 when none is left usable, and a new `login` brings that platform back without a
 restart.

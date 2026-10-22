@@ -10,7 +10,7 @@ import path from 'node:path';
 import { after, afterEach, before, beforeEach, test, type TestContext } from 'node:test';
 import { configPath, loadConfig, loadConfigV2, runnerHome, saveConfigV2, type RunnerConfig } from '../src/config.js';
 import { refreshAccess } from '../src/oauth.js';
-import { serverStatePath } from '../src/paths.js';
+import { LEGACY_PLATFORM_ID, serverStatePath } from '../src/paths.js';
 import { credentialStore } from '../src/platforms/credentials.js';
 import { PLATFORM_STATE } from '../src/platforms/supervisor.js';
 import { RunLease } from '../src/run-lease.js';
@@ -154,6 +154,45 @@ test('la que perdió la credencial vuelve con un `login` nuevo (otro clientId) s
   const revived = d.supervisors.get('beta')!;
   assert.equal(revived.state, PLATFORM_STATE.active);
   assert.equal(revived.platform.identity().clientId, 'b2');
+});
+
+test('la credencial rechazada de una plataforma se borra solo de su entrada; un `login` la devuelve', async (t) => {
+  quiet(t);
+  const { d, created } = await daemon({ beta: { protocol: 'duckhunt-42', trusted: true, credential: credential('b1') } });
+  const beta = created.get('beta')!;
+  beta.reject = true;
+  beta.rejectNamesClient = true;
+  await d.pollOnce(d.supervisors.get('beta')!);
+  assert.equal(d.stopping, false, 'quedaba la legacy');
+  const platforms = readJson().platforms as Record<string, Record<string, unknown>>;
+  assert.deepEqual([platforms.beta!.credential, platforms.beta!.protocol, platforms.beta!.trusted], [undefined, 'duckhunt-42', true]);
+  assert.equal(readJson().clientId, 'c1', 'la de duckhunt no se toca');
+  await d.reloadConfig();
+  assert.equal(d.supervisors.has('beta'), false, 'sin credencial: se retira');
+  write({ beta: { protocol: 'duckhunt-42', trusted: true, credential: credential('b2') } });
+  await d.reloadConfig();
+  assert.equal(d.supervisors.get('beta')?.state, PLATFORM_STATE.active);
+});
+
+test('la de duckhunt rechazada con otra plataforma viva: se borra, la config se sigue recargando y un `login` la devuelve', async (t) => {
+  const { warn } = quiet(t);
+  const { d, created } = await daemon({ beta: { protocol: 'duckhunt-42', trusted: true, credential: credential('b1') } });
+  const duckhunt = created.get(LEGACY_PLATFORM_ID)!;
+  duckhunt.reject = true;
+  duckhunt.rejectNamesClient = true;
+  await d.pollOnce(legacyOf(d));
+  assert.equal(d.stopping, false, 'beta sigue reclamando');
+  assert.equal(readJson().clientId, undefined);
+  // un cambio de mapas tras el borrado: se recarga (la config sin la credencial de duckhunt vale) y la legacy se queda fuera.
+  write({ beta: { protocol: 'duckhunt-42', trusted: true, credential: credential('b1') } }, { clientId: undefined, refreshToken: undefined, repos: { 'acme/api': { path: '/dev/api' } } });
+  await d.reloadConfig();
+  assert.deepEqual(Object.keys(d.cfg.repos), ['acme/api'], 'la recarga no se atasca en «config incompleta»');
+  assert.equal(legacyOf(d).state, PLATFORM_STATE.unpaired, 'la legacy siempre está: fuera, sin retirarse');
+  assert.ok(warn.mock.calls.some((c) => /plataforma duckhunt: sin credencial/.test(String(c.arguments[0]))));
+  write({ beta: { protocol: 'duckhunt-42', trusted: true, credential: credential('b1') } }, { clientId: 'c2', refreshToken: 'u1' });
+  await d.reloadConfig();
+  assert.equal(legacyOf(d).state, PLATFORM_STATE.active, 'un login nuevo la devuelve');
+  assert.equal(legacyOf(d).platform.identity().clientId, 'c2');
 });
 
 test('cada plataforma guarda lo que su server dijo en su directorio; la legacy, donde siempre', async (t) => {

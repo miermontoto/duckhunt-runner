@@ -52,7 +52,8 @@
 //   siguiente claim (al liberarse uno); mientras, los latidos ya van con la credencial nueva. si el refresh
 //   de la credencial se rechaza (desvinculada desde duckhunt o con `logout`, revocada o caducada), lo vea el
 //   claim o el latido de un run, para: corta sus runs, no reintenta y sale con EXIT_CODE_UNPAIRED (un
-//   servicio puede no reiniciarlo con ese código: sin `login` no vuelve).
+//   servicio puede no reiniciarlo con ese código: sin `login` no vuelve). además borra esa credencial del
+//   fichero (t#510): desvincular desde la web hace en la máquina lo mismo que `logout`, sin ir a ella.
 // - endurecimiento de lectura (0.11.0): secret_paths (secret-paths.ts) al deny de todo kit de lectura,
 //   aws_strict (resources/aws.ts: una cuenta sin mapear corre con la aws vacía) y seed_budget (claude-args.ts).
 //   el gc anuncia en cada claim lo que conservó por guardar trabajo (worktree_report, recuentos; una
@@ -123,6 +124,7 @@ import readline from 'node:readline';
 import { promisify } from 'node:util';
 import {
   concurrency,
+  configPath,
   mergeEntries,
   parseConfig,
   parseConfigV2,
@@ -172,6 +174,7 @@ import { allRunConfigDirs, LEGACY_PLATFORM_ID, LOCAL_PLATFORM_ID, logsDir, platf
 import { runnerVersion } from './version.js';
 import { PlatformRejectedError, PROTOCOL, type ClaimAnnounce, type Platform, type PlatformContext, type PlatformFactories, type Protocol, type RunSegment } from './platforms/platform.js';
 import { DEFAULT_CEILING, EXPOSE_ALL, isExposed, LOCAL_PLATFORM_DEFAULTS, PLATFORM_DEFAULT_SLOTS, type PlatformConfig } from './platforms/types.js';
+import { credentialStore } from './platforms/credentials.js';
 import { PLATFORM_FACTORIES } from './platforms/factories.js';
 import { Scheduler } from './platforms/scheduler.js';
 import { PLATFORM_STATE, PlatformSupervisor, type SupervisorHooks } from './platforms/supervisor.js';
@@ -669,7 +672,7 @@ export class RunnerDaemon {
 
   // la credencial de una plataforma ya no vale: esa plataforma para (sin reintentar) y se cortan sus runs (el
   // server ya los canceló al desvincular; sin credencial no pueden ni latir). si era la última usable, el daemon
-  // se detiene y sale con EXIT_CODE_UNPAIRED.
+  // se detiene y sale con EXIT_CODE_UNPAIRED. la credencial muerta se borra del fichero (wipeRejected).
   private platformRejected(sup: PlatformSupervisor, err: PlatformRejectedError): void {
     if (this.stopping || sup.state === PLATFORM_STATE.unpaired) return;
     // la local no cuenta: no tiene credencial que muera y un daemon solo con ella no reclamaría nada de nadie.
@@ -677,6 +680,7 @@ export class RunnerDaemon {
     console.error(`${this.tagOf(sup)} ${err.message}. ${last ? 'el daemon se detiene' : `la plataforma ${sup.id} deja de reclamar`}`);
     sup.state = PLATFORM_STATE.unpaired;
     sup.recordServerState(CLAIM_OUTCOME.unpaired, null);
+    if (err.clientId !== undefined) this.wipeRejected(sup, err.clientId);
     if (last) {
       this.stopping = true;
       this.exitCode = EXIT_CODE_UNPAIRED;
@@ -684,6 +688,21 @@ export class RunnerDaemon {
     sup.leases.forEach((lease) => lease.kill('cancel'));
     if (last) this.wakeAll();
     else sup.wake();
+  }
+
+  // desvincular la máquina desde la web es su `logout` (t#510): la credencial que el server rechazó se borra del
+  // fichero, como haría `duckhunt-runner logout`, para que no quede una muerta en disco ni la recoja un reinicio.
+  // solo si el fichero sigue siendo de esa credencial (CredentialStore.clear): un `login` hecho mientras tanto gana.
+  // una config que no se puede escribir (montada de solo lectura) se queda como está: se avisa y el daemon sigue
+  // parando igual.
+  private wipeRejected(sup: PlatformSupervisor, clientId: string): void {
+    try {
+      if (credentialStore(sup.id).clear(clientId)) {
+        console.log(`${this.tagOf(sup)} credencial borrada de ${configPath()}: \`duckhunt-runner login\` para volver a vincularla`);
+      }
+    } catch (err) {
+      console.error(`${this.tagOf(sup)} no se pudo borrar la credencial de ${configPath()}: ${(err as Error).message}`);
+    }
   }
 
   // despierta todos los polls y el loop principal (parada).
@@ -937,8 +956,14 @@ export class RunnerDaemon {
     let platforms: RunnerConfigV2['platforms'];
     let browser: { refs: Readonly<Record<string, BrowserRef>>; providers: ProvidersConfig | undefined };
     try {
-      // sin daemon (`runner run`) la credencial de duckhunt no hace falta: el fichero vale sin ella.
-      ({ credential, local } = this.opts.localOnly ? { credential: null, local: localPart(parseStoredConfig(text)) } : splitConfig(parseConfig(text)));
+      // sin daemon (`runner run`) la credencial de duckhunt no hace falta: el fichero vale sin ella. con él, tampoco
+      // cuando duckhunt ya está fuera (su credencial se rechazó y se borró, o ya faltaba): otra plataforma puede
+      // seguir reclamando y la config se sigue recargando; un `login` la devuelve (syncPlatform).
+      const stored = parseStoredConfig(text);
+      const legacyOut = this.legacyCredential === null || this.supervisors.get(LEGACY_PLATFORM_ID)?.state === PLATFORM_STATE.unpaired;
+      const legacyMissing = !(stored.baseUrl && stored.clientId && stored.refreshToken);
+      ({ credential, local } =
+        this.opts.localOnly || (legacyOut && legacyMissing) ? { credential: null, local: localPart(stored) } : splitConfig(parseConfig(text)));
       const v2 = parseConfigV2(text);
       platforms = v2.platforms;
       browser = { refs: (v2.resources[RESOURCE_TYPE.browser] ?? {}) as Readonly<Record<string, BrowserRef>>, providers: v2.providers };
@@ -998,7 +1023,8 @@ export class RunnerDaemon {
     if (!factory || !credential || uncapped) {
       if (this.skipped.get(id) !== why) console.warn(`[runner] plataforma ${id}: ${why}: no reclama`);
       this.skipped.set(id, why!);
-      if (current) this.retire(current);
+      // la legacy siempre está (sin credencial, rechazada: ya no reclama); el resto se retira.
+      if (current && !legacy) this.retire(current);
       return;
     }
     this.skipped.delete(id);
