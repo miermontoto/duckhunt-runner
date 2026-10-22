@@ -127,6 +127,39 @@ test('maskDiffChunk: un fichero de configuración lleva el enmascarado entero; u
     assert.equal(maskDiffChunk(chunk(file, '+  password: hunter2')), chunk(file, `+  ${SECRET_MASK}`), file),
   );
   assert.equal(maskDiffChunk(chunk('src/login.ts', '+  password: string;')), chunk('src/login.ts', '+  password: string;'));
+  // un renombrado desde un .yml (sus líneas quitadas) y una ruta entre las comillas de git.
+  const renamed = 'diff --git a/config.yml b/notes.txt\nrename from config.yml\nrename to notes.txt\n@@ -1 +0,0 @@\n-password: hunter2\n';
+  assert.equal(maskDiffChunk(renamed), renamed.replace('-password: hunter2', `-${SECRET_MASK}`));
+  const quoted = 'diff --git "a/x\\"y.yml" "b/x\\"y.yml"\n@@ -0,0 +1 @@\n+password: hunter2\n';
+  assert.equal(maskDiffChunk(quoted), quoted.replace('+password: hunter2', `+${SECRET_MASK}`));
+  // en un .env, también las claves que el enmascarado del feed no reconoce.
+  assert.equal(maskDiffChunk(chunk('.env', '+SECRET_KEY=abc')), chunk('.env', `+${SECRET_MASK}`));
+  assert.equal(maskDiffChunk(chunk('.env', '+AWS_SECRET_ACCESS_KEY=abc')), chunk('.env', `+${SECRET_MASK}`));
+  // sin cabecera reconocible, los dos.
+  assert.equal(maskDiffChunk('+password: hunter2\n'), `+${SECRET_MASK}\n`);
+});
+
+test('la foto no pierde una edición del mismo tamaño en el mismo segundo que el último stat (racy git)', async () => {
+  const dir = repo();
+  const file = path.join(dir, 'login.ts');
+  // el último stat del índice real y la edición del turno caen en el mismo segundo; la foto se hace en el siguiente.
+  const second = new Date(Math.floor(Date.now() / 1000) * 1000 - 5000);
+  fs.utimesSync(file, second, second);
+  git(dir, 'add', 'login.ts');
+  fs.utimesSync(path.join(dir, '.git', 'index'), second, second);
+  const from = (await snapshotTree(dir, env))!;
+  fs.writeFileSync(file, 'const a = 9;\nexport { a };\n');
+  fs.utimesSync(file, second, second);
+  const report = await turnChanges(dir, env, from, LIMITS);
+  assert.deepEqual(report?.files.map((f) => f.path), ['login.ts']);
+});
+
+test('maskDiffSecrets: un literal largo o sin cerrar, y un identificador que lleva la palabra', () => {
+  assert.equal(maskDiffSecrets('+  secretKey: "abc",'), `+  ${SECRET_MASK},`);
+  assert.equal(maskDiffSecrets('+const name = "duck";'), '+const name = "duck";');
+  assert.equal(maskDiffSecrets(`+const token = "${'a'.repeat(2000)}";`), `+const ${SECRET_MASK};`);
+  assert.equal(maskDiffSecrets('+password = "sin cerrar\n+siguiente'), `+${SECRET_MASK}\n+siguiente`);
+  assert.equal(maskDiffSecrets(`+api_key:${' '.repeat(40)}'x'`), `+${SECRET_MASK}`);
 });
 
 test('parseo de -z: name-status y numstat con renombrados y binarios', () => {

@@ -38,6 +38,8 @@ const GIT_TIMEOUT_MS = 60_000;
 // salida máxima de un git (el patch entero antes de recortar): más grande, el turno se queda sin diff.
 const GIT_MAX_BUFFER = 64 * 1024 * 1024;
 const TMP_PREFIX = 'duckhunt-turn-';
+// la copia del índice real se fecha este margen antes que él (ver snapshotTree): de más, solo se rehashea de más.
+const RACY_MARGIN_MS = 1000;
 const FILE_HEADER = 'diff --git ';
 const STATUSES: ReadonlySet<string> = new Set(Object.values(RUN_CHANGE_STATUS));
 // el diff de git sin nada de la config del usuario que cambie su forma o lance programas (ver cabecera).
@@ -54,8 +56,15 @@ export async function snapshotTree(dir: string, env: NodeJS.ProcessEnv): Promise
   try {
     const index = path.join(tmp, 'index');
     const real = path.resolve(dir, (await git(dir, ['rev-parse', '--git-path', 'index'], env)).trim());
-    // con la copia del índice real, `add -A` solo rehashea lo que cambió desde el último stat.
-    if (fs.existsSync(real)) fs.copyFileSync(real, index);
+    // con la copia del índice real, `add -A` solo rehashea lo que cambió desde el último stat. la copia lleva el mtime
+    // del real (un segundo antes, por si acaso): git lo usa para su protección racy (una entrada con mtime >= el del
+    // índice se compara por contenido), y con el mtime de la copia («ahora») una edición del mismo tamaño en el mismo
+    // segundo que su último stat pasaba por limpia y el turno perdía ese fichero.
+    if (fs.existsSync(real)) {
+      const { atime, mtimeMs } = fs.statSync(real);
+      fs.copyFileSync(real, index);
+      fs.utimesSync(index, atime, new Date(mtimeMs - RACY_MARGIN_MS));
+    }
     const withIndex = { ...env, GIT_INDEX_FILE: index };
     await git(dir, ['add', '-A'], withIndex);
     return (await git(dir, ['write-tree'], withIndex)).trim() || null;
