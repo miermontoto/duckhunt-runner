@@ -4,6 +4,7 @@
 // (test/wire-legacy.test.ts, test/wire-responses.test.ts).
 // - ids de run: por dentro texto (run-id.ts); /runs/<id> sale con el mismo texto y los dos cuerpos que llevan ids
 //   (/conversations y keptWorktrees del claim) los pasan a número: uno opaco no llega nunca a este cable.
+// - el diff de cada turno (t#514): POST /runs/<id>/changes, solo si el claim trajo el bloque `changes`.
 // - el claim: 204 = nada que hacer (server anterior a t#465 P12, o en pausa, sin slot, actualizar: la cabecera);
 //   200 { run: null } = sin trabajo con la fila de esta máquina; un json ilegible cuenta como reclamado (y no se
 //   puede cerrar: lo cierra el sweeper del server); un claim que no parsea se devuelve como invalid con su id.
@@ -17,7 +18,7 @@ import { isLegacyRunId, legacyWireRunId } from '../run-id.js';
 import { CLAIM_OUTCOME, parseRunnerBlock } from '../server-state.js';
 import { clampReport, type StatusReport } from '../status-report.js';
 import type { RunnerCredential } from '../config.js';
-import { RUNNER_CLAUDE_VERSION_MAX_CHARS, RUNNER_STATE_HEADER } from '../vendor/runner-protocol/index.js';
+import { RUNNER_CLAUDE_VERSION_MAX_CHARS, RUNNER_STATE_HEADER, type RunChangesReport } from '../vendor/runner-protocol/index.js';
 import { HttpTransport } from './http-transport.js';
 import { credentialStore } from './credentials.js';
 import {
@@ -153,6 +154,15 @@ export class Duckhunt42Platform implements Platform {
   async events(runId: string, events: SeqEvent[], seg: RunSegment): Promise<number> {
     const res = await this.transport.post(`/runs/${runId}/events`, { events, ...seg });
     return res.status;
+  }
+
+  // el diff del turno (t#514): un intento, sin reintento ni excepción (un 409 = el run ya se cerró).
+  async changes(runId: string, report: RunChangesReport, seg: RunSegment): Promise<void> {
+    const res = await this.transport.post(`/runs/${runId}/changes`, { ...report, ...seg }).catch((err: Error) => {
+      console.error(`[runner] diff del turno del run ${runId} no subido: ${err.message}`);
+      return null;
+    });
+    if (res && !res.ok) console.error(`[runner] diff del turno del run ${runId} rechazado: http ${res.status}`);
   }
 
   // cierre con reintento acotado: es lo único del run que el server no puede reconstruir.

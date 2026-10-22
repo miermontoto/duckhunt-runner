@@ -44,5 +44,7 @@ export function announcedCapabilities(kit: MachineKit): RunnerCapability[] {
     ...(kit.toolsetRender === false ? [] : [RUNNER_CAPABILITY.toolsetRender]),
     // sesiones de navegador (t#495, M7): con odysea y con el flip (las tools del navegador solo las pinta el render).
     ...(kit.browser && kit.toolsetRender !== false ? [RUNNER_CAPABILITY.browser] : []),
+    // el diff de cada turno (t#514, turn-changes.ts): solo lo calcula si el claim trae el bloque `changes`.
+    RUNNER_CAPABILITY.turnChanges,
   ];
 }

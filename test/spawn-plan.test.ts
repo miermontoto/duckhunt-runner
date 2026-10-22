@@ -106,6 +106,9 @@ const resume = args.includes('--resume') ? args[args.indexOf('--resume') + 1] : 
 const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
 const finish = () => {
   if (resume === 'gone') { process.stderr.write('No conversation found with session ID: gone\\n'); process.exit(1); }
+  // un turno que cambia el repo (t#514): crea el fichero que diga el prompt.
+  const write = /WRITE:(\\S+)/.exec(prompt);
+  if (write) fs.writeFileSync(path.join(process.cwd(), write[1]), 'export const nuevo = 1;\\n');
   const sid = resume || 'sess-new';
   out({ type: 'system', subtype: 'init', session_id: sid, model: 'claude-opus-5-5' });
   out({ type: 'assistant', message: { content: [{ type: 'text', text: 'miro el repo' }, { type: 'tool_use', name: 'Read', input: { file_path: path.join(process.cwd(), 'README.md') } }] } });
@@ -257,6 +260,9 @@ interface Recorded {
   progress: string[];
   feed: unknown[];
   status: string[];
+  // fuera del plan dorado: el diff de cada turno (t#514) y el orden de lo que llega del run.
+  changes?: string[];
+  order?: string[];
 }
 
 const BASE_HOST = 'duckhunt.test';
@@ -279,6 +285,8 @@ function installFetch(): void {
     // el feed se aplana: cuántos lotes salen depende del reloj, los eventos no.
     if (what === 'events') rec.feed.push(...((JSON.parse(body) as { events: unknown[] }).events ?? []));
     if (what === 'status') rec.status.push(body);
+    if (what === 'changes') rec.changes = [...(rec.changes ?? []), body];
+    rec.order = [...(rec.order ?? []), what];
     return Response.json({ ok: true });
   }) as typeof fetch;
 }
@@ -431,6 +439,26 @@ test('el plan de lanzamiento de cada claim legacy es el de antes de los recursos
 });
 
 // fuera del golden: lo que un claim legacy no hace nunca (t#495, M2 P5).
+test('cambios del turno (t#514): un turno que escribe sube su diff tras el feed y antes del status; sin cambios, nada', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  t.mock.method(console, 'warn', () => {});
+  t.mock.method(console, 'error', () => {});
+  const raw = JSON.parse(fs.readFileSync(new URL('claims/prompt-edit-turn-changes.json', FIXTURES), 'utf8')) as Record<string, unknown>;
+  const recorded = async (name: string, prompt: string): Promise<Recorded> => {
+    await runCase({ name, raw: { ...raw, prompt } });
+    const host = `${name.replace(/[^a-z0-9]+/gi, '-')}.${BASE_HOST}`.toLowerCase();
+    return servers.get(host)!.get(String((raw.run as { id: number }).id))!;
+  };
+  const wrote = await recorded('turn-changes/writes', 'añade el módulo WRITE:nuevo.ts');
+  const body = JSON.parse(wrote.changes?.[0] ?? '{}') as { files: unknown; filesTotal: number; patch: string; segment: number };
+  assert.deepEqual(body.files, [{ path: 'nuevo.ts', status: 'A', additions: 1, deletions: 0 }]);
+  assert.equal(body.segment, 1);
+  assert.match(body.patch, /^diff --git a\/nuevo\.ts b\/nuevo\.ts\n[\s\S]*\+export const nuevo = 1;\n$/);
+  assert.deepEqual(wrote.order?.filter((w) => w === 'events' || w === 'changes' || w === 'status').slice(-2), ['changes', 'status'], 'tras el feed y antes del cierre');
+  const quiet = await recorded('turn-changes/quiet', 'solo mira');
+  assert.equal(quiet.changes, undefined, 'un turno que no cambia nada no sube diff');
+});
+
 test('aislar la aws solo con toolset_v1: sin aws pedida, la aws vacía; el mismo claim legacy, la del usuario', async (t) => {
   t.mock.method(console, 'log', () => {});
   t.mock.method(console, 'warn', () => {});

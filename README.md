@@ -19,7 +19,9 @@ From 0.13.0 the daemon can also take runs from other platforms that speak the sa
 The server never sees your credentials, your filesystem paths or your git tokens. It only ever
 learns a repo's `workspace/slug` key and, optionally, an AWS account id — never where they live on
 disk. With the progress feed on, it also receives what the agent says and one line per tool call
-(see [Progress feed](#progress-feed)), never file contents or command output.
+(see [Progress feed](#progress-feed)), never file contents or command output. The one exception is
+the diff of what an `edit` conversation changed in its repo, so you can review it in the conversation
+(see [Code changes per turn](#code-changes-per-turn-0140-or-later)).
 
 ## Requirements
 
@@ -524,6 +526,28 @@ own (the `value` of a form fill, a script it runs in a page) shows only its leng
 only its origin and path, never its query or fragment. Browser tools get a summary of their own: the
 selector of a `fill` or `select_option`, `js ‹length›` for an `evaluate`, the action of a dialog and
 the key pressed.
+
+### Code changes per turn (0.14.0 or later)
+
+When an `edit` conversation works in a repo, duckhunt asks the daemon for the diff of each turn, and
+the conversation shows it under the turn: the files it changed with their line counts, and each file's
+diff on demand. Read-only steps, runs without a repo and older servers get nothing: the daemon only
+does it when the claim asks for it.
+
+- The daemon snapshots the working tree when the turn starts and again when it ends, before the
+  worktree is released. Each snapshot is a git tree built with a temporary index (`git add -A` +
+  `git write-tree`), so it counts files created from the shell or by a generator, follows
+  `.gitignore` (an ignored `.env` never leaves the machine) and never touches your index or branch.
+  The snapshots leave loose objects in the repo, which `git gc` removes in time.
+- The diff ignores your git config where it would change its shape or run programs: fixed `a/`/`b/`
+  prefixes, no colour, no external diff or textconv, unquoted paths.
+- Secrets are masked like in the feed, and duckhunt masks them again. Paths are relative to the repo.
+- Limits per turn: 300 files, 64 KB per file and 256 KB in total. A file over a limit, or a binary,
+  is listed with its counts but without its diff.
+- It is uploaded after the feed and before the step's status. If git or the upload fails, the turn
+  just shows no changes; the run is never affected.
+- In the checkout (instead of a worktree), the snapshots also catch what you edit there while the turn
+  runs.
 
 The daemon also strips variables of the Claude Code session it may have been started from
 (`CLAUDECODE`, `CLAUDE_CODE_SESSION_ID`…), empty `ANTHROPIC_*` values and a dead `SSH_AUTH_SOCK` from
