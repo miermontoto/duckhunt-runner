@@ -30,6 +30,8 @@ export interface DaemonInternals {
   startHeartbeat(sup: SupervisorInternals, lease: RunLease, heartbeatMs: number, seg: RunSegment): NodeJS.Timeout;
   postProgress(sup: SupervisorInternals, runId: string, toolCalls: number, seg: RunSegment, workdir?: string): void;
   addSupervisor(platform: Platform): SupervisorInternals;
+  // la parte de la config que se recarga en caliente (mapas, defaults).
+  readonly cfg: { repos: Readonly<Record<string, unknown>> };
   stopping: boolean;
   exitCode: number;
 }

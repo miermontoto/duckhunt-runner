@@ -3,7 +3,8 @@
 // replacesClientId en cuanto el server lo acepta, lo que el server dice de la máquina guardado para
 // `status`, `logout` (desvincula en el server y borra solo la credencial, los mapas se siguen usando; un
 // 404 o una credencial muerta borran la local, un fallo del server no borra nada) y el daemon que para
-// con EXIT_CODE_UNPAIRED cuando el refresh se rechaza.
+// con EXIT_CODE_UNPAIRED cuando el refresh se rechaza y borra esa credencial del fichero (t#510), salvo
+// que un `login` la haya cambiado mientras tanto.
 
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -14,6 +15,7 @@ import { configPath, loadConfig, loadStoredConfig, type RunnerConfig } from '../
 import { ensureMachineId, loginIdentity, ownedHere } from '../src/machine.js';
 import { logoutCommand, unpairOnServer } from '../src/logout.js';
 import { CredentialRejectedError, refreshAccess } from '../src/oauth.js';
+import { LEGACY_CREDENTIALS } from '../src/platforms/credentials.js';
 import { EXIT_CODE_UNPAIRED } from '../src/daemon.js';
 import { describeServerState } from '../src/status.js';
 import { reposCommand } from '../src/repos.js';
@@ -41,6 +43,8 @@ interface Call {
 interface FakeServer {
   calls: Call[];
   rejectRefresh: boolean;
+  // corre al llegar una petición al token endpoint (un `login` que escribe mientras el refresh está en vuelo).
+  onToken: () => void;
   claim: () => Response;
   unpair: () => Response;
 }
@@ -49,6 +53,7 @@ function fakeServer(): FakeServer {
   const server: FakeServer = {
     calls: [],
     rejectRefresh: false,
+    onToken: () => {},
     claim: () => new Response(null, { status: 204 }),
     unpair: () => Response.json({ ok: true, runnerId: 1, canceled: [] }),
   };
@@ -63,6 +68,7 @@ function fakeServer(): FakeServer {
     };
     server.calls.push(call);
     if (isForm) {
+      server.onToken();
       if (server.rejectRefresh) return Response.json({ error: 'invalid_grant', error_description: 'refresh_token inválido o expirado' }, { status: 400 });
       return Response.json({ access_token: `access:${call.form!.get('client_id')}`, refresh_token: `${call.form!.get('refresh_token')}+`, expires_in: ACCESS_TTL_S });
     }
@@ -177,8 +183,8 @@ test('un server anterior (204 sin cuerpo): el estado queda sin bloque runner, co
   assert.match(describeServerState(state, 'otra').join('\n'), /credencial anterior/);
 });
 
-test('un refresh rechazado (desvinculada desde duckhunt): el daemon para con EXIT_CODE_UNPAIRED y no reintenta', async (t) => {
-  t.mock.method(console, 'log', () => {});
+test('un refresh rechazado (desvinculada desde duckhunt): el daemon para con EXIT_CODE_UNPAIRED, no reintenta y borra la credencial', async (t) => {
+  const log = t.mock.method(console, 'log', () => {});
   const error = t.mock.method(console, 'error', () => {});
   const server = fakeServer();
   server.rejectRefresh = true;
@@ -189,7 +195,27 @@ test('un refresh rechazado (desvinculada desde duckhunt): el daemon para con EXI
   assert.equal(daemon.exitCode, EXIT_CODE_UNPAIRED);
   assert.match(String(error.mock.calls.at(-1)?.arguments[0]), /desvinculada desde duckhunt.*el daemon se detiene/);
   assert.equal(readServerState(LEGACY_PLATFORM_ID)?.state, 'unpaired');
-  await assert.rejects(refreshAccess({ baseUrl: BASE, clientId: 'c1', refreshToken: 'r1' }), CredentialRejectedError);
+  const { clientId, refreshToken, replacesClientId, ...kept } = readJson();
+  assert.deepEqual([clientId, refreshToken, replacesClientId], [undefined, undefined, undefined], 'desvincular desde la web es el logout de la máquina');
+  assert.deepEqual(kept, { baseUrl: BASE, label: 'fa', machineId: MACHINE, machineHost: HOST, repos: base.repos, aws: base.aws, defaults: base.defaults }, 'mapas, defaults y la máquina se quedan');
+  assert.ok(log.mock.calls.some((c) => /credencial borrada de .*duckhunt-runner login/.test(String(c.arguments[0]))));
+  await assert.rejects(refreshAccess({ baseUrl: BASE, clientId: 'c1', refreshToken: 'r1' }), (err: CredentialRejectedError) => err.clientId === 'c1');
+});
+
+test('un refresh rechazado con un `login` hecho mientras tanto: la credencial nueva del fichero se queda', async (t) => {
+  const log = t.mock.method(console, 'log', () => {});
+  t.mock.method(console, 'error', () => {});
+  const server = fakeServer();
+  server.rejectRefresh = true;
+  // el login escribe otra credencial mientras el server rechaza la vieja (la que el refresh usó).
+  server.onToken = () => writeConfig({ ...base, clientId: 'c2', refreshToken: 'u1', replacesClientId: 'c1' });
+  const daemon = daemonFor(loadConfig()!);
+  await daemon.reloadConfig();
+  assert.equal(await daemon.claim(), null);
+  assert.equal(daemon.exitCode, EXIT_CODE_UNPAIRED);
+  assert.deepEqual([readJson().clientId, readJson().refreshToken], ['c2', 'u1'], 'el fichero ya es de c2: no se toca');
+  assert.ok(!log.mock.calls.some((c) => /credencial borrada/.test(String(c.arguments[0]))));
+  assert.equal(LEGACY_CREDENTIALS.clear('c1'), false, 'solo borra la del cliente que se rechazó');
 });
 
 // --- logout ---

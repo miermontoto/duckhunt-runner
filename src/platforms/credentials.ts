@@ -17,6 +17,9 @@ export interface CredentialStore {
   saveRefreshToken(cred: RunnerCredential): void;
   /** quita replacesClientId si el fichero sigue siendo de esa credencial. lanza si no se pudo escribir. */
   clearReplaces(clientId: string, replaces: string): void;
+  /** borra la credencial (rechazada por su server) si el fichero sigue siendo de ese cliente: un `login` hecho
+   *  mientras tanto gana. true = borrada. lanza si no se pudo escribir. */
+  clear(clientId: string): boolean;
 }
 
 /** la de duckhunt: las claves de siempre (un daemon ≤ 0.12 sobre el mismo fichero lee y escribe las mismas). */
@@ -27,6 +30,16 @@ export const LEGACY_CREDENTIALS: CredentialStore = {
   },
   clearReplaces: (clientId, replaces) => {
     saveConfig((current) => (current.clientId === clientId && current.replacesClientId === replaces ? { replacesClientId: undefined } : null));
+  },
+  // las mismas claves que borra `logout` (logout.ts::wipeCredential); mapas, defaults y la máquina se quedan.
+  clear: (clientId) => {
+    let wiped = false;
+    saveConfig((current) => {
+      if (current.clientId !== clientId) return null;
+      wiped = true;
+      return { clientId: undefined, refreshToken: undefined, replacesClientId: undefined };
+    });
+    return wiped;
   },
 };
 
@@ -51,6 +64,18 @@ export function credentialStore(id: string): CredentialStore {
       saveConfigV2(
         withCredential(id, ({ replacesClientId, ...rest }) => (rest.clientId === clientId && replacesClientId === replaces ? rest : null)),
       );
+    },
+    // como `logout <id>` (logout.ts::platformLogout): fuera solo la credencial; su exposición y su techo se quedan.
+    clear: (clientId) => {
+      let wiped = false;
+      saveConfigV2((cfg) => {
+        const platform = cfg.platforms[id];
+        if (platform?.credential?.clientId !== clientId) return null;
+        wiped = true;
+        const { credential: _, ...rest } = platform;
+        return { ...cfg, platforms: { ...cfg.platforms, [id]: rest } };
+      });
+      return wiped;
     },
   };
 }

@@ -7,7 +7,8 @@
 //   la web, revocada o caducada) borran solo la local, avisando; un fallo de red o un 5xx no borran nada
 //   (la credencial seguiría viva en el server): se puede reintentar.
 // - con el daemon en marcha no se le manda nada: su siguiente llamada ve la credencial rechazada y para
-//   solo (daemon.ts::stopUnpaired).
+//   solo (daemon.ts::platformRejected). desde t#510 el daemon también borra la credencial rechazada, así
+//   que desvincular desde la web ya no pide este comando en la máquina.
 // - (t#495, M6.4) `logout <id>` hace lo mismo con OTRA plataforma: la desvincula en su server con su credencial y su
 //   protocolo, y borra solo esa credencial (su exposición, su techo y lo demás se quedan; `platforms remove` la
 //   quita entera). `logout` a secas (o `logout duckhunt`) es el de siempre.

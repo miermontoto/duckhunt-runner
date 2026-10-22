@@ -1,6 +1,7 @@
 // plataforma falsa para las pruebas (t#495, M6): el mismo seam (src/platforms/platform.ts) que usará la plataforma
 // local. cada claim saca la siguiente respuesta de `claims` (sin más, idle) y apunta lo que le llega; `reject` hace
-// que toda llamada lance PlatformRejectedError (la credencial murió); `hold` deja el claim colgado hasta soltarlo.
+// que toda llamada lance PlatformRejectedError (la credencial murió; con `rejectNamesClient`, nombrando su clientId
+// como el refresh real, y el daemon la borra del fichero); `hold` deja el claim colgado hasta soltarlo.
 
 import type { ClaimResponse } from '../src/claim.js';
 import type { RunnerCredential } from '../src/config.js';
@@ -31,6 +32,7 @@ export class FakePlatform implements Platform {
   readonly observed: RunnerCredential[] = [];
   claims: ClaimResult[] = [];
   reject = false;
+  rejectNamesClient = false;
   hold: Promise<void> | null = null;
 
   constructor(
@@ -39,7 +41,7 @@ export class FakePlatform implements Platform {
   ) {}
 
   private alive(): void {
-    if (this.reject) throw new PlatformRejectedError(`la credencial de ${this.id} ya no vale`);
+    if (this.reject) throw new PlatformRejectedError(`la credencial de ${this.id} ya no vale`, this.rejectNamesClient ? this.credential.clientId : undefined);
   }
 
   identity(): { baseUrl: string; clientId: string } {

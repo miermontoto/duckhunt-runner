@@ -26,9 +26,13 @@ export const PROTOCOL = {
 } as const;
 export type Protocol = (typeof PROTOCOL)[keyof typeof PROTOCOL];
 
-/** la credencial de la plataforma ya no vale: sin un `login` nuevo no vuelve. */
+/** la credencial de la plataforma ya no vale: sin un `login` nuevo no vuelve. `clientId` = la que rechazó (el daemon
+ *  la borra del fichero si sigue siendo esa); sin él, no se borra nada. */
 export class PlatformRejectedError extends Error {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly clientId?: string,
+  ) {
     super(message);
     this.name = 'PlatformRejectedError';
   }
