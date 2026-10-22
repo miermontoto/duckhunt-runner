@@ -43,11 +43,15 @@ import {
   AGENT_RUN_ISOLATION,
   AGENT_RUN_KIND,
   AGENT_RUN_SEED,
+  RUN_CHANGES_FILE_PATCH_MAX_CHARS,
+  RUN_CHANGES_FILES_MAX,
+  RUN_CHANGES_PATCH_MAX_CHARS,
   RUNNER_CAPABILITY,
   TOOLSET_V1,
   type AgentPromptProfile,
   type AgentRunIsolation,
   type AgentRunSeed,
+  type LegacyClaimChanges,
   type RunnerCapability,
 } from './vendor/runner-protocol/index.js';
 import { parseToolsetV1 } from './toolset/parse.js';
@@ -248,6 +252,9 @@ export interface ClaimResponse {
   heartbeatMs: number;
   // null = server sin feed (anterior a t#378): no se suben eventos.
   events: EventsConfig | null;
+  // topes del diff del turno (t#514, turn-changes.ts). ausente = no se calcula: un segmento de lectura, sin repo, un
+  // server anterior o un claim v0.
+  changes?: LegacyClaimChanges;
   mcp: McpServer;
   // avisos de la validación local (rama ignorada…): el daemon los loguea y los sube al feed.
   warnings: string[];
@@ -328,6 +335,17 @@ function eventsConfig(v: unknown): EventsConfig | null {
   };
 }
 
+// los topes del diff del turno, nunca por encima de los del protocolo (el server rechazaría el cuerpo).
+function changesConfig(v: unknown): LegacyClaimChanges | null {
+  if (!isObj(v)) return null;
+  const capped = (n: unknown, max: number): number => Math.min(posInt(n) ?? max, max);
+  return {
+    filesMax: capped(v.filesMax, RUN_CHANGES_FILES_MAX),
+    filePatchMaxChars: capped(v.filePatchMaxChars, RUN_CHANGES_FILE_PATCH_MAX_CHARS),
+    patchMaxChars: capped(v.patchMaxChars, RUN_CHANGES_PATCH_MAX_CHARS),
+  };
+}
+
 /** valida y normaliza la respuesta 200 del claim. lanza con el motivo si algo no es seguro. */
 export function parseClaim(raw: unknown): ClaimResponse {
   if (!isObj(raw) || !isObj(raw.run)) throw new Error('claim inválido: falta run');
@@ -383,6 +401,7 @@ export function parseClaimBody(raw: unknown, id: string): ClaimResponse {
   }
   const aws = isObj(r.aws) ? { accountId: str(r.aws.accountId), region: str(r.aws.region) } : null;
   const numOrNull = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+  const changes = changesConfig(raw.changes);
 
   return {
     run: {
@@ -413,6 +432,7 @@ export function parseClaimBody(raw: unknown, id: string): ClaimResponse {
     timeoutMs: posNum(raw.timeoutMs) ?? DEFAULT_TIMEOUT_MS,
     heartbeatMs: posNum(raw.heartbeatMs) ?? DEFAULT_HEARTBEAT_MS,
     events: eventsConfig(raw.events),
+    ...(changes !== null ? { changes } : {}),
     mcp: { serverName, url, token, expiresAt: numOrNull(mcp.expiresAt) ?? 0 },
     warnings,
     toolset: null,

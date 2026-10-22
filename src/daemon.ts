@@ -21,7 +21,9 @@
 // - el worktree de un run se toca (touch / borrado) ANTES de reportar el status: el server puede
 //   re-encolar la misma fila al recibirlo y otro slot la reclamaría sobre el worktree que se borra.
 // - el feed (event-uploader.ts) se vacía ANTES de reportar el status: el server rechaza eventos de
-//   un run cerrado.
+//   un run cerrado. igual el diff del turno (t#514, turn-changes.ts): si el claim trae `changes`, foto del árbol
+//   tras tomar el turno del cwd y otra antes de soltar los recursos (el worktree puede borrarse); su diff se sube
+//   tras el feed y antes del status, y un fallo solo se loguea.
 // - el segmento del claim viaja en heartbeat/progress/events/status: es lo que distingue a ESTE
 //   proceso del siguiente turno de la misma fila. el latido mata claude en cuanto el run deja de ser
 //   suyo (cancelado, re-encolado tras detenerlo, dado por fallido, borrado → 404, reclamado por otro
@@ -150,6 +152,7 @@ import { EventUploader } from './event-uploader.js';
 import { clip, feedEventsFromStream, systemEvent, type FeedContext } from './feed.js';
 import { scrubEnv } from './scrub-env.js';
 import { reportFor, type Attempt, type KillReason, type StatusReport } from './status-report.js';
+import { snapshotTree, turnChanges } from './turn-changes.js';
 import { AuditLog, AUDIT_OUTCOME, claimedRecord, closedRecord, DAY_MS, nextMidnight, outcomeCode, pruneAudit, rejectedRecord, retentionDays, toolsetSummary, type AttemptFacts, type AuditSubject, type ClaimedRecord } from './audit.js';
 import { readShellGuard, readShellLog, readShellNote } from './read-shell-guard.js';
 import { clearLegacyTmpConfigs, clearRunMcpConfigs, runConfigDeny, writeRunMcpConfig } from './run-mcp-config.js';
@@ -1221,6 +1224,8 @@ export class RunnerDaemon {
     const lockStart = Date.now();
     const releaseLocks = await holdLocks(res.locks, this.cwdLocks, lease.killed, note);
     const lockWaitMs = Date.now() - lockStart;
+    // diff del turno (t#514, turn-changes.ts): la foto de antes, ya con el turno del cwd tomado.
+    const changesFrom = claim.changes && res.cwd.checkout ? await snapshotTree(res.cwd.dir, res.env) : null;
     // mcp-config con el token per-run (run-mcp-config.ts: 0600 en un directorio 0700; se borra al terminar).
     let mcpFile: string | null = null;
     let report: StatusReport;
@@ -1237,6 +1242,8 @@ export class RunnerDaemon {
       if (mcpFile !== null) fs.rmSync(mcpFile, { force: true });
       clearInterval(heartbeat);
     }
+    // la foto de después y su diff, antes de soltar los recursos (el worktree puede borrarse) y con el cwd aún tomado.
+    const changes = changesFrom !== null && claim.changes ? await turnChanges(res.cwd.dir, res.env, changesFrom, claim.changes) : null;
     // los recursos se sueltan (el worktree se marca o se borra) ANTES de reportar: ver cabecera. y con sus
     // turnos aún tomados: un recurso exclusivo se suelta entero antes de que lo reciba el siguiente run.
     // un recurso que no se pudo preparar: nada se lanzó, se suelta todo como aborted (sin devolver nada al vault).
@@ -1244,6 +1251,8 @@ export class RunnerDaemon {
     releaseLocks();
 
     await feed?.close();
+    // tras el feed y antes del cierre: con el run aún corriendo, el server lo acepta (ver turn-changes.ts).
+    if (changes !== null) await sup.platform.changes?.(run.id, changes, seg);
     const code = resourceMcp === null ? AUDIT_OUTCOME.resourceUnavailable : outcomeCode(report.status, attempt && attemptFacts(attempt));
     audited({ lockWaitMs, materialized: res.resources, report, toolsByName: attempt?.stream.toolsByName ?? {}, code });
     await sup.platform.result(run.id, { ...report, ...withShadow, ...seg });

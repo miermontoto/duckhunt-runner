@@ -17,6 +17,7 @@ import type { RepoCommand, RepoCommandResult } from '../repo-commands.js';
 import type { RepoChoice, RepoIssue } from '../resources/repo/health.js';
 import type { KeptWorktree, RunnerBlock } from '../server-state.js';
 import type { StatusReport } from '../status-report.js';
+import type { RunChangesReport } from '../vendor/runner-protocol/index.js';
 import type { Exposure, ToolsetCeiling } from './types.js';
 
 export const PROTOCOL = {
@@ -109,6 +110,9 @@ export interface Platform {
   progress(runId: string, toolCalls: number, seg: RunSegment, workdir?: string): Promise<void>;
   /** status http del lote (EventUploader decide reintentar o parar). lanza en error de red. */
   events(runId: string, events: SeqEvent[], seg: RunSegment): Promise<number>;
+  /** el diff del turno (t#514), antes de `result`. solo las plataformas cuyo claim trae el bloque `changes` (hoy
+   *  duckhunt-42); nunca lanza: lo que no llega, el hilo no lo enseña. */
+  changes?(runId: string, report: RunChangesReport, seg: RunSegment): Promise<void>;
   /** cierre del segmento con reintento acotado; nunca lanza (lo que no llega lo cierra el server). */
   result(runId: string, report: StatusReport): Promise<void>;
   /** de estas conversaciones, las que siguen abiertas (lo que no sepa, abierto: el gc solo aplica el ttl). */

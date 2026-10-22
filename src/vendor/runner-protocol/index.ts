@@ -15,6 +15,7 @@
 
 export * from './aws.js';
 export * from './capabilities.js';
+export * from './changes.js';
 export * from './claim.js';
 export * from './errors.js';
 export * from './events.js';

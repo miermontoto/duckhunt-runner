@@ -121,7 +121,7 @@ test('cuerpos del cable legacy byte a byte iguales a los del daemon con ids num�
   // la versión solo viaja si se puede leer (en dist-test no hay package.json al lado): como en el daemon.
   const version = runnerVersion() ? `"version":"${runnerVersion()}",` : '';
   assert.deepEqual(calls, [
-    `/claim {"runnerLabel":"fa","repos":["acme/api"],"awsAccounts":["123456789012"],"capabilities":["events","checkout","repo_edit","secret_paths","seed_budget","aws_strict","worktree_report","logout","toolset_v1","toolset_render"],"slots":2,${version}"machine":{"id":"${MACHINE}"},"keptWorktrees":[{"runId":3,"dirtyFiles":2,"unpushedCommits":0},{"runId":12,"dirtyFiles":0,"unpushedCommits":1}],"awsDefault":false}`,
+    `/claim {"runnerLabel":"fa","repos":["acme/api"],"awsAccounts":["123456789012"],"capabilities":["events","checkout","repo_edit","secret_paths","seed_budget","aws_strict","worktree_report","logout","toolset_v1","toolset_render","turn_changes"],"slots":2,${version}"machine":{"id":"${MACHINE}"},"keptWorktrees":[{"runId":3,"dirtyFiles":2,"unpushedCommits":0},{"runId":12,"dirtyFiles":0,"unpushedCommits":1}],"awsDefault":false}`,
     '/conversations {"runIds":[12,34]}',
     '/runs/88/events {"events":[{"seq":5,"kind":"text","body":"hola"}],"segment":3}',
     '/runs/88/status {"status":"done","result":"listo","costUsd":0.25,"numTurns":2,"toolCalls":3,"sessionId":"s-1","model":"opus","resumed":true,"segment":3}',
@@ -180,7 +180,7 @@ test('el flip anuncia toolset_render y si duckhunt ve la aws por defecto; el int
   fs.writeFileSync(configPath(), JSON.stringify(withDefault), { mode: 0o600 });
   const on = capture();
   await (await daemon()).claim();
-  assert.match(on[0]!, /"toolset_v1","toolset_render"\]/);
+  assert.match(on[0]!, /"toolset_v1","toolset_render","turn_changes"\]/);
   assert.match(on[0]!, /,"awsDefault":true\}$/, 'expuesta (duckhunt ve todo por defecto)');
   fs.writeFileSync(configPath(), JSON.stringify({ ...withDefault, defaults: { ...withDefault.defaults, toolsetRender: false } }), { mode: 0o600 });
   const off = capture();
@@ -229,7 +229,7 @@ test('las sesiones de navegador solo se anuncian expuestas a duckhunt y con el f
   const exposed = { platforms: { duckhunt: { expose: { repo: '*', aws: '*', browser: '*' } } } };
   const hidden = await announce(browser);
   assert.ok(!hidden.includes('"resources"'), `sin exponerla a duckhunt, ni la clave: ${hidden}`);
-  assert.match(hidden, /"toolset_render","browser"\]/, 'la capability es de la máquina: odysea está');
+  assert.match(hidden, /"toolset_render","browser","turn_changes"\]/, 'la capability es de la máquina: odysea está');
   const shown = await announce({ ...browser, ...exposed });
   // sin sesión guardada en el vault: su salud lo dice.
   assert.match(shown, /,"resources":\[\{"type":"browser","keys":\["jira"\]\}\],"health":\[\{"type":"browser","key":"jira","kind":"missing"\}\]\}$/);
