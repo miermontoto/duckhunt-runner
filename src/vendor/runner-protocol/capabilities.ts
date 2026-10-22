@@ -55,5 +55,8 @@ export const RUNNER_CAPABILITY = {
   // máquina): copia filtrada a sus orígenes, su servidor mcp res_browser_<clave> y las tools del acceso del grant. sin
   // ella el server nunca concede un grant de browser. solo con toolset_render (las listas las pinta el daemon).
   browser: 'browser',
+  // >= 0.14.0 (t#514): sube el diff de cada turno (changes.ts) cuando el claim trae el bloque `changes`, que el server
+  // solo manda con ella y en un segmento de perfil edit con repo. sin ella el claim no lleva la clave (el cable de siempre).
+  turnChanges: 'turn_changes',
 } as const;
 export type RunnerCapability = (typeof RUNNER_CAPABILITY)[keyof typeof RUNNER_CAPABILITY];

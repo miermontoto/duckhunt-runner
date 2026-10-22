@@ -5,6 +5,7 @@
 // catálogo es del server. el orden de las claves del json lo fija quien lo emite (claim-kit.ts del server),
 // no estos tipos: los fixtures lo comprueban byte a byte.
 
+import type { LegacyClaimChanges } from './changes.js';
 import type { ToolsetV1 } from './toolset.js';
 
 // investigate = run de reglas o manual sobre un entry; prompt = conversación libre desde /agents
@@ -148,6 +149,9 @@ export interface LegacyClaimBody {
   timeoutMs: number;
   heartbeatMs: number;
   events: LegacyClaimEvents;
+  // solo a un daemon con RUNNER_CAPABILITY.turnChanges y en un segmento de perfil edit con repo (changes.ts): los
+  // topes del diff del turno. sin la clave, el daemon no lo calcula.
+  changes?: LegacyClaimChanges;
   mcp: LegacyClaimMcp;
   runner?: LegacyClaimRunner;
 }
