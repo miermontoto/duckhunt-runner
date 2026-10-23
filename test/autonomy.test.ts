@@ -369,3 +369,47 @@ test('v0: un toolset con autonomía se rechaza (el cable v0 no la lleva)', () =>
   ((withAutonomy.policy as Obj).toolset as Obj).autonomy = AGENT_AUTONOMY.bypass;
   rejectedWith(() => claimOfV0(withAutonomy, enforcement), CLAIM_REJECT.invalid);
 });
+
+// los claims de la matriz del server con autonomía (runner-protocol 0.7.0): claim-kits/autonomy-* y su toolset-v1.
+const MATRIX = fs
+  .readdirSync(new URL('claim-kits/', FIXTURES))
+  .filter((f) => f.startsWith('autonomy-') && f.endsWith('.json'))
+  .sort();
+
+test('matriz del server: cada claim con o sin nivel se parsea, su render es el del server byte a byte y el argv lleva lo suyo', () => {
+  assert.deepEqual(
+    MATRIX.map((f) => f.replace(/\.json$/, '')),
+    ['autonomy-auto', 'autonomy-bypass', 'autonomy-fixed-edit', 'autonomy-manual-approvals', 'autonomy-manual', 'autonomy-read', 'autonomy-template'],
+  );
+  const seen = MATRIX.map((file) => {
+    const raw = readJson<Obj>(`claim-kits/${file}`);
+    const fx = readJson<{ toolset: unknown; tools: { allowed: string[]; disallowed: string[] }; permissionMode: string; mcpServerName: string }>(`toolset-v1/${file}`);
+    const claim = parseClaim({ ...raw, toolset: fx.toolset }, ROOTLESS);
+    const level = claim.run.autonomy;
+    const asks = level === AGENT_AUTONOMY.manual || level === AGENT_AUTONOMY.auto;
+    // render del daemon = listas del server, orden incluido; y el flip con el techo de duckhunt lanza con ellas. una
+    // lectura sin cuenta aws solo difiere en lo buscado (TOOLSET_SHADOW_KNOWN.awsWithoutGrant, toolset.test.ts).
+    const server = { allowed: fx.tools.allowed, disallowed: fx.tools.disallowed, permissionMode: fx.permissionMode };
+    const ctx = { mcpServerName: fx.mcpServerName, awsCli: true };
+    if (claim.run.profile === 'read') {
+      assert.equal(compareToolset(server, claim.toolsetShadow!.toolset, ctx).explained, true, file);
+    } else {
+      assert.deepEqual(renderClaudeTools(claim.toolsetShadow!.toolset, ctx), server, file);
+      const flipped = renderLegacyClaim(claim, ENFORCEMENT);
+      assert.deepEqual([flipped.claim.tools.allowed, flipped.claim.permissionMode, flipped.narrowed], [fx.tools.allowed, fx.permissionMode, []], `${file}: el flip`);
+    }
+    assert.deepEqual(claim.tools.allowed, fx.tools.allowed, file);
+    // permissions y la tool de permisos solo si pregunta; el modo, el del nivel (o dontAsk).
+    assert.equal(claim.permissionMode, level === null ? 'dontAsk' : AGENT_AUTONOMY_PERMISSION_MODE[level], file);
+    assert.equal('permissions' in claim, asks, `${file}: permissions solo si pregunta`);
+    const args = argsFor(claim);
+    assert.equal(flagValue(args, '--permission-mode'), claim.permissionMode, file);
+    assert.equal(flagValue(args, '--permission-prompt-tool'), asks ? AGENT_PERMISSION_TOOL_ID : undefined, file);
+    assert.deepEqual(permissionMcpServers(claim)[AGENT_PERMISSION_TOOL.server] !== undefined, asks, `${file}: la tool en el mcp-config`);
+    return level;
+  });
+  assert.deepEqual(seen, ['auto', 'bypass', null, 'manual', 'manual', null, null]);
+  // con approvals: al final del allow, en el claim y en el render.
+  const approvals = readJson<{ toolset: ToolsetV1 }>('toolset-v1/autonomy-manual-approvals.json').toolset.approvals!;
+  assert.deepEqual(readJson<{ tools: { allowed: string[] } }>('claim-kits/autonomy-manual-approvals.json').tools.allowed.slice(-approvals.length), approvals);
+});
