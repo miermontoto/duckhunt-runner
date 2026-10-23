@@ -10,6 +10,8 @@
 //   409…), una redirección (el token no la sigue) o un cuerpo que no es un PermissionPromptStatus: denegado con el
 //   motivo. plazo vencido: denegado. un POST reintentado tras perder la respuesta puede llegar dos veces: la plataforma
 //   lo reconoce por (run, segmento, toolUseId).
+// - el nombre de la tool nunca se recorta: uno más largo que PERMISSION_TOOL_NAME_MAX_CHARS se deniega sin preguntar
+//   (la persona no aprueba un nombre distinto del que se ejecuta).
 // - la entrada viaja recortada si su json pasa de PERMISSION_INPUT_MAX_CHARS (truncated: true): primero los textos
 //   largos, con el mayor tope común que cabe; si ni así, { preview: <principio del json> }. al permitir vuelve la
 //   entrada ORIGINAL entera en updatedInput: la plataforma nunca reescribe lo que ejecuta el cli.
@@ -96,6 +98,7 @@ const DENIED = {
   byPerson: 'la persona denegó el permiso',
   invalidReply: 'la plataforma respondió a la petición de permiso con algo que no es su estado: denegada',
   badCall: 'la petición de permiso del cli llegó sin tool_name o sin una entrada válida: denegada',
+  longName: `el nombre de la tool pasa de ${PERMISSION_TOOL_NAME_MAX_CHARS} caracteres y no se puede enseñar entero a la persona: denegada`,
 } as const;
 
 type Obj = Record<string, unknown>;
@@ -220,8 +223,10 @@ const pollUrl = (base: string, id: number, waitMs: number): URL => {
 // la decisión de la plataforma, sin capturar nada (askPermission lo hace).
 async function decide(args: Obj, cfg: PermissionToolConfig, timing: PermissionTiming): Promise<PermissionAnswer> {
   const { input } = args;
-  const toolName = typeof args.tool_name === 'string' ? args.tool_name.slice(0, PERMISSION_TOOL_NAME_MAX_CHARS) : '';
+  const toolName = typeof args.tool_name === 'string' ? args.tool_name : '';
   if (!isObj(input) || toolName === '') return deny(DENIED.badCall);
+  // nunca recortado: la persona no aprueba un nombre distinto del que se ejecuta.
+  if (toolName.length > PERMISSION_TOOL_NAME_MAX_CHARS) return deny(DENIED.longName);
   const toolUseId = typeof args.tool_use_id === 'string' && args.tool_use_id !== '' && args.tool_use_id.length <= PERMISSION_TOOL_USE_ID_MAX_CHARS ? args.tool_use_id : null;
   const deadline = Date.now() + cfg.ttlMs + timing.graceMs;
   const fitted = fitPermissionInput(input);

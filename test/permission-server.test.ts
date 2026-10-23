@@ -17,7 +17,13 @@ import {
   type PermissionTiming,
   type PermissionToolConfig,
 } from '../src/permission-server.js';
-import { AGENT_PERMISSION_TOOL, PERMISSION_INPUT_MAX_CHARS, PERMISSION_MESSAGE_MAX_CHARS, RUNNER_PERMISSIONS_PATH } from '../src/vendor/runner-protocol/index.js';
+import {
+  AGENT_PERMISSION_TOOL,
+  PERMISSION_INPUT_MAX_CHARS,
+  PERMISSION_MESSAGE_MAX_CHARS,
+  PERMISSION_TOOL_NAME_MAX_CHARS,
+  RUNNER_PERMISSIONS_PATH,
+} from '../src/vendor/runner-protocol/index.js';
 
 const INDEX = new URL('../src/index.js', import.meta.url);
 const TOKEN = 'dho_run_token';
@@ -178,11 +184,15 @@ test('4xx o un cuerpo que no es un estado: denegado con el motivo, sin reintenta
   }
 });
 
-test('una llamada del cli sin tool_name o sin entrada: denegada sin preguntar a nadie', async () => {
+test('una llamada del cli sin tool_name, con uno que no cabe o sin entrada: denegada sin preguntar a nadie', async () => {
   const p = await fakePlatform(() => status('allow'));
   try {
     assert.equal((await askPermission({ input: INPUT }, p.cfg, TIMING)).behavior, 'deny');
     assert.equal((await askPermission({ tool_name: 'Bash', input: 'rm -rf /' }, p.cfg, TIMING)).behavior, 'deny');
+    // un nombre que no cabe no se recorta: se deniega diciendo por qué.
+    const long = await askPermission({ tool_name: `mcp__srv__${'x'.repeat(PERMISSION_TOOL_NAME_MAX_CHARS)}`, input: INPUT }, p.cfg, TIMING);
+    assert.equal(long.behavior, 'deny');
+    assert.match((long as { message: string }).message, /no se puede enseñar entero/);
     assert.equal(p.seen.length, 0);
     // sin tool_use_id (o uno que no cabe), la petición va con null.
     await askPermission({ tool_name: 'Bash', input: INPUT, tool_use_id: 'x'.repeat(201) }, p.cfg, TIMING);
