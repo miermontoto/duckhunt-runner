@@ -541,11 +541,14 @@ does it when the claim asks for it.
   The snapshots leave loose objects in the repo, which `git gc` removes in time.
 - The diff ignores your git config where it would change its shape or run programs: fixed `a/`/`b/`
   prefixes, no colour, no external diff or textconv, unquoted paths.
-- Secrets are masked per file. Config files (`.env*`, YAML, `.properties`, `.ini`, `.toml`, `.cfg`,
-  `.conf`, Dockerfiles) get the feed's full masking. In code, the same token formats are masked, but a
-  `password`, `token`, `secret` or `api_key` assignment only when its value is a quoted string or the
-  line is an env file's (`DB_PASSWORD=…`), so code like `password: string` stays readable. duckhunt
-  masks it all again. Paths are relative to the repo.
+- Secrets are masked per file, with the feed's full masking by default. Only the changed lines of
+  source code (`.ts`, `.js`, `.py`, `.go`, `.java`, `.rs` and the like, checked on both paths of a
+  rename) get a lighter one: the same token formats, but a `password`, `token`, `secret` or `api_key`
+  assignment only when its value is a quoted string or the line is an env file's (`DB_PASSWORD=…`), so
+  code like `password: string` stays readable. Everything else gets the full masking: config files,
+  shell scripts (`--password=…`), docs, files without an extension, and every path and diff header
+  (0.14.1 or later; 0.14.0 gave the lighter masking to any file that was not a known config file, and
+  to paths). duckhunt masks it all again. Paths are relative to the repo.
 - Limits per turn: 300 files, 64 KB per file and 256 KB in total. A file over a limit, or a binary,
   is listed with its counts but without its diff.
 - It is uploaded after the feed and before the step's status. If git or the upload fails, the turn

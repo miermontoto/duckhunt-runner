@@ -80,6 +80,18 @@ test('la foto y el diff de un turno: lo creado con la shell, renombrados, binari
   assert.equal(await turnChanges(dir, env, (await snapshotTree(dir, env))!, LIMITS), null, 'sin cambios, nada que subir');
 });
 
+test('una ruta no es código: un secreto en el nombre de un fichero sale enmascarado, en la lista y en el diff', async () => {
+  const dir = repo();
+  const from = await snapshotTree(dir, env);
+  assert.ok(from);
+  fs.mkdirSync(path.join(dir, 'dumps'));
+  fs.writeFileSync(path.join(dir, 'dumps', 'token=abc123def.txt'), 'x\n');
+  const report = await turnChanges(dir, env, from, LIMITS);
+  assert.ok(report);
+  assert.deepEqual(report.files.map((f) => f.path), [`dumps/${SECRET_MASK}`]);
+  assert.doesNotMatch(report.patch, /abc123def/);
+});
+
 test('topes: un fichero enorme o fuera del presupuesto viaja con su cabecera sola; filesMax corta la lista', async () => {
   const dir = repo();
   const from = (await snapshotTree(dir, env))!;
@@ -121,15 +133,29 @@ test('maskDiffSecrets es lineal: una línea enorme sin secreto ni comillas cerra
   });
 });
 
-test('maskDiffChunk: un fichero de configuración lleva el enmascarado entero; uno de código, el del diff', () => {
+test('maskDiffChunk: solo los hunks de un fichero de código llevan el enmascarado del diff; todo lo demás, el entero', () => {
   const chunk = (file: string, line: string): string => `diff --git a/${file} b/${file}\n--- a/${file}\n+++ b/${file}\n@@ -0,0 +1 @@\n${line}\n`;
-  ['config/app.yml', 'deploy/values.yaml', '.env.example', 'app.properties', 'Dockerfile', 'my.cnf.conf'].forEach((file) =>
+  // configuración, scripts, texto y lo que no lleva extensión de código.
+  ['config/app.yml', 'deploy/values.yaml', '.env.example', 'app.properties', 'Dockerfile', 'my.cnf.conf', 'deploy.sh', 'notes.md', 'package.json', 'credentials'].forEach((file) =>
     assert.equal(maskDiffChunk(chunk(file, '+  password: hunter2')), chunk(file, `+  ${SECRET_MASK}`), file),
   );
-  assert.equal(maskDiffChunk(chunk('src/login.ts', '+  password: string;')), chunk('src/login.ts', '+  password: string;'));
-  // un renombrado desde un .yml (sus líneas quitadas) y una ruta entre las comillas de git.
+  assert.equal(maskDiffChunk(chunk('deploy.sh', '+mysql -u root --password=hunter2 db')), chunk('deploy.sh', `+mysql -u root --${SECRET_MASK} db`));
+  // el código sigue legible, también con espacios en la ruta.
+  ['src/login.ts', 'app/models.py', 'cmd/main.go', 'src/My Page.tsx'].forEach((file) =>
+    assert.equal(maskDiffChunk(chunk(file, '+  password: string;')), chunk(file, '+  password: string;'), file),
+  );
+  // la cabecera de un fichero de código no es código: un secreto en su ruta no sale y sus hunks siguen legibles.
+  const pathSecret = maskDiffChunk(chunk('dumps/token=abc123def.ts', '+  password: string;'));
+  assert.doesNotMatch(pathSecret, /abc123def/);
+  assert.match(pathSecret, /\n\+ {2}password: string;\n$/);
+  // renombrados: desde un .yml (sus líneas quitadas) y de texto a código, el entero; y una ruta entre las comillas de git.
   const renamed = 'diff --git a/config.yml b/notes.txt\nrename from config.yml\nrename to notes.txt\n@@ -1 +0,0 @@\n-password: hunter2\n';
   assert.equal(maskDiffChunk(renamed), renamed.replace('-password: hunter2', `-${SECRET_MASK}`));
+  const toCode = 'diff --git a/notes.md b/notes.ts\nrename from notes.md\nrename to notes.ts\n@@ -1 +0,0 @@\n-password: hunter2\n';
+  assert.equal(maskDiffChunk(toCode), toCode.replace('-password: hunter2', `-${SECRET_MASK}`));
+  // una ruta con el separador dentro hace ambigua la cabecera: el entero.
+  const ambiguous = 'diff --git a/x b/y.ts b/x b/y.ts\n@@ -0,0 +1 @@\n+password: hunter2\n';
+  assert.equal(maskDiffChunk(ambiguous), ambiguous.replace('+password: hunter2', `+${SECRET_MASK}`));
   const quoted = 'diff --git "a/x\\"y.yml" "b/x\\"y.yml"\n@@ -0,0 +1 @@\n+password: hunter2\n';
   assert.equal(maskDiffChunk(quoted), quoted.replace('+password: hunter2', `+${SECRET_MASK}`));
   // en un .env, también las claves que el enmascarado del feed no reconoce.
