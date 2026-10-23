@@ -38,6 +38,12 @@
 //   pregunta (autonomyAsks), en el MISMO origen que el mcp del claim (lleva su token per-run) y sin credenciales en
 //   la url; waitMs se acota a PERMISSION_WAIT_MAX_MS. en manual el allow de una edición no lleva Bash/Edit/Write (se
 //   preguntan): nada aquí las exige.
+//   RIESGO ACEPTADO (decisión del usuario, 2026-10-23): bypassPermissions llega del server sin opt-in local en la
+//   máquina. la única salvaguarda es la verificación de identidad al subir el nivel en duckhunt; se rechazó un
+//   opt-in por máquina sabiendo que cae el invariante de antes (el server solo no podía escalar una máquina). lo que
+//   sigue valiendo: el deny (el del server y los que fuerza el daemon) manda también en bypass, un proceso root lo
+//   rechaza (canBypassPermissions) y solo un prompt run de perfil edit lo puede pedir. no añadas un opt-in sin
+//   revisar esa decisión.
 
 import { runIdFromLegacy } from './run-id.js';
 import {
