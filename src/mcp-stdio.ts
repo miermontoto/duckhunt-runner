@@ -6,7 +6,9 @@
 //   convención del mcp): el agente lo lee y puede corregirse. un fallo de json-rpc, solo para lo que no es una
 //   llamada válida.
 // - los mensajes se atienden en orden, uno tras otro: el cli no manda en paralelo y así una lectura grande no se
-//   cruza con otra.
+//   cruza con otra. con `concurrent` (la tool de permisos, permission-server.ts, t#527) cada uno se atiende en cuanto
+//   llega y su respuesta sale cuando está (json-rpc casa por id): una espera de minutos no bloquea un ping ni otra
+//   llamada. al cerrarse la entrada no se espera a las que siguen en vuelo: quien sirve decide qué hacer con ellas.
 
 import readline from 'node:readline';
 import type { Readable, Writable } from 'node:stream';
@@ -27,6 +29,8 @@ export interface StdioMcpOptions {
   name: string;
   tools: readonly StdioTool[];
   call: StdioCall;
+  // atender cada mensaje sin esperar al anterior (ver cabecera).
+  concurrent?: boolean;
   input?: Readable;
   output?: Writable;
 }
@@ -69,10 +73,13 @@ async function answer(o: StdioMcpOptions, line: string): Promise<Obj | null> {
 export async function serveStdioMcp(o: StdioMcpOptions): Promise<void> {
   const output = o.output ?? process.stdout;
   const lines = readline.createInterface({ input: o.input ?? process.stdin, crlfDelay: Infinity });
-  // i/o secuencial: un mensaje tras otro (ver cabecera).
+  // i/o secuencial: un mensaje tras otro (ver cabecera), salvo concurrent.
   for await (const line of lines) {
     if (line.trim() === '') continue;
-    const reply = await answer(o, line);
-    if (reply !== null) output.write(`${JSON.stringify(reply)}\n`);
+    const replied = answer(o, line).then((reply) => {
+      if (reply !== null) output.write(`${JSON.stringify(reply)}\n`);
+    });
+    if (!o.concurrent) await replied;
+    else replied.catch((err: Error) => console.error(`[runner] mcp ${o.name}: no se pudo responder: ${err.message}`));
   }
 }

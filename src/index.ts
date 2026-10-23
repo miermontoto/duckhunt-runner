@@ -27,6 +27,7 @@ import { browserCommand } from './browser-cli.js';
 import { RUN_USAGE, runCommand } from './run-cli.js';
 import { S3_READ_SUBCOMMAND } from './resources/s3-read.js';
 import { s3McpCommand } from './s3-read-server.js';
+import { PERMISSION_SUBCOMMAND, permissionMcpCommand } from './permission-server.js';
 import { runnerVersion } from './version.js';
 
 const VERBOSE_FLAG = '--verbose';
@@ -109,6 +110,11 @@ async function main(): Promise<void> {
   // oculto: el servidor mcp de lectura s3 que lanza el cli de un run (resources/s3-read.ts), no un comando del usuario.
   if (cmd === S3_READ_SUBCOMMAND) {
     await s3McpCommand();
+    return;
+  }
+  // oculto: la tool de permisos de una conversación en edición que lanza el cli de un run (permission-server.ts, t#527).
+  if (cmd === PERMISSION_SUBCOMMAND) {
+    await permissionMcpCommand();
     return;
   }
   if (cmd === 'run' && rest.length === 1 && (rest[0] === '--help' || rest[0] === '-h')) {
