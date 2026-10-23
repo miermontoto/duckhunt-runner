@@ -1,10 +1,10 @@
 {
   "version": "0.6.0",
   "contentHash": "c259d8a6dfdbcb1becfbce360b62da697e9dd00dfd63ce7b1eedc8ede4883153",
-  "commit": "e3db21a781f7ed6f4560a5435f4ca0d6692f6d41",
+  "commit": "2df8fe2b5dbdd5bee5a4509bed7506d251abcf5a",
   "files": {
     "index.ts": "e4c696892df0fc05cefcd1baed8d2c0ba8b1172eaab072e07fd3b9d81372f5fb",
-    "autonomy.ts": "a9962d7d50ba402e929c216866ae493ee6e3d701ec47652dbc0a44b15b2cfa07",
+    "autonomy.ts": "ebbdba257c6f3f1ffa2a86e3d08b5bd89d0fd618ecbf88910c1f46ef11ec2d65",
     "aws.ts": "74fa1830ae9cb79884a8a558887d52c7f4fdd0113c226bea633fee32f07d207b",
     "capabilities.ts": "922f1596982cd098d39b82dd61cf3f55f274ab2309b6a89b4e70e7effff0de5f",
     "changes.ts": "0e917de4868ea82d1e22378f74385bb8e5cf3f0a6b4747f5c9105bbff0d89720",

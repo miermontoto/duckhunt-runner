@@ -61,9 +61,9 @@ export const PERMISSION_TOOL_NAME_MAX_CHARS = 200;
 export const PERMISSION_TOOL_USE_ID_MAX_CHARS = 200;
 /** largo del motivo de una denegación que vuelve al agente. */
 export const PERMISSION_MESSAGE_MAX_CHARS = 2_000;
-/** reglas «siempre aquí» de una conversación (approvals) y largo de cada una. */
+/** reglas «siempre aquí» de una conversación (approvals) y largo de cada una (el de un id de tool que el daemon acepta). */
 export const AGENT_PERMISSION_APPROVALS_MAX = 50;
-export const AGENT_PERMISSION_APPROVAL_MAX_CHARS = 300;
+export const AGENT_PERMISSION_APPROVAL_MAX_CHARS = 200;
 
 /** la decisión de una petición (null en el cable = sigue pendiente). */
 export const PERMISSION_DECISION = {
