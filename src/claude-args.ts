@@ -37,12 +37,22 @@
 // encendida, su knob ruleMemory): aquí no cambia nada, porque una plantilla es un prompt run read y
 // parseClaim ya deja Edit/Write fuera del deny forzado; solo vuelven al deny en un run de reglas heredado
 // con --dangerously-skip-permissions (arriba).
+// autonomía (0.15.0, t#527): el permission mode ya llega en claim.permissionMode (default | auto | bypassPermissions,
+// validado por parseClaim) y nunca se añade --dangerously-skip-permissions por ella (el opt-in local de los runs de
+// reglas sigue como estaba). con `permissions` (un nivel que pregunta) el cli recibe --permission-prompt-tool con la
+// tool que sirve el daemon (permission-server.ts) y su env MCP_TOOL_TIMEOUT de margen sobre el ttl de la petición
+// (claudeRunEnv): el flag no sale en `claude --help`, así que lo decide la versión del cli (claude.ts).
 
 import { BASH_TOOL, MEMORY_WRITE_TOOLS, PROMPT_PROFILE, RUN_KIND, RUN_SEED, type ClaimResponse, type PromptProfile, type RunSeed } from './claim.js';
 import type { OptionalFlag } from './claude.js';
+import { AGENT_PERMISSION_TOOL_ID } from './vendor/runner-protocol/index.js';
+
+// env del cli con el que espera a la tool de permisos: el ttl de la petición más este margen (ms).
+export const MCP_TOOL_TIMEOUT_ENV = 'MCP_TOOL_TIMEOUT';
+export const PERMISSION_TOOL_TIMEOUT_MARGIN_MS = 120_000;
 
 export interface ClaudeArgsInput {
-  claim: Pick<ClaimResponse, 'tools' | 'permissionMode' | 'maxTurns' | 'maxBudgetUsd'> & { run: { kind: string; profile: PromptProfile | null; seed?: RunSeed | null } };
+  claim: Pick<ClaimResponse, 'tools' | 'permissionMode' | 'maxTurns' | 'maxBudgetUsd' | 'permissions'> & { run: { kind: string; profile: PromptProfile | null; seed?: RunSeed | null } };
   prompt: string;
   mcpConfigFile: string;
   // flags opcionales que `claude --help` lista en esta máquina.
@@ -64,6 +74,9 @@ export interface ClaudeArgsInput {
   secretPathsDeny?: readonly string[];
   // segmento sin shell de lectura (read-shell-guard.ts::readShellGuard).
   withoutShell?: boolean;
+  // el cli acepta --permission-prompt-tool (claude.ts::supportsPermissionPromptTool): sin él, un claim con
+  // permissions no se lanza.
+  permissionPromptTool?: boolean;
 }
 
 /** flags sin los que el cli no puede cumplir un prompt run (el daemon solo anuncia `prompt` si los tiene todos). */
@@ -81,6 +94,9 @@ export function buildClaudeArgs(i: ClaudeArgsInput): string[] {
   const missing = isPrompt ? PROMPT_REQUIRED_FLAGS.filter((f) => !has(f)) : [];
   if (missing.length > 0) {
     throw new Error(`el claude instalado no soporta ${missing.join(', ')}: actualiza claude code (sin ellos un prompt run no cumple su perfil)`);
+  }
+  if (claim.permissions && !i.permissionPromptTool) {
+    throw new Error('el claude instalado no soporta --permission-prompt-tool: actualiza claude code (sin él la conversación no puede preguntarte)');
   }
   if (i.runConfigDeny.length === 0 || !has('--disallowedTools')) {
     throw new Error('sin --disallowedTools y el deny del directorio de configs de run no se lanza nada: los mcp-config de los runs quedarían al alcance de Read');
@@ -117,6 +133,7 @@ export function buildClaudeArgs(i: ClaudeArgsInput): string[] {
     disallowed.join(','),
     '--permission-mode',
     claim.permissionMode,
+    ...(claim.permissions ? ['--permission-prompt-tool', AGENT_PERMISSION_TOOL_ID] : []),
     ...(has('--max-turns') && maxTurns > 0 ? ['--max-turns', String(maxTurns)] : []),
     ...(has('--max-budget-usd') && budget > 0 ? ['--max-budget-usd', String(budget)] : []),
     ...(i.model ? ['--model', i.model] : []),
@@ -125,4 +142,13 @@ export function buildClaudeArgs(i: ClaudeArgsInput): string[] {
     '--',
     i.prompt,
   ];
+}
+
+/** env que el run añade al de sus recursos para `claude`: con la tool de permisos, MCP_TOOL_TIMEOUT con margen sobre el
+ *  ttl de la petición (sin bajar uno mayor que ya traiga el env). sin ella, nada. */
+export function claudeRunEnv(base: NodeJS.ProcessEnv, claim: Pick<ClaimResponse, 'permissions'>): Record<string, string> {
+  if (!claim.permissions) return {};
+  const wanted = claim.permissions.ttlMs + PERMISSION_TOOL_TIMEOUT_MARGIN_MS;
+  const current = Number(base[MCP_TOOL_TIMEOUT_ENV]);
+  return { [MCP_TOOL_TIMEOUT_ENV]: String(Number.isSafeInteger(current) && current > wanted ? current : wanted) };
 }

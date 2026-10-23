@@ -143,11 +143,11 @@ import {
 import { derivedMachineId, ensureMachineId, ensureMachineSecret } from './machine.js';
 import { browserVaultDeny, otherPlatformsDeny, otherScratchDeny, secretPathsDeny } from './secret-paths.js';
 import { CLAIM_OUTCOME } from './server-state.js';
-import { consumeStreamLine, detectClaude, newStreamState, type ClaudeInfo } from './claude.js';
-import { buildClaudeArgs } from './claude-args.js';
+import { consumeStreamLine, detectClaude, newStreamState, supportsPermissionPromptTool, type ClaudeInfo } from './claude.js';
+import { buildClaudeArgs, claudeRunEnv } from './claude-args.js';
 import { announcedCapabilities } from './announced-capabilities.js';
 import { mirroredDeny, READ_MIRRORED_TOOLS, settingsFilesFor, WRITE_TOOLS } from './user-permissions.js';
-import { EVENTS_DEFAULTS, PROMPT_PROFILE, RUN_KIND, type ClaimResponse } from './claim.js';
+import { canBypassPermissions, EVENTS_DEFAULTS, PROMPT_PROFILE, RUN_KIND, type ClaimResponse } from './claim.js';
 import { EventUploader } from './event-uploader.js';
 import { clip, feedEventsFromStream, systemEvent, type FeedContext } from './feed.js';
 import { scrubEnv } from './scrub-env.js';
@@ -155,7 +155,7 @@ import { reportFor, type Attempt, type KillReason, type StatusReport } from './s
 import { snapshotTree, turnChanges } from './turn-changes.js';
 import { AuditLog, AUDIT_OUTCOME, claimedRecord, closedRecord, DAY_MS, nextMidnight, outcomeCode, pruneAudit, rejectedRecord, retentionDays, toolsetSummary, type AttemptFacts, type AuditSubject, type ClaimedRecord } from './audit.js';
 import { readShellGuard, readShellLog, readShellNote } from './read-shell-guard.js';
-import { clearLegacyTmpConfigs, clearRunMcpConfigs, runConfigDeny, writeRunMcpConfig } from './run-mcp-config.js';
+import { clearLegacyTmpConfigs, clearRunMcpConfigs, permissionMcpServers, runConfigDeny, writeRunMcpConfig } from './run-mcp-config.js';
 import { CONVERSATION_GC_INTERVAL_MS, listWorktreeCandidates, removeWorktrees, selectForRemoval, type WorktreeCandidate } from './resources/repo/gc.js';
 import { KeyedMutex } from './keyed-mutex.js';
 import { describeFinding, REPO_HEALTH_INTERVAL_MS, repoChoices, repoFindings, repoIssues, scanRepos, type RepoChoice, type RepoIssue } from './resources/repo/health.js';
@@ -502,6 +502,8 @@ export class RunnerDaemon {
     return announcedCapabilities({
       hasAws: this.hasAws,
       supported: this.claude.supported,
+      claudeVersion: this.claude.version,
+      bypassPermissions: canBypassPermissions(),
       remoteRepoEdits: this.cfg.defaults.remoteRepoEdits,
       toolsetRender: this.cfg.defaults.toolsetRender,
       // odysea hallado: solo se busca con alguna sesión de navegador configurada.
@@ -1234,7 +1236,8 @@ export class RunnerDaemon {
     let resourceMcp: RunMcp | null = null;
     try {
       resourceMcp = await res.mcp();
-      mcpFile = writeRunMcpConfig(run.id, claim.mcp, sup.id, claim.extraMcp, resourceMcp.servers);
+      // la tool de permisos (t#527) junto a los de los recursos: res_<tipo>_<clave> nunca choca con su nombre.
+      mcpFile = writeRunMcpConfig(run.id, claim.mcp, sup.id, claim.extraMcp, { ...permissionMcpServers(claim), ...resourceMcp.servers });
       ({ report, attempt } = await this.runAttempts(sup, withResourceTools(claim, resourceMcp), lease, res, mcpFile, feed, ctx, note));
     } catch (err) {
       report = { status: 'failed', error: resourceMcp === null ? legacyResourceError(err) : (err as Error).message };
@@ -1351,6 +1354,7 @@ export class RunnerDaemon {
         runConfigDeny: this.runDeny(sup),
         secretPathsDeny: this.secretDeny,
         withoutShell: shell.dropShell,
+        permissionPromptTool: supportsPermissionPromptTool(this.claude.version),
       });
     // reanudar o no lo decide el server: manda sessionId solo cuando hay sesión que retomar.
     const resume = run.sessionId;
@@ -1397,7 +1401,7 @@ export class RunnerDaemon {
 
       let child: ChildProcess;
       try {
-        child = spawn('claude', args, { cwd: res.cwd.dir, env: res.env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+        child = spawn('claude', args, { cwd: res.cwd.dir, env: { ...res.env, ...claudeRunEnv(res.env, claim) }, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
       } catch (err) {
         if (logFile !== null) fs.closeSync(logFile);
         resolve({ exitCode: null, killedBy: null, stream, stderrTail: `no se pudo lanzar claude: ${(err as Error).message}` });

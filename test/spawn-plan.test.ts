@@ -783,3 +783,57 @@ test('lectura s3: con s3Read y el render, su servidor res_aws_<cuenta> y la tool
   assert.ok(!offSpawn!.mcp.includes('res_aws_'));
   assert.ok(off.runs['981']!.feed.some((e) => e.body.includes('no se ofrece: solo con el render del daemon')));
 });
+
+// --- autonomía de las conversaciones en edición (t#527, 0.15.0): fuera del golden ---
+
+// una edición de la matriz con su nivel, como la mandaría el server con la capability `autonomy`: el toolset con el
+// nivel, las listas de su render y, si pregunta, el bloque permissions en el origen de su mcp.
+const autonomyFx = (level: 'manual' | 'bypass', id: number): Record<string, unknown> => {
+  const raw = withToolset('prompt-edit-full', id);
+  const toolset = { ...(raw.toolset as Record<string, unknown>), autonomy: level };
+  const tools = raw.tools as { allowed: string[]; disallowed: string[] };
+  const mcp = raw.mcp as { url: string };
+  const allowed = level === 'manual' ? tools.allowed.filter((t) => !['Bash', 'Edit', 'Write', 'WebFetch', 'WebSearch'].includes(t)) : tools.allowed;
+  return {
+    ...raw,
+    run: { ...(raw.run as Record<string, unknown>), autonomy: level },
+    toolset,
+    tools: { ...tools, allowed },
+    permissionMode: level === 'manual' ? 'default' : 'bypassPermissions',
+    ...(level === 'manual' ? { permissions: { url: `${new URL(mcp.url).origin}/api/runner-permissions`, ttlMs: 1_800_000, waitMs: 25_000 } } : {}),
+  };
+};
+
+test('autonomía: manual lanza en default con la tool de permisos del runner; bypass, en bypassPermissions sin ella', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  t.mock.method(console, 'warn', () => {});
+  const manualName = 'autonomy/manual';
+  const manual = (await runCase({ name: manualName, raw: autonomyFx('manual', 990) })) as FlipPlan;
+  const [spawn] = browserSpawns(manualName);
+  const flag = (argv: string[], f: string): string | undefined => (argv.includes(f) ? argv[argv.indexOf(f) + 1] : undefined);
+  assert.equal(flag(spawn!.argv, '--permission-mode'), 'default');
+  assert.equal(flag(spawn!.argv, '--permission-prompt-tool'), 'mcp__duckhunt-runner-permission__prompt');
+  assert.ok(!flagValue(spawn!.argv, '--allowedTools').some((tool) => ['Bash', 'Edit', 'Write'].includes(tool)), 'se preguntan');
+  assert.equal(spawn!.env.MCP_TOOL_TIMEOUT, String(1_800_000 + 120_000));
+  const server = (JSON.parse(spawn!.mcp) as McpConfigFile).mcpServers['duckhunt-runner-permission'];
+  assert.deepEqual([server?.command, server?.args?.at(-1)], [process.execPath, 'mcp-permission']);
+  assert.deepEqual(server?.env, {
+    DUCKHUNT_PERMISSION_URL: 'http://duckhunt.test/api/runner-permissions',
+    DUCKHUNT_PERMISSION_TOKEN: 'dho_fixture',
+    DUCKHUNT_PERMISSION_SEGMENT: '1',
+    DUCKHUNT_PERMISSION_TTL_MS: '1800000',
+    DUCKHUNT_PERMISSION_WAIT_MS: '25000',
+  });
+  assert.deepEqual(statusOf(manual, 990).toolsetShadow, { match: true, explained: true, known: [], diff: null }, 'el render casa con las listas del server');
+  // el mcp-config (con el token) se borra al cerrar el segmento, como siempre.
+  assert.deepEqual(fs.readdirSync(path.join(caseDir(manualName), 'home', 'run-config')), []);
+
+  const bypassName = 'autonomy/bypass';
+  const bypass = (await runCase({ name: bypassName, raw: autonomyFx('bypass', 991) })) as FlipPlan;
+  const [bypassSpawn] = browserSpawns(bypassName);
+  assert.equal(flag(bypassSpawn!.argv, '--permission-mode'), 'bypassPermissions');
+  assert.ok(!bypassSpawn!.argv.includes('--permission-prompt-tool') && !bypassSpawn!.argv.includes('--dangerously-skip-permissions'));
+  assert.equal(bypassSpawn!.env.MCP_TOOL_TIMEOUT, undefined);
+  assert.ok(!bypassSpawn!.mcp.includes('duckhunt-runner-permission'));
+  assert.equal(statusOf(bypass, 991).status, 'done');
+});

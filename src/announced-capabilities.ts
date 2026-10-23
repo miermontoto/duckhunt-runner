@@ -4,13 +4,17 @@
 
 import { RUNNER_CAPABILITY, type RunnerCapability } from './claim.js';
 import { PROMPT_REQUIRED_FLAGS } from './claude-args.js';
-import type { OptionalFlag } from './claude.js';
+import { supportsPermissionPromptTool, type OptionalFlag } from './claude.js';
 
 export interface MachineKit {
   // aws cli instalada.
   hasAws: boolean;
   // flags opcionales que `claude --help` lista en esta máquina.
   supported: ReadonlySet<OptionalFlag>;
+  // `claude --version` (null = no se sabe): --permission-prompt-tool no sale en --help y se decide por versión.
+  claudeVersion?: string | null;
+  // el cli puede lanzarse en bypassPermissions en este proceso (no es root: claim.ts::canBypassPermissions).
+  bypassPermissions?: boolean;
   // defaults.remoteRepoEdits de la config (false = el mapa de repos solo se cambia por la cli).
   remoteRepoEdits?: boolean;
   // defaults.toolsetRender de la config (false = el interruptor del flip de toolset_v1: solo en sombra, sin el flip).
@@ -19,13 +23,16 @@ export interface MachineKit {
   browser?: boolean;
 }
 
-/** capacidades del claim: prompt (y lo que va con él) solo si el cli puede cumplir su perfil, model solo con --model. */
+/** capacidades del claim: prompt (y lo que va con él) solo si el cli puede cumplir su perfil, model solo con --model,
+ *  autonomy solo con un cli >= PERMISSION_PROMPT_TOOL_MIN_VERSION. */
 export function announcedCapabilities(kit: MachineKit): RunnerCapability[] {
+  const prompt = PROMPT_REQUIRED_FLAGS.every((f) => kit.supported.has(f));
+  const autonomy = prompt && supportsPermissionPromptTool(kit.claudeVersion ?? null);
   return [
     ...(kit.hasAws ? [RUNNER_CAPABILITY.aws] : []),
     // read_shell y native_memory van con prompt: exigen poder cumplir el perfil read (parseClaim lo
     // valida) y pasar el deny espejado (--disallowedTools).
-    ...(PROMPT_REQUIRED_FLAGS.every((f) => kit.supported.has(f))
+    ...(prompt
       ? [RUNNER_CAPABILITY.prompt, RUNNER_CAPABILITY.readShell, RUNNER_CAPABILITY.nativeMemory]
       : []),
     RUNNER_CAPABILITY.events,
@@ -46,5 +53,9 @@ export function announcedCapabilities(kit: MachineKit): RunnerCapability[] {
     ...(kit.browser && kit.toolsetRender !== false ? [RUNNER_CAPABILITY.browser] : []),
     // el diff de cada turno (t#514, turn-changes.ts): solo lo calcula si el claim trae el bloque `changes`.
     RUNNER_CAPABILITY.turnChanges,
+    // autonomía de las conversaciones en edición (t#527): con prompt y un cli que acepta --permission-prompt-tool;
+    // bypass además fuera de root (el cli lo rechaza).
+    ...(autonomy ? [RUNNER_CAPABILITY.autonomy] : []),
+    ...(autonomy && kit.bypassPermissions === true ? [RUNNER_CAPABILITY.autonomyBypass] : []),
   ];
 }

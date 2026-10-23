@@ -26,6 +26,7 @@ import { RESOURCE_TYPE } from './resources/types.js';
 import { LEGACY_PLATFORM_ID, scratchDir } from './paths.js';
 import { daemonLockHolder } from './daemon-lock.js';
 import { detectClaude } from './claude.js';
+import { canBypassPermissions } from './claim.js';
 import { announcedCapabilities } from './announced-capabilities.js';
 import { describeFinding, repoFindings, scanRepos } from './resources/repo/health.js';
 import { scrubEnv } from './scrub-env.js';
@@ -205,7 +206,7 @@ export async function statusCommand(args: string[] = []): Promise<void> {
   console.log(`aws cli:    ${aws ?? 'no instalada (los runs no podrán consultar aws)'}`);
   // las que anunciaría el daemon con este kit (model solo si el cli lista --model).
   if (claude.version) {
-    console.log(`capacidades: ${announcedCapabilities({ hasAws: aws !== null, supported: claude.supported, remoteRepoEdits: cfg?.defaults.remoteRepoEdits, toolsetRender: cfg?.defaults.toolsetRender }).join(' ')}`);
+    console.log(`capacidades: ${announcedCapabilities({ hasAws: aws !== null, supported: claude.supported, claudeVersion: claude.version, bypassPermissions: canBypassPermissions(), remoteRepoEdits: cfg?.defaults.remoteRepoEdits, toolsetRender: cfg?.defaults.toolsetRender }).join(' ')}`);
   }
   console.log(`scratch:    ${scratchDir(LEGACY_PLATFORM_ID)}`);
   if (!cfg) return;

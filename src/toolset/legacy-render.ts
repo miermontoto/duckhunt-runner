@@ -13,6 +13,10 @@
 //   todo lo mapeado y expuesto, así que esa petición solo puede degradar. un run sin cuenta ni grant de aws corre con
 //   la aws aislada: la identidad por defecto de la máquina solo llega con su grant (`default`, si la anuncia).
 // - las listas renderizadas pasan por la misma criba que las del server (claim.ts::withRenderedTools).
+// - autonomía (t#527): fuera de dontAsk el allow deja de ser el límite (manual pregunta, auto lo decide el cli, bypass
+//   todo lo que no niega el deny), así que un techo que recorta la shell, la escritura, la web o las tools de la
+//   plataforma no se puede cumplir con listas: el claim se rechaza (resource_not_allowed). el push y los remotos sí,
+//   por el deny (VCS_PUSH_DENY manda también en bypass).
 
 import { TOOLSET_V1, withRenderedTools, type ClaimedRun, type ClaimResponse } from '../claim.js';
 import { checkGrants, CLAIM_REJECT, ClaimRejectedError, forProfile, type V0Enforcement } from '../platforms/claim-v0.js';
@@ -23,6 +27,9 @@ import { ACCESS, type ResourceRequest } from '../resources/types.js';
 import type { ToolsetGrant } from '../vendor/runner-protocol/index.js';
 import { intersectToolset } from './intersect.js';
 import { renderClaudeTools } from './render.js';
+
+// lo que el techo puede recortar y una autonomía no cumple solo con listas (ver cabecera): los nombres de `narrowed`.
+const AUTONOMY_UNENFORCEABLE: readonly string[] = ['shell', 'fsWrite', 'web', 'platformTools'];
 
 /** lo que el daemon aplica al claim legacy de una plataforma (su config de AHORA y la máquina). */
 export type LegacyEnforcement = Pick<V0Enforcement, 'ceiling' | 'expose' | 'resourceTypes' | 'awsCli'>;
@@ -58,6 +65,10 @@ export function renderLegacyClaim(claim: ClaimResponse, e: LegacyEnforcement): L
   if (source === null) return { claim, narrowed: [] };
   checkGrants(source.toolset, e);
   const ceiled = intersectToolset(source.toolset, e.ceiling);
+  const beyondAllow = ceiled.narrowed.filter((n) => AUTONOMY_UNENFORCEABLE.includes(n));
+  if (source.toolset.autonomy !== undefined && beyondAllow.length > 0) {
+    throw new ClaimRejectedError(CLAIM_REJECT.notAllowed, `autonomía ${source.toolset.autonomy}: el techo de la plataforma recorta ${beyondAllow.join(', ')} y fuera de dontAsk el allow no lo cumple`);
+  }
   const { toolset, narrowed: byProfile } = claim.run.profile === null ? { toolset: ceiled.toolset, narrowed: [] } : forProfile(ceiled.toolset, claim.run.profile);
   const narrowed = [...ceiled.narrowed, ...byProfile];
   let rendered: ClaimResponse;

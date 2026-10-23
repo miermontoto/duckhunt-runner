@@ -30,6 +30,23 @@ export const OPTIONAL_FLAGS = [
 ] as const;
 export type OptionalFlag = (typeof OPTIONAL_FLAGS)[number];
 
+// --permission-prompt-tool (t#527) no sale en `claude --help` (solo lo nombra la descripción de --permission-prompts):
+// no se puede detectar como los de arriba y se decide por versión. 2.1.302 = la primera en la que -p arranca en
+// manual y documenta el camino de la tool de permisos (verificado con 2.1.309).
+export const PERMISSION_PROMPT_TOOL_MIN_VERSION = '2.1.302';
+const VERSION_RE = /^(\d+)\.(\d+)\.(\d+)/;
+
+/** ¿la versión del cli (`claude --version`, p. ej. `2.1.309 (Claude Code)`) llega a `min` (x.y.z)? null o ilegible = no. */
+export function claudeAtLeast(version: string | null, min: string): boolean {
+  const [have, want] = [version ?? '', min].map((v) => VERSION_RE.exec(v.trim())?.slice(1).map(Number) ?? null);
+  if (!have || !want) return false;
+  const i = have.findIndex((n, k) => n !== want[k]);
+  return i === -1 || have[i]! > want[i]!;
+}
+
+/** ¿acepta el cli --permission-prompt-tool? (ver PERMISSION_PROMPT_TOOL_MIN_VERSION). */
+export const supportsPermissionPromptTool = (version: string | null): boolean => claudeAtLeast(version, PERMISSION_PROMPT_TOOL_MIN_VERSION);
+
 export interface ClaudeInfo {
   version: string | null;
   supported: Set<OptionalFlag>;
