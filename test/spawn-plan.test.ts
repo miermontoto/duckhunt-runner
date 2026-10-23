@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { detectClaude, OPTIONAL_FLAGS, type ClaudeInfo } from '../src/claude.js';
 import { parseClaim, TOOLSET_V1, type ClaimResponse } from '../src/claim.js';
 import { internals, legacyOf, type DaemonInternals as Harness } from './daemon-harness.js';
@@ -204,12 +205,14 @@ function syntheticCases(): Case[] {
 
 // --- normalización: nada del tmpdir, de la aleatoriedad o de la máquina en el plan ---
 
+// el binario de node y el entrypoint del runner (la tool de permisos, t#527, lanza al propio runner): de la máquina.
+const RUNNER_ENTRY = fileURLToPath(new URL('../src/index.js', import.meta.url));
 const normalizer = (dir: string): ((s: string) => string) => {
   const roots = Array.from(new Set([fs.realpathSync(root), root])).sort((a, b) => b.length - a.length);
   const caseRel = path.relative(root, dir);
   return (s) =>
     roots
-      .reduce((acc, r) => acc.split(`${r}/${caseRel}`).join('<case>').split(r).join('<root>'), s)
+      .reduce((acc, r) => acc.split(`${r}/${caseRel}`).join('<case>').split(r).join('<root>'), s.split(RUNNER_ENTRY).join('<runner>').split(process.execPath).join('<node>'))
       .replace(/(mcp|aws)-([A-Za-z0-9_-]+?)-[0-9a-f]{8}(?=\.json|\/|"|$|\))/g, '$1-$2-<rand>')
       // el motivo de git depende del sistema de ficheros del tmpdir (¿hay un punto de montaje por medio?).
       .replace(/not a git repository \(or any [^)]*\)(: \.git)?/g, 'not a git repository')
@@ -331,7 +334,8 @@ async function runCase(c: Case): Promise<unknown> {
   allRunConfigDirs().forEach(runConfigDeny);
   d.secretDeny = secretPathsDeny(process.env).rules;
   const hold = path.join(dir, 'hold');
-  const claims = [c.raw, ...(c.then ?? [])].map((raw) => (c.patch ?? ((cl: ClaimResponse) => cl))(parseClaim(JSON.parse(JSON.stringify(raw).replaceAll('<hold>', hold)) as unknown)));
+  // como un proceso que no es root (bypass, t#527): el plan no depende de quién corre el test.
+  const claims = [c.raw, ...(c.then ?? [])].map((raw) => (c.patch ?? ((cl: ClaimResponse) => cl))(parseClaim(JSON.parse(JSON.stringify(raw).replaceAll('<hold>', hold)) as unknown, { canBypass: true })));
   const sup = c.platform ? d.supervisors.get(c.platform)! : legacyOf(d);
   const exec = (claim: ClaimResponse): Promise<void> => d.executeRun(sup, claim, new RunLease(claim.run.id));
   if (c.parallel) {

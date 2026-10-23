@@ -86,7 +86,7 @@ test('el deny del directorio va en TODO argv (lectura, edición, reglas, skip-pe
       .map((f) => JSON.parse(fs.readFileSync(new URL(f, url), 'utf8')) as Record<string, unknown>);
   });
   const rule = { ...fixtures[0]!, run: { ...(fixtures[0]!.run as object), kind: 'investigate', profile: null }, tools: { allowed: ['Read', 'Bash'], disallowed: [] }, permissionMode: 'default' };
-  const claims = [...fixtures, rule].map((raw) => parseClaim(raw));
+  const claims = [...fixtures, rule].map((raw) => parseClaim(raw, { canBypass: true }));
   const inputs = claims.flatMap((claim) => [false, true].map((skipPermissions) => ({ claim, skipPermissions })));
   inputs.forEach(({ claim, skipPermissions }) => {
     const args = buildClaudeArgs({
@@ -99,6 +99,7 @@ test('el deny del directorio va en TODO argv (lectura, edición, reglas, skip-pe
       payingWithApiKey: false,
       runConfigDeny: deny,
       withoutShell: skipPermissions,
+      permissionPromptTool: true,
     });
     const disallowed = args[args.indexOf('--disallowedTools') + 1]!.split(',');
     assert.ok(deny.every((d) => disallowed.includes(d)), `${claim.run.kind}/${claim.run.profile}: sin el deny del directorio`);

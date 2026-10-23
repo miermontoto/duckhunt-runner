@@ -1,7 +1,7 @@
 // la spec v0 en el daemon (t#495, M4): el discovery se valida antes de mandar un token (rutas del mismo server, la
 // audiencia de la credencial, la versión y los topes), las capabilities salen como features y attestations, y un
 // claim v0 se APLICA (platforms/claim-v0.ts): tools del render de toolset ∩ techo (nunca las listas del claim),
-// recursos de sus grants, y rechazo entero si un grant no se puede servir. los 87 claims v0 de los fixtures se
+// recursos de sus grants, y rechazo entero si un grant no se puede servir. los 90 claims v0 de los fixtures se
 // aplican y su render solo difiere de las listas del server en lo explicado. y de punta a punta contra un server v0
 // de verdad (http en 127.0.0.1): discovery → claim → lease → events → result, un result duplicado sin reintentos y
 // un cancel atendido en un latido.
@@ -94,9 +94,9 @@ test('las capabilities como features y attestations de v0; las implícitas no vi
   });
 });
 
-test('los 87 claims v0 de los fixtures se aplican: id público, recursos de sus grants y un render que solo difiere en lo explicado', () => {
+test('los 90 claims v0 de los fixtures se aplican: id público, recursos de sus grants y un render que solo difiere en lo explicado', () => {
   const cases = v0Cases();
-  assert.equal(cases.length, 87);
+  assert.equal(cases.length, 90);
   cases.forEach((file) => {
     const raw = v0Run(file);
     const awsCli = capsOf(file).includes('aws');
