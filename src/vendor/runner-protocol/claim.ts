@@ -5,6 +5,7 @@
 // catálogo es del server. el orden de las claves del json lo fija quien lo emite (claim-kit.ts del server),
 // no estos tipos: los fixtures lo comprueban byte a byte.
 
+import type { AgentAutonomy, LegacyClaimPermissions } from './autonomy.js';
 import type { LegacyClaimChanges } from './changes.js';
 import type { ToolsetV1 } from './toolset.js';
 
@@ -99,6 +100,9 @@ export interface LegacyClaimRun {
   segment: number | null;
   // solo a un daemon con RUNNER_CAPABILITY.model: alias o id del modelo, null = el de la máquina.
   model?: string | null;
+  // solo a un daemon con RUNNER_CAPABILITY.autonomy (t#527, autonomy.ts), tras model: el nivel de la conversación en
+  // edición (null = el kit fijo, dontAsk). el permission mode que viaja es el suyo.
+  autonomy?: AgentAutonomy | null;
 }
 
 /** cadencia y topes del feed de progreso (events.ts) para este run. */
@@ -143,6 +147,9 @@ export interface LegacyClaimBody {
   // solo a un daemon con RUNNER_CAPABILITY.toolsetV1, justo tras permissionMode: la misma política en vocabulario
   // neutro (toolset.ts), en sombra. sin la capability no viaja la clave.
   toolset?: ToolsetV1;
+  // solo a un daemon con RUNNER_CAPABILITY.autonomy y en un segmento cuyo nivel pregunta (manual, auto), tras toolset:
+  // dónde pide permiso la tool que sirve el daemon (autonomy.ts).
+  permissions?: LegacyClaimPermissions;
   // null desde t#465 P15 (un server anterior mandaba el tope de turnos); null = no pasar el flag.
   maxTurns: number | null;
   maxBudgetUsd: number | null;
