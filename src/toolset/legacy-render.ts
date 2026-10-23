@@ -14,22 +14,30 @@
 //   la aws aislada: la identidad por defecto de la máquina solo llega con su grant (`default`, si la anuncia).
 // - las listas renderizadas pasan por la misma criba que las del server (claim.ts::withRenderedTools).
 // - autonomía (t#527): fuera de dontAsk el allow deja de ser el límite (manual pregunta, auto lo decide el cli, bypass
-//   todo lo que no niega el deny), así que un techo que recorta la shell, la escritura, la web o las tools de la
-//   plataforma no se puede cumplir con listas: el claim se rechaza (resource_not_allowed). el push y los remotos sí,
-//   por el deny (VCS_PUSH_DENY manda también en bypass).
+//   todo lo que no niega el deny), así que se decide sobre el toolset EFECTIVO (tras el techo y el perfil) y el techo
+//   mismo, no sobre lo que acabó en `narrowed`: sin shell entera, sin escritura, sin web o con un techo que acota las
+//   tools de la plataforma a una lista, el claim se rechaza (resource_not_allowed). el push y los remotos sí se
+//   cumplen, por el deny (VCS_PUSH_DENY manda también en bypass). las approvals que el toolset efectivo no concede
+//   las descarta el render (render.ts::approvalsFor) y van a lo recortado.
 
 import { TOOLSET_V1, withRenderedTools, type ClaimedRun, type ClaimResponse } from '../claim.js';
 import { checkGrants, CLAIM_REJECT, ClaimRejectedError, forProfile, type V0Enforcement } from '../platforms/claim-v0.js';
+import { EXPOSE_ALL, type ToolsetCeiling } from '../platforms/types.js';
 import { AWS_PARAM, AWS_TYPE } from '../resources/aws.js';
 import { legacyRepoParams, legacyRequests } from '../resources/legacy.js';
 import { REPO_TYPE } from '../resources/repo/provider.js';
 import { ACCESS, type ResourceRequest } from '../resources/types.js';
-import type { ToolsetGrant } from '../vendor/runner-protocol/index.js';
+import { TOOLSET_SHELL, type ToolsetGrant, type ToolsetV1 } from '../vendor/runner-protocol/index.js';
 import { intersectToolset } from './intersect.js';
-import { renderClaudeTools } from './render.js';
+import { approvalsNarrowed, renderClaudeTools } from './render.js';
 
-// lo que el techo puede recortar y una autonomía no cumple solo con listas (ver cabecera): los nombres de `narrowed`.
-const AUTONOMY_UNENFORCEABLE: readonly string[] = ['shell', 'fsWrite', 'web', 'platformTools'];
+// lo que una autonomía no cumple solo con el deny en el toolset efectivo y el techo (ver cabecera).
+const autonomyGaps = (t: ToolsetV1, ceiling: ToolsetCeiling): string[] => [
+  ...(t.shell === TOOLSET_SHELL.full ? [] : [`shell ${t.shell}`]),
+  ...(t.fsWrite ? [] : ['sin fsWrite']),
+  ...(t.web ? [] : ['sin web']),
+  ...(ceiling.platformTools === EXPOSE_ALL ? [] : ['platformTools acotadas']),
+];
 
 /** lo que el daemon aplica al claim legacy de una plataforma (su config de AHORA y la máquina). */
 export type LegacyEnforcement = Pick<V0Enforcement, 'ceiling' | 'expose' | 'resourceTypes' | 'awsCli'>;
@@ -65,15 +73,16 @@ export function renderLegacyClaim(claim: ClaimResponse, e: LegacyEnforcement): L
   if (source === null) return { claim, narrowed: [] };
   checkGrants(source.toolset, e);
   const ceiled = intersectToolset(source.toolset, e.ceiling);
-  const beyondAllow = ceiled.narrowed.filter((n) => AUTONOMY_UNENFORCEABLE.includes(n));
-  if (source.toolset.autonomy !== undefined && beyondAllow.length > 0) {
-    throw new ClaimRejectedError(CLAIM_REJECT.notAllowed, `autonomía ${source.toolset.autonomy}: el techo de la plataforma recorta ${beyondAllow.join(', ')} y fuera de dontAsk el allow no lo cumple`);
-  }
   const { toolset, narrowed: byProfile } = claim.run.profile === null ? { toolset: ceiled.toolset, narrowed: [] } : forProfile(ceiled.toolset, claim.run.profile);
-  const narrowed = [...ceiled.narrowed, ...byProfile];
+  const gaps = toolset.autonomy !== undefined ? autonomyGaps(toolset, e.ceiling) : [];
+  if (gaps.length > 0) {
+    throw new ClaimRejectedError(CLAIM_REJECT.notAllowed, `autonomía ${toolset.autonomy}: ${gaps.join(', ')} y fuera de dontAsk el allow no lo cumple`);
+  }
+  const ctx = { mcpServerName: claim.mcp.serverName, awsCli: e.awsCli };
+  const narrowed = [...ceiled.narrowed, ...byProfile, ...approvalsNarrowed(toolset, ctx)];
   let rendered: ClaimResponse;
   try {
-    rendered = withRenderedTools(claim, renderClaudeTools(toolset, { mcpServerName: claim.mcp.serverName, awsCli: e.awsCli }));
+    rendered = withRenderedTools(claim, renderClaudeTools(toolset, ctx));
   } catch (err) {
     throw new ClaimRejectedError(CLAIM_REJECT.invalid, (err as Error).message);
   }

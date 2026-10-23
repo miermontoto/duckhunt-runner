@@ -20,6 +20,10 @@
 //   allow = leer + Bash entero solo en bypass con shell full + Edit/Write y la web fuera de manual + la aws en lectura
 //   como siempre + las tools de la plataforma + `approvals` al final, sin repetir. el deny es el mismo que sin
 //   autonomía (en bypass sigue mandando) y el permission mode, el del nivel (AGENT_AUTONOMY_PERMISSION_MODE).
+// - una approval nunca da lo que el toolset efectivo (ya cortado por el techo) no concede (approvalsFor): fuera
+//   `Bash`/`Bash(…)` sin shell entera, Edit/Write/MultiEdit/NotebookEdit sin escritura, WebFetch/WebSearch sin web y
+//   todo `mcp__…` que no sea una de sus platformTools en el servidor de la plataforma. lo descartado va al log de lo
+//   recortado (approvalsNarrowed, `approval:<id>`); con el techo de duckhunt no se descarta nada.
 
 import {
   AGENT_AUTONOMY,
@@ -62,6 +66,20 @@ export const VCS_PUSH_DENY: readonly string[] = [`${BASH_TOOL}(git push*)`, `${B
 
 const MCP_PREFIX = 'mcp__';
 const MCP_SEPARATOR = '__';
+// la built-in de edición múltiple del cli: solo cuenta para cribar approvals (el kit no la nombra).
+const MULTI_EDIT_TOOL = 'MultiEdit';
+// cómo se anota en lo recortado una approval descartada.
+const APPROVAL_NARROWED_PREFIX = 'approval:';
+// familias de built-in de una approval y lo que el toolset tiene que conceder para cada una.
+const APPROVAL_GATES: readonly { tools: readonly string[]; granted: (t: ToolsetV1) => boolean }[] = [
+  { tools: [CLAUDE_CODE_TOOLS.shell], granted: (t) => t.shell === TOOLSET_SHELL.full },
+  { tools: [...CLAUDE_CODE_TOOLS.fsWrite, MULTI_EDIT_TOOL, CLAUDE_CODE_TOOLS.notebook], granted: (t) => t.fsWrite },
+  { tools: CLAUDE_CODE_TOOLS.web, granted: (t) => t.web },
+];
+
+const mcpToolId = (server: string, tool: string): string => `${MCP_PREFIX}${server}${MCP_SEPARATOR}${tool}`;
+// ¿es la regla esa built-in, entera o acotada (`Bash`, `Bash(git log:*)`)?
+const ruleOf = (rule: string, tool: string): boolean => rule === tool || rule.startsWith(`${tool}(`);
 
 // patrón de la aws cli fijado en servicio + operación (el `*` solo alarga argumentos).
 const awsBash = (command: string): string => `${BASH_TOOL}(aws ${command}*)`;
@@ -91,6 +109,21 @@ export interface RenderContext {
 export const rendersAwsRead = (t: ToolsetV1, ctx: RenderContext): boolean =>
   t.shell === TOOLSET_SHELL.read && ctx.awsCli && t.grants.some((g) => g.type === GRANT_TYPE.aws);
 
+/** las approvals del toolset que caben en lo que concede (kept) y las que no (dropped), en su orden (ver cabecera). */
+export function approvalsFor(t: ToolsetV1, ctx: RenderContext): { kept: string[]; dropped: string[] } {
+  const platformIds = new Set(t.platformTools.map((tool) => mcpToolId(ctx.mcpServerName, tool)));
+  const fits = (rule: string): boolean => {
+    const gate = APPROVAL_GATES.find((g) => g.tools.some((tool) => ruleOf(rule, tool)));
+    if (gate) return gate.granted(t);
+    return rule.startsWith(MCP_PREFIX) ? platformIds.has(rule) : true;
+  };
+  const approvals = t.approvals ?? [];
+  return { kept: approvals.filter(fits), dropped: approvals.filter((rule) => !fits(rule)) };
+}
+
+/** las approvals descartadas, para el log de lo recortado (`approval:<id>`). */
+export const approvalsNarrowed = (t: ToolsetV1, ctx: RenderContext): string[] => approvalsFor(t, ctx).dropped.map((rule) => `${APPROVAL_NARROWED_PREFIX}${rule}`);
+
 /** toolset_v1 → listas de claude code (ver cabecera). */
 export function renderClaudeTools(t: ToolsetV1, ctx: RenderContext): ClaudeTools {
   // sin autonomía, el kit fijo: todo lo que concede el toolset va al allow.
@@ -102,10 +135,10 @@ export function renderClaudeTools(t: ToolsetV1, ctx: RenderContext): ClaudeTools
     ...(t.fsWrite && !asked ? CLAUDE_CODE_TOOLS.fsWrite : []),
     ...(t.web && !asked ? CLAUDE_CODE_TOOLS.web : []),
     ...(rendersAwsRead(t, ctx) ? AWS_READ_ALLOWED : []),
-    ...t.platformTools.map((tool) => `${MCP_PREFIX}${ctx.mcpServerName}${MCP_SEPARATOR}${tool}`),
+    ...t.platformTools.map((tool) => mcpToolId(ctx.mcpServerName, tool)),
   ];
   return {
-    allowed: t.approvals ? Array.from(new Set([...allowed, ...t.approvals])) : allowed,
+    allowed: t.approvals ? Array.from(new Set([...allowed, ...approvalsFor(t, ctx).kept])) : allowed,
     disallowed: [
       CLAUDE_CODE_TOOLS.notebook,
       ...(t.web ? [] : CLAUDE_CODE_TOOLS.web),

@@ -21,8 +21,8 @@ import { LEGACY_PLATFORM_ID } from '../src/paths.js';
 import { permissionMcpServers, writeRunMcpConfig } from '../src/run-mcp-config.js';
 import { renderLegacyClaim } from '../src/toolset/legacy-render.js';
 import { parseToolsetV1 } from '../src/toolset/parse.js';
-import { renderClaudeTools } from '../src/toolset/render.js';
-import { compareToolset } from '../src/toolset/shadow.js';
+import { approvalsFor, renderClaudeTools } from '../src/toolset/render.js';
+import { compareToolset, shadowOf } from '../src/toolset/shadow.js';
 import {
   AGENT_AUTONOMY,
   AGENT_AUTONOMY_LEVELS,
@@ -97,6 +97,43 @@ test('render: las approvals van al final del allow, en su orden y sin repetir', 
   assert.deepEqual(allowed, [...EXPECTED_ALLOWED.manual, 'Bash(npm test:*)', 'Edit', 'Bash(git status:*)']);
   // una approval que el nivel ya da no se repite.
   assert.deepEqual(renderClaudeTools(toolsetAt(AGENT_AUTONOMY.auto, ['Edit', 'Bash(make:*)']), CTX).allowed, [...EXPECTED_ALLOWED.auto, 'Bash(make:*)']);
+});
+
+test('approvals: solo lo que concede el toolset efectivo; lo descartado va a lo recortado', () => {
+  const rules = [
+    'Bash(npm test:*)',
+    'Bash',
+    'Edit',
+    'MultiEdit(src/**)',
+    'NotebookEdit',
+    'Write(docs/**)',
+    'WebFetch(domain:example.com)',
+    'WebSearch',
+    'mcp__duckhunt__duckhunt-note-add',
+    'mcp__otro__duckhunt-note-add',
+    'mcp__duckhunt__duckhunt-share-grant',
+    'mcp__duckhunt',
+    'Read(src/**)',
+    'Bashful',
+  ];
+  const narrow: ToolsetV1 = { ...toolsetAt(AGENT_AUTONOMY.manual, rules), shell: 'read', fsWrite: false, web: false };
+  assert.deepEqual(approvalsFor(narrow, CTX), {
+    kept: ['mcp__duckhunt__duckhunt-note-add', 'Read(src/**)', 'Bashful'],
+    dropped: rules.filter((r) => !['mcp__duckhunt__duckhunt-note-add', 'Read(src/**)', 'Bashful'].includes(r)),
+  });
+  // con todo concedido, solo las mcp que no son de las platformTools del servidor de la plataforma.
+  const full = toolsetAt(AGENT_AUTONOMY.manual, rules);
+  assert.deepEqual(approvalsFor(full, CTX).dropped, ['mcp__otro__duckhunt-note-add', 'mcp__duckhunt__duckhunt-share-grant', 'mcp__duckhunt']);
+  assert.ok(!renderClaudeTools(full, CTX).allowed.includes('mcp__otro__duckhunt-note-add'), 'el render no las da');
+  // la sombra las anota como recortadas; con el techo de duckhunt y approvals que caben, nada.
+  assert.deepEqual(shadowOf({ toolset: full, server: renderClaudeTools(full, CTX) }, LEGACY_CEILING, CTX).narrowed, [
+    'approval:mcp__otro__duckhunt-note-add',
+    'approval:mcp__duckhunt__duckhunt-share-grant',
+    'approval:mcp__duckhunt',
+  ]);
+  const fitting = toolsetAt(AGENT_AUTONOMY.manual, APPROVALS);
+  const { shadow, narrowed } = shadowOf({ toolset: fitting, server: renderClaudeTools(fitting, CTX) }, LEGACY_CEILING, CTX);
+  assert.deepEqual([shadow.match, narrowed], [true, []]);
 });
 
 test('auditoría local: el resumen del toolset lleva el nivel y cuántas approvals; sin nivel, como siempre', () => {
@@ -306,6 +343,16 @@ test('flip: el claim se lanza con el render de su nivel; un techo que recorta lo
   const manual = parseClaim(autonomyClaim(AGENT_AUTONOMY.manual), ROOTLESS);
   rejectedWith(() => renderLegacyClaim(manual, { ...ENFORCEMENT, ceiling: { ...LEGACY_CEILING, shell: 'read' } }), CLAIM_REJECT.notAllowed);
   rejectedWith(() => renderLegacyClaim(manual, { ...ENFORCEMENT, ceiling: { ...LEGACY_CEILING, platformTools: ['duckhunt-entry-get'] } }), CLAIM_REJECT.notAllowed);
+  // se decide sobre el toolset efectivo, no sobre lo recortado: sin web desde el server (sin techo que recorte), o un
+  // techo con la lista de tools aunque las nombre todas, también se rechaza.
+  const noWeb = autonomyClaim(AGENT_AUTONOMY.manual, { top: { toolset: { ...toolsetAt(AGENT_AUTONOMY.manual), web: false } } });
+  rejectedWith(() => renderLegacyClaim(parseClaim(noWeb, ROOTLESS), ENFORCEMENT), CLAIM_REJECT.notAllowed);
+  rejectedWith(() => renderLegacyClaim(manual, { ...ENFORCEMENT, ceiling: { ...LEGACY_CEILING, platformTools: TOOLSET.platformTools } }), CLAIM_REJECT.notAllowed);
+  // una approval de otro servidor mcp se descarta y se anota.
+  const foreign = parseClaim(autonomyClaim(AGENT_AUTONOMY.manual, { top: { toolset: toolsetAt(AGENT_AUTONOMY.manual, ['Bash(make:*)', 'mcp__otro__x']) } }), ROOTLESS);
+  const flipped = renderLegacyClaim(foreign, ENFORCEMENT);
+  assert.deepEqual(flipped.narrowed, ['approval:mcp__otro__x']);
+  assert.deepEqual(flipped.claim.tools.allowed.slice(-1), ['Bash(make:*)']);
   // el push sí se cumple con el deny: no se rechaza.
   const noPush = renderLegacyClaim(manual, { ...ENFORCEMENT, ceiling: { ...LEGACY_CEILING, vcsPush: false } });
   assert.ok(noPush.claim.tools.disallowed.includes('Bash(git push*)'));
