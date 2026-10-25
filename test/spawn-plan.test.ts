@@ -14,6 +14,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { detectClaude, OPTIONAL_FLAGS, type ClaudeInfo } from '../src/claude.js';
 import { parseClaim, TOOLSET_V1, type ClaimResponse } from '../src/claim.js';
 import { internals, legacyOf, type DaemonInternals as Harness } from './daemon-harness.js';
@@ -204,12 +205,14 @@ function syntheticCases(): Case[] {
 
 // --- normalización: nada del tmpdir, de la aleatoriedad o de la máquina en el plan ---
 
+// el binario de node y el entrypoint del runner (la tool de permisos, t#527, lanza al propio runner): de la máquina.
+const RUNNER_ENTRY = fileURLToPath(new URL('../src/index.js', import.meta.url));
 const normalizer = (dir: string): ((s: string) => string) => {
   const roots = Array.from(new Set([fs.realpathSync(root), root])).sort((a, b) => b.length - a.length);
   const caseRel = path.relative(root, dir);
   return (s) =>
     roots
-      .reduce((acc, r) => acc.split(`${r}/${caseRel}`).join('<case>').split(r).join('<root>'), s)
+      .reduce((acc, r) => acc.split(`${r}/${caseRel}`).join('<case>').split(r).join('<root>'), s.split(RUNNER_ENTRY).join('<runner>').split(process.execPath).join('<node>'))
       .replace(/(mcp|aws)-([A-Za-z0-9_-]+?)-[0-9a-f]{8}(?=\.json|\/|"|$|\))/g, '$1-$2-<rand>')
       // el motivo de git depende del sistema de ficheros del tmpdir (¿hay un punto de montaje por medio?).
       .replace(/not a git repository \(or any [^)]*\)(: \.git)?/g, 'not a git repository')
@@ -331,7 +334,8 @@ async function runCase(c: Case): Promise<unknown> {
   allRunConfigDirs().forEach(runConfigDeny);
   d.secretDeny = secretPathsDeny(process.env).rules;
   const hold = path.join(dir, 'hold');
-  const claims = [c.raw, ...(c.then ?? [])].map((raw) => (c.patch ?? ((cl: ClaimResponse) => cl))(parseClaim(JSON.parse(JSON.stringify(raw).replaceAll('<hold>', hold)) as unknown)));
+  // como un proceso que no es root (bypass, t#527): el plan no depende de quién corre el test.
+  const claims = [c.raw, ...(c.then ?? [])].map((raw) => (c.patch ?? ((cl: ClaimResponse) => cl))(parseClaim(JSON.parse(JSON.stringify(raw).replaceAll('<hold>', hold)) as unknown, { canBypass: true })));
   const sup = c.platform ? d.supervisors.get(c.platform)! : legacyOf(d);
   const exec = (claim: ClaimResponse): Promise<void> => d.executeRun(sup, claim, new RunLease(claim.run.id));
   if (c.parallel) {
@@ -782,4 +786,58 @@ test('lectura s3: con s3Read y el render, su servidor res_aws_<cuenta> y la tool
   assert.ok(!flagValue(offSpawn!.argv, '--allowedTools').some((tool) => tool.endsWith('__s3_read')));
   assert.ok(!offSpawn!.mcp.includes('res_aws_'));
   assert.ok(off.runs['981']!.feed.some((e) => e.body.includes('no se ofrece: solo con el render del daemon')));
+});
+
+// --- autonomía de las conversaciones en edición (t#527, 0.15.0): fuera del golden ---
+
+// una edición de la matriz con su nivel, como la mandaría el server con la capability `autonomy`: el toolset con el
+// nivel, las listas de su render y, si pregunta, el bloque permissions en el origen de su mcp.
+const autonomyFx = (level: 'manual' | 'bypass', id: number): Record<string, unknown> => {
+  const raw = withToolset('prompt-edit-full', id);
+  const toolset = { ...(raw.toolset as Record<string, unknown>), autonomy: level };
+  const tools = raw.tools as { allowed: string[]; disallowed: string[] };
+  const mcp = raw.mcp as { url: string };
+  const allowed = level === 'manual' ? tools.allowed.filter((t) => !['Bash', 'Edit', 'Write', 'WebFetch', 'WebSearch'].includes(t)) : tools.allowed;
+  return {
+    ...raw,
+    run: { ...(raw.run as Record<string, unknown>), autonomy: level },
+    toolset,
+    tools: { ...tools, allowed },
+    permissionMode: level === 'manual' ? 'default' : 'bypassPermissions',
+    ...(level === 'manual' ? { permissions: { url: `${new URL(mcp.url).origin}/api/runner-permissions`, ttlMs: 1_800_000, waitMs: 25_000 } } : {}),
+  };
+};
+
+test('autonomía: manual lanza en default con la tool de permisos del runner; bypass, en bypassPermissions sin ella', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  t.mock.method(console, 'warn', () => {});
+  const manualName = 'autonomy/manual';
+  const manual = (await runCase({ name: manualName, raw: autonomyFx('manual', 990) })) as FlipPlan;
+  const [spawn] = browserSpawns(manualName);
+  const flag = (argv: string[], f: string): string | undefined => (argv.includes(f) ? argv[argv.indexOf(f) + 1] : undefined);
+  assert.equal(flag(spawn!.argv, '--permission-mode'), 'default');
+  assert.equal(flag(spawn!.argv, '--permission-prompt-tool'), 'mcp__duckhunt-runner-permission__prompt');
+  assert.ok(!flagValue(spawn!.argv, '--allowedTools').some((tool) => ['Bash', 'Edit', 'Write'].includes(tool)), 'se preguntan');
+  assert.equal(spawn!.env.MCP_TOOL_TIMEOUT, String(1_800_000 + 120_000));
+  const server = (JSON.parse(spawn!.mcp) as McpConfigFile).mcpServers['duckhunt-runner-permission'];
+  assert.deepEqual([server?.command, server?.args?.at(-1)], [process.execPath, 'mcp-permission']);
+  assert.deepEqual(server?.env, {
+    DUCKHUNT_PERMISSION_URL: 'http://duckhunt.test/api/runner-permissions',
+    DUCKHUNT_PERMISSION_TOKEN: 'dho_fixture',
+    DUCKHUNT_PERMISSION_SEGMENT: '1',
+    DUCKHUNT_PERMISSION_TTL_MS: '1800000',
+    DUCKHUNT_PERMISSION_WAIT_MS: '25000',
+  });
+  assert.deepEqual(statusOf(manual, 990).toolsetShadow, { match: true, explained: true, known: [], diff: null }, 'el render casa con las listas del server');
+  // el mcp-config (con el token) se borra al cerrar el segmento, como siempre.
+  assert.deepEqual(fs.readdirSync(path.join(caseDir(manualName), 'home', 'run-config')), []);
+
+  const bypassName = 'autonomy/bypass';
+  const bypass = (await runCase({ name: bypassName, raw: autonomyFx('bypass', 991) })) as FlipPlan;
+  const [bypassSpawn] = browserSpawns(bypassName);
+  assert.equal(flag(bypassSpawn!.argv, '--permission-mode'), 'bypassPermissions');
+  assert.ok(!bypassSpawn!.argv.includes('--permission-prompt-tool') && !bypassSpawn!.argv.includes('--dangerously-skip-permissions'));
+  assert.equal(bypassSpawn!.env.MCP_TOOL_TIMEOUT, undefined);
+  assert.ok(!bypassSpawn!.mcp.includes('duckhunt-runner-permission'));
+  assert.equal(statusOf(bypass, 991).status, 'done');
 });

@@ -479,6 +479,40 @@ still could: it runs only after you confirm your identity. Daemons before 0.10.2
 temp directory; from 0.11.0 the daemon removes, once when it starts, the ones they left there
 (`duckhunt-runner-<run>-<hex>.json`, your own regular files only).
 
+### Autonomy (0.15.0 or later)
+
+An `edit` conversation can have an autonomy level, chosen in duckhunt. It sets the Claude CLI permission
+mode instead of the fixed `dontAsk`:
+
+| Level | Permission mode | Allowed without asking | Everything else |
+| --- | --- | --- | --- |
+| `manual` | `default` | `Read`, `Grep`, `Glob`, duckhunt tools, the read-only shell the CLI auto-approves, rules you approved for the conversation | asked to you in duckhunt |
+| `auto` | `auto` | the above plus `Edit`, `Write`, `WebFetch`, `WebSearch` | the CLI's classifier decides, and asks you after it stops a few times |
+| `bypass` | `bypassPermissions` | everything not denied | nothing is asked; the deny list still applies |
+
+Questions go through a tool the daemon serves itself: a hidden `mcp-permission` subcommand, added to the
+step's MCP config (with the run's token, in the same `0600` file) and passed to `--permission-prompt-tool`.
+The model never sees it. It posts each request to duckhunt and polls until you answer; nobody answering
+within the request's lifetime (30 minutes by default) means denied, and so does any refusal from duckhunt.
+The request shows a shortened copy of large inputs, but what runs is always the original input, unchanged.
+
+The daemon announces `autonomy` only when the Claude CLI is 2.1.302 or later (the prompt-tool flag isn't
+listed in `claude --help`), and `autonomy_bypass` only when it doesn't run as root (the CLI refuses
+`bypassPermissions` as root). It refuses a claim whose permission mode isn't its level's, a level on
+anything but an `edit` conversation, and a question endpoint outside duckhunt's own MCP origin. `bypass`
+never adds `--dangerously-skip-permissions`. With the daemon building the tool lists (the default), a
+conversation with a level is rejected unless its effective tool set (after the platform ceiling) keeps the
+full shell, file writes and the web, and the ceiling doesn't restrict the platform's tools to a list: outside
+`dontAsk` the allow list no longer bounds what runs. Rules you approved for the conversation that the effective
+tool set doesn't grant (shell, writes, web, or MCP tools other than the platform's own) are dropped and logged.
+
+> **Accepted risk (decided 2026-10-23).** `bypass` reaches this machine from duckhunt with no local opt-in:
+> the only safeguard is the identity check duckhunt asks for when you raise a conversation's level. A
+> per-machine opt-in was considered and declined, knowing it drops the earlier guarantee that the server alone
+> could never escalate what a machine runs. What still holds: deny rules (duckhunt's and the daemon's own,
+> such as `Read` on the run-config directory) apply under `bypassPermissions` too, the daemon refuses it when
+> running as root, and only `edit` conversations can ask for it.
+
 ### One worktree per conversation
 
 A prompt run works in its own git worktree, `<checkout>/.duckhunt/worktrees/conv-<id>`. It is

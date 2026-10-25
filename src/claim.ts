@@ -29,11 +29,30 @@
 //   solo pasa un alias o un id de modelo (MODEL_RE, el AGENT_MODEL_ID_RE del server); cualquier otra
 //   cosa se ignora con un aviso y el run sigue con el modelo de la máquina: un modelo raro no merece
 //   tumbar el claim, y un `-x` nunca llega al cli como flag.
+// - `run.autonomy` (0.15.0, t#527, capability `autonomy`): el nivel de una conversación en edición. cambia el
+//   invariante de siempre (un prompt run solo en dontAsk, bypassPermissions nunca desde fuera) SOLO así: un nivel
+//   desconocido, o un nivel fuera de un prompt run de perfil edit, invalida el claim; con nivel, el permission mode
+//   tiene que ser el suyo (AGENT_AUTONOMY_PERMISSION_MODE) y bypass además exige un proceso que no sea root (el cli
+//   lo rechaza: canBypassPermissions, inyectable en los tests). sin nivel, todo como antes (lectura, siempre así).
+//   el bloque `permissions` (dónde pregunta la tool de permisos, permission-server.ts) va si y solo si el nivel
+//   pregunta (autonomyAsks), en el MISMO origen que el mcp del claim (lleva su token per-run) y sin credenciales en
+//   la url; waitMs se acota a PERMISSION_WAIT_MAX_MS. en manual el allow de una edición no lleva Bash/Edit/Write (se
+//   preguntan): nada aquí las exige.
+//   RIESGO ACEPTADO (decisión del usuario, 2026-10-23): bypassPermissions llega del server sin opt-in local en la
+//   máquina. la única salvaguarda es la verificación de identidad al subir el nivel en duckhunt; se rechazó un
+//   opt-in por máquina sabiendo que cae el invariante de antes (el server solo no podía escalar una máquina). lo que
+//   sigue valiendo: el deny (el del server y los que fuerza el daemon) manda también en bypass, un proceso root lo
+//   rechaza (canBypassPermissions) y solo un prompt run de perfil edit lo puede pedir. no añadas un opt-in sin
+//   revisar esa decisión.
 
 import { runIdFromLegacy } from './run-id.js';
 import {
+  AGENT_AUTONOMY,
+  AGENT_AUTONOMY_LEVELS,
+  AGENT_AUTONOMY_PERMISSION_MODE,
   AGENT_AWS_READ_COMMANDS,
   AGENT_AWS_READ_VERBS,
+  AGENT_PERMISSION_TOOL,
   AGENT_PROMPT_PROFILE,
   AGENT_RUN_EVENT_BATCH_MAX,
   AGENT_RUN_EVENT_BODY_MAX_CHARS,
@@ -43,15 +62,19 @@ import {
   AGENT_RUN_ISOLATION,
   AGENT_RUN_KIND,
   AGENT_RUN_SEED,
+  autonomyAsks,
+  PERMISSION_WAIT_MAX_MS,
   RUN_CHANGES_FILE_PATCH_MAX_CHARS,
   RUN_CHANGES_FILES_MAX,
   RUN_CHANGES_PATCH_MAX_CHARS,
   RUNNER_CAPABILITY,
   TOOLSET_V1,
+  type AgentAutonomy,
   type AgentPromptProfile,
   type AgentRunIsolation,
   type AgentRunSeed,
   type LegacyClaimChanges,
+  type LegacyClaimPermissions,
   type RunnerCapability,
 } from './vendor/runner-protocol/index.js';
 import { parseToolsetV1 } from './toolset/parse.js';
@@ -87,8 +110,9 @@ export type PromptProfile = AgentPromptProfile;
 export const RUN_SEED = AGENT_RUN_SEED;
 export type RunSeed = AgentRunSeed;
 
-// techo local de permission modes: el server manda dontAsk; bypassPermissions nunca se acepta
-// desde fuera (el opt-in a saltarse permisos es solo local, `repos add --dangerously-skip-permissions`).
+// techo local de permission modes de un run sin autonomía: el server manda dontAsk; bypassPermissions nunca se
+// acepta desde fuera (el opt-in a saltarse permisos es solo local, `repos add --dangerously-skip-permissions`), salvo
+// como el modo de la autonomía bypass de una conversación en edición (t#527, ver cabecera).
 export const ALLOWED_PERMISSION_MODES: readonly string[] = ['dontAsk', 'default', 'acceptEdits', 'plan'];
 
 // si el server omite timeoutMs/heartbeatMs (espejo de AGENT_HARNESS_RUN_TIMEOUT_MS y
@@ -215,6 +239,8 @@ export interface ClaimedRun {
   segment: number | null;
   // modelo que pide duckhunt (0.12.0; null = ninguno: el de la config o el default del cli).
   model: string | null;
+  // nivel de autonomía de una conversación en edición (0.15.0, t#527; null = el kit fijo, dontAsk).
+  autonomy: AgentAutonomy | null;
 }
 
 export interface EventsConfig {
@@ -255,6 +281,8 @@ export interface ClaimResponse {
   // topes del diff del turno (t#514, turn-changes.ts). ausente = no se calcula: un segmento de lectura, sin repo, un
   // server anterior o un claim v0.
   changes?: LegacyClaimChanges;
+  // dónde pregunta la tool de permisos (t#527): solo con una autonomía que pregunta (manual, auto).
+  permissions?: LegacyClaimPermissions;
   mcp: McpServer;
   // avisos de la validación local (rama ignorada…): el daemon los loguea y los sube al feed.
   warnings: string[];
@@ -281,12 +309,26 @@ export interface McpServer {
   expiresAt: number;
 }
 
+/** lo que la validación del claim sabe de este proceso (inyectable en los tests). */
+export interface ClaimMachine {
+  // el cli puede lanzarse en bypassPermissions (no es root).
+  canBypass: boolean;
+}
+
+/** ¿acepta el cli bypassPermissions en este proceso? lo rechaza como root (también con sudo, que lo es). */
+export const canBypassPermissions = (uid: number | undefined = process.getuid?.()): boolean => uid !== 0;
+
+const thisMachine = (): ClaimMachine => ({ canBypass: canBypassPermissions() });
+
 type Obj = Record<string, unknown>;
 
 const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !Array.isArray(v);
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 const posInt = (v: unknown): number | null => (typeof v === 'number' && Number.isSafeInteger(v) && v > 0 ? v : null);
 const posNum = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null);
+
+// un valor del claim para un aviso o un error: de un texto, su principio; de lo demás, solo su tipo.
+const shownValue = (v: unknown): string => (typeof v === 'string' ? JSON.stringify(v.slice(0, WARNING_VALUE_CHARS)) : `(${typeof v})`);
 
 /** id de run válido para paths y logs (del entero positivo legacy), o null. sirve para fallar un claim roto. */
 export function claimRunId(raw: unknown): string | null {
@@ -346,19 +388,48 @@ function changesConfig(v: unknown): LegacyClaimChanges | null {
   };
 }
 
+// el nivel de autonomía del claim (ver cabecera): ausente o null = ninguno; uno desconocido invalida el claim.
+function autonomyOf(v: unknown, kind: string, profile: PromptProfile | null): AgentAutonomy | null {
+  if (v === undefined || v === null) return null;
+  if (!AGENT_AUTONOMY_LEVELS.includes(v as AgentAutonomy)) throw new Error(`claim inválido: run.autonomy ${shownValue(v)} desconocida`);
+  if (kind !== RUN_KIND.prompt || profile !== PROMPT_PROFILE.edit) throw new Error('claim inválido: la autonomía solo vale en una conversación en edición');
+  return v as AgentAutonomy;
+}
+
+// el bloque permissions (ver cabecera): si y solo si el nivel pregunta, en el origen del mcp del claim.
+function permissionsOf(v: unknown, autonomy: AgentAutonomy | null, mcp: { serverName: string; url: string }, segment: number | null): LegacyClaimPermissions | null {
+  const asks = autonomy !== null && autonomyAsks(autonomy);
+  if (v === undefined || v === null) {
+    if (asks) throw new Error(`claim inválido: la autonomía ${autonomy} pregunta y el claim no trae permissions`);
+    return null;
+  }
+  if (!asks) throw new Error('claim inválido: permissions sin una autonomía que pregunte');
+  if (!isObj(v)) throw new Error('claim inválido: permissions no es un objeto');
+  const url = URL.parse(str(v.url) ?? '');
+  if (url === null || url.origin !== URL.parse(mcp.url)?.origin || url.username !== '' || url.password !== '') {
+    throw new Error('claim inválido: permissions.url no es una url del origen del mcp del claim');
+  }
+  const ttlMs = posInt(v.ttlMs);
+  const waitMs = posInt(v.waitMs);
+  if (ttlMs === null || waitMs === null) throw new Error('claim inválido: permissions.ttlMs y waitMs, enteros positivos');
+  if (segment === null) throw new Error('claim inválido: permissions sin run.segment (la petición lo lleva)');
+  if (mcp.serverName === AGENT_PERMISSION_TOOL.server) throw new Error(`claim inválido: el mcp del claim no puede llamarse ${AGENT_PERMISSION_TOOL.server}`);
+  return { url: url.href, ttlMs, waitMs: Math.min(waitMs, PERMISSION_WAIT_MAX_MS) };
+}
+
 /** valida y normaliza la respuesta 200 del claim. lanza con el motivo si algo no es seguro. */
-export function parseClaim(raw: unknown): ClaimResponse {
+export function parseClaim(raw: unknown, machine: ClaimMachine = thisMachine()): ClaimResponse {
   if (!isObj(raw) || !isObj(raw.run)) throw new Error('claim inválido: falta run');
   const id = runIdFromLegacy(raw.run.id);
   if (id === null) throw new Error('claim inválido: run.id no es un entero positivo');
-  return parseClaimBody(raw, id);
+  return parseClaimBody(raw, id, machine);
 }
 
 /**
  * el claim con la forma del legacy y el id de run ya validado por quien llama (el cable legacy, del entero; el v0,
  * su id opaco: platforms/claim-v0.ts lo arma desde el suyo y pasa por aquí para las mismas comprobaciones).
  */
-export function parseClaimBody(raw: unknown, id: string): ClaimResponse {
+export function parseClaimBody(raw: unknown, id: string, machine: ClaimMachine = thisMachine()): ClaimResponse {
   if (!isObj(raw) || !isObj(raw.run)) throw new Error('claim inválido: falta run');
   const r = raw.run;
   const kind = str(r.kind);
@@ -375,21 +446,20 @@ export function parseClaimBody(raw: unknown, id: string): ClaimResponse {
   if (sessionId !== null && !SESSION_ID_RE.test(sessionId)) throw new Error('claim inválido: sessionId con formato inesperado');
   const profile = r.profile === PROMPT_PROFILE.read || r.profile === PROMPT_PROFILE.edit ? r.profile : null;
   if (kind === RUN_KIND.prompt && profile === null) throw new Error('claim inválido: prompt run sin perfil read|edit');
+  const autonomy = autonomyOf(r.autonomy, kind, profile);
   const model = typeof r.model === 'string' && MODEL_RE.test(r.model) ? r.model : null;
   if (r.model !== undefined && r.model !== null && model === null) {
     // de un valor que no es texto solo su tipo: el aviso va al feed.
-    const shown = typeof r.model === 'string' ? JSON.stringify(r.model.slice(0, WARNING_VALUE_CHARS)) : `(${typeof r.model})`;
-    warnings.push(`modelo ${shown} ignorado (no es un alias ni un id de modelo): el run usa el modelo de esta máquina`);
+    warnings.push(`modelo ${shownValue(r.model)} ignorado (no es un alias ni un id de modelo): el run usa el modelo de esta máquina`);
   }
 
   const prompt = str(raw.prompt);
   if (!prompt || !prompt.trim()) throw new Error('claim inválido: prompt vacío');
   const permissionMode = str(raw.permissionMode) ?? '';
-  vetPermissionMode(kind, permissionMode);
   const tools = isObj(raw.tools) ? raw.tools : {};
   const serverAllowed = toolList(tools.allowed, 'tools.allowed');
   const serverDisallowed = toolList(tools.disallowed, 'tools.disallowed');
-  const vetted = vetTools(kind, profile, { allowed: serverAllowed, disallowed: serverDisallowed, permissionMode });
+  const vetted = vetTools({ kind, profile, autonomy }, { allowed: serverAllowed, disallowed: serverDisallowed, permissionMode }, machine);
   warnings.push(...vetted.warnings);
   const { allowed, disallowed } = vetted;
   const mcp = isObj(raw.mcp) ? raw.mcp : {};
@@ -402,6 +472,8 @@ export function parseClaimBody(raw: unknown, id: string): ClaimResponse {
   const aws = isObj(r.aws) ? { accountId: str(r.aws.accountId), region: str(r.aws.region) } : null;
   const numOrNull = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
   const changes = changesConfig(raw.changes);
+  const segment = posInt(r.segment);
+  const permissions = permissionsOf(raw.permissions, autonomy, { serverName, url }, segment);
 
   return {
     run: {
@@ -419,8 +491,9 @@ export function parseClaimBody(raw: unknown, id: string): ClaimResponse {
       profile,
       seed: r.seed === RUN_SEED.template || r.seed === RUN_SEED.prompt ? r.seed : null,
       isolation: kind === RUN_KIND.prompt && r.isolation === RUN_ISOLATION.checkout ? RUN_ISOLATION.checkout : RUN_ISOLATION.worktree,
-      segment: posInt(r.segment),
+      segment,
       model,
+      autonomy,
     },
     prompt,
     fallbackPrompt: str(raw.fallbackPrompt),
@@ -433,6 +506,7 @@ export function parseClaimBody(raw: unknown, id: string): ClaimResponse {
     heartbeatMs: posNum(raw.heartbeatMs) ?? DEFAULT_HEARTBEAT_MS,
     events: eventsConfig(raw.events),
     ...(changes !== null ? { changes } : {}),
+    ...(permissions !== null ? { permissions } : {}),
     mcp: { serverName, url, token, expiresAt: numOrNull(mcp.expiresAt) ?? 0 },
     warnings,
     toolset: null,
@@ -444,8 +518,16 @@ export function parseClaimBody(raw: unknown, id: string): ClaimResponse {
   };
 }
 
-// el permission mode de un run dentro del techo local (nunca bypassPermissions; un prompt run, el suyo). lanza si no.
-function vetPermissionMode(kind: string, permissionMode: string): void {
+// el permission mode de un run dentro del techo local: con autonomía, exactamente el de su nivel (bypass, solo si el cli
+// lo acepta en este proceso); sin ella, nunca bypassPermissions y un prompt run, dontAsk. lanza si no.
+function vetPermissionMode(run: Pick<ClaimedRun, 'kind' | 'autonomy'>, permissionMode: string, machine: ClaimMachine): void {
+  const { kind, autonomy } = run;
+  if (autonomy !== null) {
+    const expected = AGENT_AUTONOMY_PERMISSION_MODE[autonomy];
+    if (permissionMode !== expected) throw new Error(`claim inválido: la autonomía ${autonomy} exige permission mode ${expected} (llegó "${permissionMode}")`);
+    if (autonomy === AGENT_AUTONOMY.bypass && !machine.canBypass) throw new Error('claim inválido: autonomía bypass en un runner que corre como root (el cli la rechaza)');
+    return;
+  }
   if (!ALLOWED_PERMISSION_MODES.includes(permissionMode)) {
     throw new Error(`claim inválido: permission mode "${permissionMode}" fuera del techo local (${ALLOWED_PERMISSION_MODES.join(', ')})`);
   }
@@ -457,11 +539,15 @@ function vetPermissionMode(kind: string, permissionMode: string): void {
 /** listas de tools y permission mode de un run, cribadas contra el techo local: las del server al parsear el claim y
  *  las que renderiza el daemon en el flip de toolset_v1 (withRenderedTools). lanza si no se pueden cumplir. */
 function vetTools(
-  kind: string,
-  profile: PromptProfile | null,
+  run: Pick<ClaimedRun, 'kind' | 'profile' | 'autonomy'>,
   lists: { allowed: readonly string[]; disallowed: readonly string[]; permissionMode: string },
+  machine: ClaimMachine,
 ): { allowed: string[]; disallowed: string[]; warnings: string[] } {
-  vetPermissionMode(kind, lists.permissionMode);
+  const { kind, profile } = run;
+  vetPermissionMode(run, lists.permissionMode, machine);
+  // lo que acaba en argv, también lo que renderiza el daemon (las approvals de una conversación, t#527).
+  const badIds = [...lists.allowed, ...lists.disallowed].filter((t) => !isToolId(t));
+  if (badIds.length > 0) throw new Error(`claim inválido: ids de tool no válidos (${badIds.length})`);
   const readPrompt = kind === RUN_KIND.prompt && profile === PROMPT_PROFILE.read;
   const leaked = readPrompt ? lists.allowed.filter(isForbiddenInRead) : [];
   if (leaked.length > 0) throw new Error(`claim inválido: un prompt run de lectura no puede permitir ${leaked.join(', ')}`);
@@ -477,8 +563,12 @@ function vetTools(
 
 /** el claim con las listas que renderizó el daemon (el flip de toolset_v1, toolset/legacy-render.ts) en vez de las
  *  del server, pasadas por la misma criba. lanza si no se pueden cumplir. */
-export function withRenderedTools(claim: ClaimResponse, rendered: { allowed: readonly string[]; disallowed: readonly string[]; permissionMode: string }): ClaimResponse {
-  const vetted = vetTools(claim.run.kind, claim.run.profile, rendered);
+export function withRenderedTools(
+  claim: ClaimResponse,
+  rendered: { allowed: readonly string[]; disallowed: readonly string[]; permissionMode: string },
+  machine: ClaimMachine = thisMachine(),
+): ClaimResponse {
+  const vetted = vetTools(claim.run, rendered, machine);
   return {
     ...claim,
     tools: { allowed: vetted.allowed, disallowed: vetted.disallowed },

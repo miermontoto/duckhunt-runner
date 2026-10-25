@@ -12,6 +12,8 @@
 // 0.12.0 (t#465): `run.model` solo pasa como alias o id de modelo y manda sobre defaults.model; una
 // plantilla con la memoria nativa encendida (sin Edit/Write en el deny) se cumple igual, y el kit
 // desatendido de un prompt de regla (sin web, push y remotos negados en edición) llega entero al argv.
+// 0.15.0 (t#527): las conversaciones con autonomía de la matriz (autonomy-*.json) llevan el modo de su nivel y, si
+// pregunta (manual, auto), la tool de permisos y el bloque permissions; bypass, ninguno de los dos.
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -23,6 +25,7 @@ import { AWS_OUTFILE_COMMANDS, claimRunId, isAwsReadPattern, parseClaim } from '
 import { parseRunnerBlock } from '../src/server-state.js';
 import { mirrorAllow, mirroredDeny, READ_MIRRORED_TOOLS, settingsFilesFor, WRITE_TOOLS } from '../src/user-permissions.js';
 import { OPTIONAL_FLAGS } from '../src/claude.js';
+import { AGENT_AUTONOMY_PERMISSION_MODE, AGENT_PERMISSION_TOOL_ID } from '../src/vendor/runner-protocol/index.js';
 import { clampReport } from '../src/status-report.js';
 import { scrubEnv } from '../src/scrub-env.js';
 
@@ -293,8 +296,11 @@ const flagValue = (args: string[], flag: string): string[] => {
 test('claims del server (t#465): las investigaciones viajan como prompt run de lectura y el daemon las cumple', () => {
   const seeds = claimFixtures.map(({ raw }) => (raw.run as { seed?: string }).seed);
   assert.ok(seeds.includes('template') && seeds.includes('prompt'), 'hay fixtures de las dos semillas');
+  const levels = claimFixtures.map(({ raw }) => (raw.run as { autonomy?: string | null }).autonomy).filter((l): l is string => typeof l === 'string');
+  assert.deepEqual([...new Set(levels)].sort(), ['auto', 'bypass', 'manual'], 'hay conversaciones de los tres niveles (t#527)');
   claimFixtures.forEach(({ name, raw }) => {
-    const claim = parseClaim(raw);
+    // bypass se cumple fuera de root: la máquina del test lo es (ver autonomy.test.ts para root).
+    const claim = parseClaim(raw, { canBypass: true });
     assert.deepEqual(claim.warnings, [], `${name}: el server no manda nada que este daemon descarte`);
     assert.equal(claim.run.kind, 'prompt', name);
     // skip-permissions local a propósito: un prompt run (una investigación incluida) nunca lo hereda.
@@ -307,9 +313,16 @@ test('claims del server (t#465): las investigaciones viajan como prompt run de l
       skipPermissions: true,
       payingWithApiKey: true,
       runConfigDeny: [RUN_CONFIG_DENY],
+      permissionPromptTool: true,
     });
     const allowed = flagValue(args, '--allowedTools');
     const disallowed = flagValue(args, '--disallowedTools');
+    // autonomía (t#527): el modo de su nivel; la tool de permisos y el bloque permissions solo si pregunta.
+    const level = claim.run.autonomy;
+    const asks = level === 'manual' || level === 'auto';
+    assert.equal(args[args.indexOf('--permission-mode') + 1], level === null ? 'dontAsk' : AGENT_AUTONOMY_PERMISSION_MODE[level], name);
+    assert.deepEqual(flagValue(args, '--permission-prompt-tool'), asks ? [AGENT_PERMISSION_TOOL_ID] : [], `${name}: la tool de permisos solo si pregunta`);
+    assert.equal(claim.permissions !== undefined, asks, `${name}: permissions solo si pregunta`);
     assert.ok(disallowed.includes(RUN_CONFIG_DENY), `${name}: los mcp-config de los runs, vetados a Read`);
     assert.ok(args.includes('--strict-mcp-config'), `${name}: sin el .mcp.json del checkout`);
     assert.ok(!args.includes('--dangerously-skip-permissions'), `${name}: nunca salta permisos`);
@@ -317,11 +330,13 @@ test('claims del server (t#465): las investigaciones viajan como prompt run de l
     // seed_budget (0.11.0): pagando con api key, una plantilla lleva su presupuesto; una conversación libre, nunca.
     const template = (raw.run as { seed?: string }).seed === 'template';
     assert.deepEqual(flagValue(args, '--max-budget-usd'), template ? [String(claim.maxBudgetUsd)] : [], `${name}: presupuesto solo en plantillas`);
-    assert.equal(args[args.indexOf('--permission-mode') + 1], 'dontAsk', name);
     if (claim.run.profile === 'edit') {
-      assert.ok(allowed.includes('Bash') && !args.includes('--setting-sources'), `${name}: edición, como siempre`);
+      // en manual y auto Bash se pregunta (o lo decide el cli): no va en el allow.
+      assert.equal(allowed.includes('Bash'), !asks, `${name}: Bash entero solo sin preguntar`);
+      assert.ok(!args.includes('--setting-sources'), `${name}: edición, como siempre`);
       return;
     }
+    assert.equal(level, null, `${name}: lectura sin autonomía`);
     assert.deepEqual(args.slice(args.indexOf('--setting-sources'), args.indexOf('--setting-sources') + 2), ['--setting-sources', 'user'], `${name}: ni hooks ni settings del checkout`);
     assert.ok(!allowed.includes('Bash'), `${name}: nunca Bash entero en lectura`);
     assert.deepEqual(allowed.filter((t) => ['Edit', 'Write', 'NotebookEdit'].includes(t)), [], `${name}: lectura no escribe`);

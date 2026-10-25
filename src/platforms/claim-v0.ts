@@ -192,6 +192,8 @@ export function claimOfV0(raw: unknown, e: V0Enforcement): AdaptedClaim {
   } catch (err) {
     return reject(CLAIM_REJECT.invalid, (err as Error).message);
   }
+  // la autonomía (t#527) es del cable legacy: v0 no lleva el bloque permissions ni su capability.
+  if (requested.autonomy !== undefined) reject(CLAIM_REJECT.invalid, 'autonomy: el cable v0 no la lleva');
   checkGrants(requested, e);
   const params = resourceParams(raw.resources, requested);
   const ceiled = intersectToolset(requested, e.ceiling);

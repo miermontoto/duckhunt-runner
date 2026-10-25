@@ -75,6 +75,9 @@ export interface ToolsetSummary {
   vcsPush: boolean;
   grants: AuditGrant[];
   platformTools: number;
+  // nivel de autonomía de la conversación (t#527); ausente = el kit fijo. sus approvals, solo cuántas.
+  autonomy?: string;
+  approvals?: number;
 }
 
 interface AuditBase {
@@ -132,6 +135,7 @@ export const toolsetSummary = (t: ToolsetV1): ToolsetSummary => ({
   vcsPush: t.vcsPush,
   grants: t.grants.slice(0, LIST_MAX).map(grantOf),
   platformTools: t.platformTools.length,
+  ...(t.autonomy !== undefined ? { autonomy: t.autonomy, approvals: t.approvals?.length ?? 0 } : {}),
 });
 
 /** lo que identifica a una plataforma y a su run en cada registro. */

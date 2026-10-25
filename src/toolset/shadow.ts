@@ -23,7 +23,7 @@ import {
 } from '../vendor/runner-protocol/index.js';
 import type { ToolsetCeiling } from '../platforms/types.js';
 import { intersectToolset } from './intersect.js';
-import { AWS_READ_ALLOWED, renderClaudeTools, type ClaudeTools, type RenderContext } from './render.js';
+import { approvalsNarrowed, AWS_READ_ALLOWED, renderClaudeTools, type ClaudeTools, type RenderContext } from './render.js';
 
 const AWS_READ_ALLOWED_SET: ReadonlySet<string> = new Set(AWS_READ_ALLOWED);
 
@@ -75,8 +75,9 @@ export interface ShadowSource {
   server: ClaudeTools;
 }
 
-/** la sombra de un claim: su toolset ∩ el techo de la plataforma frente a sus listas, con lo que el techo recortó. */
+/** la sombra de un claim: su toolset ∩ el techo de la plataforma frente a sus listas, con lo que el techo recortó (y las
+ *  approvals que el toolset efectivo ya no concede, render.ts::approvalsFor). */
 export function shadowOf(source: ShadowSource, ceiling: ToolsetCeiling, ctx: RenderContext): { shadow: ToolsetShadow; narrowed: string[] } {
   const { toolset, narrowed } = intersectToolset(source.toolset, ceiling);
-  return { shadow: compareToolset(source.server, toolset, ctx), narrowed };
+  return { shadow: compareToolset(source.server, toolset, ctx), narrowed: [...narrowed, ...approvalsNarrowed(toolset, ctx)] };
 }

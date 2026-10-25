@@ -14,14 +14,20 @@
 // (duckhunt-runner-<run>-<hex>.json, del mismo usuario y ficheros normales): un daemon que murió a mitad
 // de run dejaba ahí su token per-run. non-goal: otro daemon viejo del mismo usuario en marcha a la vez
 // pierde el fichero del run en curso (su claude ya lo cargó al arrancar el segmento).
+// 0.15.0 (t#527): un segmento cuya autonomía pregunta (el claim trae `permissions`) lleva además la tool de permisos
+// (permissionMcpServers): el propio runner en `mcp-permission`, servidor stdio con la url, el token per-run, el
+// segmento y los plazos en su env. el token es el mismo de la cabecera del mcp de la plataforma, en el mismo fichero.
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { isToolId, type McpServer } from './claim.js';
+import { fileURLToPath } from 'node:url';
+import { isToolId, type ClaimResponse, type McpServer } from './claim.js';
 import { runConfigDir } from './paths.js';
+import { PERMISSION_ENV, PERMISSION_SUBCOMMAND } from './permission-server.js';
 import type { McpServerEntry } from './resources/types.js';
+import { AGENT_PERMISSION_TOOL } from './vendor/runner-protocol/index.js';
 
 const MCP_CONFIG_PREFIX = 'mcp-';
 const MCP_CONFIG_SUFFIX = '.json';
@@ -32,6 +38,8 @@ const LEGACY_TMP_CONFIG_RE = /^duckhunt-runner-\d+-[0-9a-f]{8}\.json$/;
 // lo que una regla de permisos de claude no expresa tal cual: separadores de --disallowedTools,
 // paréntesis de la regla y comodines o escapes del glob. una ruta así dejaría el deny sin efecto.
 const RULE_UNSAFE_RE = /[,()*?[\]{}\\\n\r]/;
+// el entrypoint del runner (dist/index.js) junto a este módulo: lo lanza el cli como la tool de permisos.
+const RUNNER_ENTRY = fileURLToPath(new URL('./index.js', import.meta.url));
 
 /** regla `Read(//ruta)` (con `/**` si es un directorio) de una ruta absoluta, o null si no cabe en una regla de claude. */
 export function readDenyRule(abs: string, dir: boolean): string | null {
@@ -52,6 +60,26 @@ export function runConfigDeny(dir: string): string[] {
 
 // la entrada de un servidor mcp de la plataforma con su token per-run.
 const mcpEntry = (mcp: McpServer): [string, object] => [mcp.serverName, { type: 'http', url: mcp.url, headers: { Authorization: `Bearer ${mcp.token}` } }];
+
+/** la tool de permisos de un segmento que pregunta (ver cabecera), por su nombre en el mcp-config; sin permissions, ninguna. */
+export function permissionMcpServers(claim: Pick<ClaimResponse, 'permissions' | 'mcp'> & { run: { segment: number | null } }): Record<string, McpServerEntry> {
+  const p = claim.permissions;
+  if (!p || claim.run.segment === null) return {};
+  return {
+    [AGENT_PERMISSION_TOOL.server]: {
+      type: 'stdio',
+      command: process.execPath,
+      args: [RUNNER_ENTRY, PERMISSION_SUBCOMMAND],
+      env: {
+        [PERMISSION_ENV.url]: p.url,
+        [PERMISSION_ENV.token]: claim.mcp.token,
+        [PERMISSION_ENV.segment]: String(claim.run.segment),
+        [PERMISSION_ENV.ttlMs]: String(p.ttlMs),
+        [PERMISSION_ENV.waitMs]: String(p.waitMs),
+      },
+    },
+  };
+}
 
 /** escribe el mcp-config de un segmento (0600, en exclusiva) y devuelve su ruta. `extra`: los servidores de la
  *  plataforma además del primero (mcpServers[] del cable v0; el legacy solo tiene uno). `resources`: los de los

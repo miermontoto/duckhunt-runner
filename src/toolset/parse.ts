@@ -2,11 +2,26 @@
 // que no toca o un valor fuera de catálogo rechazan el toolset entero: lo que acabará en argv (ids de tools) o en
 // recursos de la máquina (claves) no se interpreta a medias. en la fase en sombra un toolset rechazado no tumba el
 // claim (claim.ts lo ignora con un aviso en el log): las listas del claim siguen mandando.
+// autonomía (t#527): `autonomy` (un nivel del protocolo) y `approvals` (solo con ella: reglas «siempre aquí» de la
+// conversación, con los topes del protocolo). que cada approval sea un id pasable por argv lo decide la criba del
+// claim (claim.ts::vetTools), la misma para las listas del server y las del render.
 
-import { GRANT_ACCESS, TOOLSET_SHELL, TOOLSET_V1, type GrantAccess, type ToolsetGrant, type ToolsetShell, type ToolsetV1 } from '../vendor/runner-protocol/index.js';
+import {
+  AGENT_AUTONOMY_LEVELS,
+  AGENT_PERMISSION_APPROVAL_MAX_CHARS,
+  AGENT_PERMISSION_APPROVALS_MAX,
+  GRANT_ACCESS,
+  TOOLSET_SHELL,
+  TOOLSET_V1,
+  type AgentAutonomy,
+  type GrantAccess,
+  type ToolsetGrant,
+  type ToolsetShell,
+  type ToolsetV1,
+} from '../vendor/runner-protocol/index.js';
 
 // claves del toolset y de cada grant: ni una más.
-const TOOLSET_KEYS: ReadonlySet<string> = new Set(['v', 'shell', 'fsWrite', 'memory', 'web', 'vcsPush', 'grants', 'platformTools']);
+const TOOLSET_KEYS: ReadonlySet<string> = new Set(['v', 'shell', 'fsWrite', 'memory', 'web', 'vcsPush', 'grants', 'platformTools', 'autonomy', 'approvals']);
 const GRANT_KEYS: ReadonlySet<string> = new Set(['type', 'key', 'access']);
 const FLAG_KEYS = ['fsWrite', 'memory', 'web', 'vcsPush'] as const;
 // tipo de recurso (repo, aws, browser…) y su clave tal como el daemon la anunció (ws/slug, id de cuenta, default…):
@@ -41,6 +56,22 @@ function grantOf(v: unknown, i: number): ToolsetGrant {
   return { type: v.type, key: v.key, ...(v.access !== undefined ? { access: v.access as GrantAccess } : {}) };
 }
 
+// autonomía y approvals del toolset (ver cabecera): ausentes = el kit fijo.
+function autonomyOf(raw: Obj): Pick<ToolsetV1, 'autonomy' | 'approvals'> {
+  const { autonomy, approvals } = raw;
+  if (autonomy !== undefined && !AGENT_AUTONOMY_LEVELS.includes(autonomy as AgentAutonomy)) throw invalid(`autonomy: ${AGENT_AUTONOMY_LEVELS.join(' | ')}`);
+  if (approvals === undefined) return autonomy !== undefined ? { autonomy: autonomy as AgentAutonomy } : {};
+  if (autonomy === undefined) throw invalid('approvals sin autonomy');
+  if (
+    !Array.isArray(approvals) ||
+    approvals.length > AGENT_PERMISSION_APPROVALS_MAX ||
+    !approvals.every((a) => typeof a === 'string' && a.length > 0 && a.length <= AGENT_PERMISSION_APPROVAL_MAX_CHARS)
+  ) {
+    throw invalid(`approvals: hasta ${AGENT_PERMISSION_APPROVALS_MAX} reglas de hasta ${AGENT_PERMISSION_APPROVAL_MAX_CHARS} caracteres`);
+  }
+  return { autonomy: autonomy as AgentAutonomy, approvals: [...(approvals as string[])] };
+}
+
 /** valida el toolset_v1 de un claim (ver cabecera). lanza con el motivo. */
 export function parseToolsetV1(raw: unknown): ToolsetV1 {
   if (!isObj(raw)) throw invalid('no es un objeto');
@@ -66,5 +97,6 @@ export function parseToolsetV1(raw: unknown): ToolsetV1 {
     vcsPush: raw.vcsPush as boolean,
     grants,
     platformTools: [...(tools as string[])],
+    ...autonomyOf(raw),
   };
 }

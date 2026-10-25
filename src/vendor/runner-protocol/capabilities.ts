@@ -58,5 +58,12 @@ export const RUNNER_CAPABILITY = {
   // >= 0.14.0 (t#514): sube el diff de cada turno (changes.ts) cuando el claim trae el bloque `changes`, que el server
   // solo manda con ella y en un segmento de perfil edit con repo. sin ella el claim no lleva la clave (el cable de siempre).
   turnChanges: 'turn_changes',
+  // >= 0.15.0 (t#527): aplica la autonomía de una conversación en edición (autonomy.ts): acepta `run.autonomy` con su
+  // permission mode (default | auto) y el bloque `permissions`, con el que sirve la tool de permisos y la pasa a
+  // --permission-prompt-tool. sin ella el enrutado no le entrega una conversación con nivel (routingRefusal).
+  autonomy: 'autonomy',
+  // >= 0.15.0: además lanza en bypassPermissions (el cli lo rechaza como root o con sudo: un daemon así no la
+  // anuncia). sin ella una conversación en bypass no se le entrega.
+  autonomyBypass: 'autonomy_bypass',
 } as const;
 export type RunnerCapability = (typeof RUNNER_CAPABILITY)[keyof typeof RUNNER_CAPABILITY];

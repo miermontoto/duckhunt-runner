@@ -23,6 +23,8 @@
 // - vcsPush = el run puede empujar y tocar remotos (false = el deny de push y remotos de un prompt de regla
 //   desatendido en edición por debajo del tier world).
 
+import type { AgentAutonomy } from './autonomy.js';
+
 export const TOOLSET_V1 = 1;
 
 export const TOOLSET_SHELL = {
@@ -68,6 +70,13 @@ export interface ToolsetV1 {
   grants: ToolsetGrant[];
   // tools del mcp de la plataforma que el run puede llamar (sin prefijo de ningún cli).
   platformTools: string[];
+  // solo con autonomía (t#527, autonomy.ts); ausentes = el kit fijo (dontAsk). el nivel decide qué va al allow y qué
+  // se pregunta, y su permission mode: manual = leer + platformTools en el allow (shell, escritura y web se preguntan);
+  // auto = además escritura y web (Bash no: el cli lo descarta al entrar en auto); bypass = además Bash.
+  autonomy?: AgentAutonomy;
+  // reglas que la persona aprobó «siempre aquí» en la conversación: ids de --allowedTools del backend (claude code),
+  // al final del allow. solo con `autonomy`.
+  approvals?: string[];
 }
 
 /** diferencias explicadas por una decisión, no por un fallo del render (ver cabecera). */
