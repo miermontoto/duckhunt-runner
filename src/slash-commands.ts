@@ -8,8 +8,9 @@
 //   comando), en una línea, enmascarados (maskSecrets) y recortados, y solo los primeros FRONTMATTER_READ_BYTES de un
 //   fichero regular (abierto sin bloquear: un fifo colgaría el daemon). lo del proyecto es contenido del repo: solo se
 //   lee (y solo se baja a un directorio) si su realpath nativo queda dentro del cwd del segmento, así que un
-//   `.claude/commands` o un `x.md` commiteados como symlink hacia ~/.aws no sacan nada de la máquina. la config del
-//   usuario y sus plugins son de confianza (sus symlinks los puso la persona).
+//   `.claude/commands` o un `x.md` commiteados como symlink hacia ~/.aws no sacan nada de la máquina. un plugin, solo
+//   dentro de su propia carpeta resuelta (puede ser uno local que trae el repo). la config del usuario es de confianza
+//   (sus symlinks los puso la persona).
 // - ámbitos: user (la config del usuario), plugin (los del init), bundled (skills del init sin fichero: las del cli) y
 //   project (el .claude del cwd, que solo carga un segmento en edición: los de lectura van con --setting-sources user).
 //   la lista del usuario sale del último segmento de lectura (o, sin ninguno aún, del último de edición: un plugin
@@ -52,7 +53,8 @@ const COMMANDS_MAX_DEPTH = 3;
 const NAME_SEP = ':';
 // un fallo al subir (red, 5xx, 409 sin fila aún) no se reintenta antes de esto; el claim lo vuelve a intentar.
 export const SLASH_COMMANDS_RETRY_MS = 60_000;
-const STORE_VERSION = 1;
+// 2: un catálogo por plataforma. el de 1 era de la máquina entera y mezclaba plataformas: se descarta al cargar.
+const STORE_VERSION = 2;
 const STORE_MODE = 0o600;
 const JSON_INDENT = 2;
 
@@ -131,9 +133,9 @@ export function parseCommandHelp(text: string, bodyFallback: boolean): CommandHe
 
 interface CommandFile {
   file: string;
-  // frontera de lo que se lee: el realpath del cwd para los del proyecto (contenido del repo: sus `.claude`,
-  // `commands/` o el fichero pueden ser symlinks commiteados hacia fuera); null = de confianza (la config del usuario
-  // y sus plugins, donde los symlinks los puso la persona).
+  // frontera de lo que se lee (ya resuelta): el cwd para los del proyecto (contenido del repo: sus `.claude`,
+  // `commands/` o el fichero pueden ser symlinks commiteados hacia fuera), su carpeta para un plugin; null = la config
+  // del usuario, de confianza (los symlinks los puso la persona).
   anchor: string | null;
   skill: boolean;
 }
@@ -247,9 +249,11 @@ export function resolveSlashCommands(init: InitCatalog, dirs: ResolveDirs): Slas
   const pluginIndex = new Map<string, Map<string, CommandFile>>();
   const pluginEntry = (name: string): CommandFile | null => {
     const [plugin, ...rest] = name.split(NAME_SEP);
-    const root = plugins.get(plugin!);
+    const declared = plugins.get(plugin!);
+    // un plugin se lee dentro de su propia carpeta (resuelta): puede ser uno local que trae el repo.
+    const root = declared ? realpath(declared) : null;
     if (!root || rest.length === 0) return null;
-    if (!pluginIndex.has(root)) pluginIndex.set(root, indexRoot(root, null));
+    if (!pluginIndex.has(root)) pluginIndex.set(root, indexRoot(root, root));
     return pluginIndex.get(root)!.get(rest.join(NAME_SEP)) ?? null;
   };
   const skills = new Set(init.skills);

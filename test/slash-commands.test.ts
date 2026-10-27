@@ -93,6 +93,22 @@ test('un `.claude/commands` commiteado como symlink hacia fuera del cwd no se re
   assert.deepEqual(got, [], 'ni siquiera se indexa: sin fichero dentro no es invocable');
 });
 
+test('un plugin se lee solo dentro de su carpeta: un comando suyo enlazado hacia fuera sale sin ayuda', () => {
+  const plugin = path.join(tmp, 'plugins', 'local');
+  fs.mkdirSync(path.join(plugin, 'commands'), { recursive: true });
+  fs.symlinkSync(secret, path.join(plugin, 'commands', 'fuga.md'));
+  write(path.join(plugin, 'commands', 'bien.md'), '---\ndescription: dentro\n---\n');
+  const got = byName(resolveSlashCommands({ slashCommands: ['local:fuga', 'local:bien'], skills: [], plugins: [{ name: 'local', path: plugin }] }, { configDir, projectCwd: null }));
+  assert.deepEqual(got['local:fuga'], { name: 'local:fuga', scope: 'plugin', description: null, argumentHint: null });
+  assert.equal(got['local:bien']?.description, 'dentro');
+});
+
+test('un catálogo guardado con el formato de antes (de toda la máquina) se descarta', () => {
+  const file = path.join(tmp, 'v1.json');
+  fs.writeFileSync(file, JSON.stringify({ v: 1, user: [{ name: 'bugfix', scope: 'user', description: null, argumentHint: null }], userFromRead: true, repos: { 'otro/repo': [] } }));
+  assert.equal(new SlashCommandCatalog(file).pending(), null);
+});
+
 test('un fifo con forma de comando no cuelga la lectura: se lista sin ayuda', () => {
   const dir = path.join(tmp, 'claude-fifo');
   fs.mkdirSync(path.join(dir, 'commands'), { recursive: true });

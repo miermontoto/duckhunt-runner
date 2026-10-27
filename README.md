@@ -615,7 +615,8 @@ not offered.
   the first line of the command. It reads only the first 8 KB of a regular file, masks secrets and keeps
   one line. A repo's commands are its content, so the daemon only reads them, or goes into their
   directories, if their real path stays inside the step's working directory: a committed symlink
-  (`.claude/commands` → somewhere in `~`, say) is never followed. Your own config and plugins are trusted.
+  (`.claude/commands` → somewhere in `~`, say) is never followed. A plugin's files are read only inside its own
+  directory (a repo can ship a local plugin). Your own config is trusted.
 - Each platform has its own catalogue (`slash-commands.json` in its state directory) and only receives what
   its own runs loaded. It is uploaded whole when it changes. A failed upload is retried a minute later; a
   server without the endpoint is not asked again until the list changes. The run is never affected.
