@@ -115,7 +115,8 @@
       "duckhunt-automation-update-investigate",
       "duckhunt-automation-create-run-prompt",
       "duckhunt-automation-update-run-prompt",
-      "duckhunt-agent-investigate"
+      "duckhunt-agent-investigate",
+      "duckhunt-run-propose-edit"
     ]
   },
   "tools": {
@@ -506,7 +507,8 @@
       "mcp__duckhunt__duckhunt-automation-update-investigate",
       "mcp__duckhunt__duckhunt-automation-create-run-prompt",
       "mcp__duckhunt__duckhunt-automation-update-run-prompt",
-      "mcp__duckhunt__duckhunt-agent-investigate"
+      "mcp__duckhunt__duckhunt-agent-investigate",
+      "mcp__duckhunt__duckhunt-run-propose-edit"
     ],
     "disallowed": [
       "NotebookEdit",

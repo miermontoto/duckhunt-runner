@@ -123,7 +123,8 @@
       "duckhunt-entry-set-description",
       "duckhunt-bitbucket-task-resolve",
       "duckhunt-pr-update-branch",
-      "duckhunt-pr-merge"
+      "duckhunt-pr-merge",
+      "duckhunt-run-propose-edit"
     ]
   },
   "tools": {
@@ -521,7 +522,8 @@
       "mcp__duckhunt__duckhunt-entry-set-description",
       "mcp__duckhunt__duckhunt-bitbucket-task-resolve",
       "mcp__duckhunt__duckhunt-pr-update-branch",
-      "mcp__duckhunt__duckhunt-pr-merge"
+      "mcp__duckhunt__duckhunt-pr-merge",
+      "mcp__duckhunt__duckhunt-run-propose-edit"
     ],
     "disallowed": [
       "NotebookEdit",

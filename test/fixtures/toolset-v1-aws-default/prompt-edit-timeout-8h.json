@@ -119,7 +119,8 @@
       "duckhunt-pr-open",
       "duckhunt-target-branch-set",
       "duckhunt-target-branch-delete",
-      "duckhunt-attachment-upload-ticket"
+      "duckhunt-attachment-upload-ticket",
+      "duckhunt-run-propose-edit"
     ]
   },
   "tools": {
@@ -221,7 +222,8 @@
       "mcp__duckhunt__duckhunt-pr-open",
       "mcp__duckhunt__duckhunt-target-branch-set",
       "mcp__duckhunt__duckhunt-target-branch-delete",
-      "mcp__duckhunt__duckhunt-attachment-upload-ticket"
+      "mcp__duckhunt__duckhunt-attachment-upload-ticket",
+      "mcp__duckhunt__duckhunt-run-propose-edit"
     ],
     "disallowed": [
       "NotebookEdit"
