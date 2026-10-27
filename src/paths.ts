@@ -10,6 +10,7 @@
 //   en rutas, así que se valida al construirlas y uno inválido lanza.
 // - la config, el lock del daemon y runnerHome son de la máquina, no de una plataforma: siguen en config.ts.
 // - la auditoría local (t#495, M6.6) es de toda plataforma, la legacy incluida: <runnerHome>/audit/<id>/.
+// - el catálogo de slash commands (t#555) es de la máquina (la config de claude del usuario): <runnerHome>/slash-commands.json.
 // - los directorios se crean al pedirlos (como antes en config.ts); run-config, 0700 aunque ya existiera.
 
 import fs from 'node:fs';
@@ -28,6 +29,7 @@ const SCRATCH_SUBDIR = 'scratch';
 const LOGS_SUBDIR = 'logs';
 const RUN_CONFIG_SUBDIR = 'run-config';
 const SERVER_STATE_FILE = 'server-state.json';
+const SLASH_COMMANDS_FILE = 'slash-commands.json';
 // permisos del directorio de los mcp-config de los runs: llevan el token per-run.
 const RUN_CONFIG_DIR_MODE = 0o700;
 // auditoría local por plataforma (t#495, M6.6): <runnerHome>/audit/<id>/, 0700 (lleva qué corrió cada plataforma).
@@ -105,6 +107,11 @@ export function allRunConfigDirs(): string[] {
 /** fichero con lo último que el server de la plataforma dijo de esta máquina (server-state.ts). */
 export function serverStatePath(platform: string): string {
   return path.join(platformHome(platform), SERVER_STATE_FILE);
+}
+
+/** catálogo de slash commands de la máquina (slash-commands.ts): de todas las plataformas. */
+export function slashCommandsPath(): string {
+  return path.join(runnerHome(), SLASH_COMMANDS_FILE);
 }
 
 /** raíz de la auditoría local de todas las plataformas (<runnerHome>/audit, audit.ts). */

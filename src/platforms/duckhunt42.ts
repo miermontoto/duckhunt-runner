@@ -16,9 +16,10 @@ import { chunk } from '../resources/repo/gc.js';
 import { RESOURCE_TYPE } from '../resources/types.js';
 import { isLegacyRunId, legacyWireRunId } from '../run-id.js';
 import { CLAIM_OUTCOME, parseRunnerBlock } from '../server-state.js';
+import { SLASH_UPLOAD, type SlashUploadOutcome } from '../slash-commands.js';
 import { clampReport, type StatusReport } from '../status-report.js';
 import type { RunnerCredential } from '../config.js';
-import { RUNNER_CLAUDE_VERSION_MAX_CHARS, RUNNER_STATE_HEADER, type RunChangesReport } from '../vendor/runner-protocol/index.js';
+import { RUNNER_CLAUDE_VERSION_MAX_CHARS, RUNNER_SLASH_COMMANDS_PATH, RUNNER_STATE_HEADER, type RunChangesReport, type RunnerSlashCommands } from '../vendor/runner-protocol/index.js';
 import { HttpTransport } from './http-transport.js';
 import { credentialStore } from './credentials.js';
 import {
@@ -224,6 +225,18 @@ export class Duckhunt42Platform implements Platform {
   async ackCommands(results: RepoCommandResult[]): Promise<void> {
     const ack = await this.transport.post('/repo-commands/results', { results });
     if (!ack.ok) console.error(`[runner] repos: /repo-commands/results respondió http ${ack.status}`);
+  }
+
+  // catálogo de slash commands (t#555). un 404 = server anterior a la ruta: no se reintenta hasta que el catálogo cambie.
+  async slashCommands(catalog: RunnerSlashCommands): Promise<SlashUploadOutcome> {
+    const res = await this.transport.post(RUNNER_SLASH_COMMANDS_PATH, catalog).catch((err: Error) => {
+      console.error(`[runner] slash commands: ${RUNNER_SLASH_COMMANDS_PATH} inaccesible: ${err.message}`);
+      return null;
+    });
+    if (res?.ok) return SLASH_UPLOAD.ok;
+    if (res?.status === HTTP_NOT_FOUND) return SLASH_UPLOAD.unsupported;
+    if (res) console.error(`[runner] slash commands: ${RUNNER_SLASH_COMMANDS_PATH} respondió http ${res.status}`);
+    return SLASH_UPLOAD.failed;
   }
 
   // revoca la credencial, borra la fila de la máquina y cancela sus runs en marcha (lo mismo que el × de
