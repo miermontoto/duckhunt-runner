@@ -4,7 +4,8 @@
 // decisiones:
 // - LEGACY_PLATFORM_ID ('duckhunt') son las rutas EXACTAS de hoy: <runnerHome>/{scratch,run-config,logs},
 //   <runnerHome>/server-state.json y <checkout>/.duckhunt/worktrees/. una instalación existente no mueve nada.
-// - cualquier otra plataforma vive en <runnerHome>/platforms/<id>/{scratch,run-config,logs,server-state.json}
+// - cualquier otra plataforma vive en <runnerHome>/platforms/<id>/{scratch,run-config,logs,server-state.json,
+//   slash-commands.json}
 //   y <checkout>/.runner/worktrees/<id>/ (todas bajo un mismo .runner/, que va una vez a info/exclude).
 // - el id es la clave local e inmutable de la plataforma (PLATFORM_ID_RE: minúsculas, dígitos y '-'): acaba
 //   en rutas, así que se valida al construirlas y uno inválido lanza.
@@ -28,6 +29,7 @@ const SCRATCH_SUBDIR = 'scratch';
 const LOGS_SUBDIR = 'logs';
 const RUN_CONFIG_SUBDIR = 'run-config';
 const SERVER_STATE_FILE = 'server-state.json';
+const SLASH_COMMANDS_FILE = 'slash-commands.json';
 // permisos del directorio de los mcp-config de los runs: llevan el token per-run.
 const RUN_CONFIG_DIR_MODE = 0o700;
 // auditoría local por plataforma (t#495, M6.6): <runnerHome>/audit/<id>/, 0700 (lleva qué corrió cada plataforma).
@@ -105,6 +107,11 @@ export function allRunConfigDirs(): string[] {
 /** fichero con lo último que el server de la plataforma dijo de esta máquina (server-state.ts). */
 export function serverStatePath(platform: string): string {
   return path.join(platformHome(platform), SERVER_STATE_FILE);
+}
+
+/** catálogo de slash commands de la plataforma (slash-commands.ts, t#555): solo lo que cargaron sus runs. */
+export function slashCommandsPath(platform: string): string {
+  return path.join(platformHome(platform), SLASH_COMMANDS_FILE);
 }
 
 /** raíz de la auditoría local de todas las plataformas (<runnerHome>/audit, audit.ts). */

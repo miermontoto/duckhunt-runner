@@ -173,7 +173,8 @@ import { RELEASE, RESOURCE_TYPE, ResourceUnavailableError, type ReleaseOutcome }
 import { applyRepoCommand, type RepoCommandResult } from './repo-commands.js';
 import { RunLease, signalGroup } from './run-lease.js';
 import { compareRunIds } from './run-id.js';
-import { allRunConfigDirs, LEGACY_PLATFORM_ID, LOCAL_PLATFORM_ID, logsDir, platformHome, runConfigDir, scratchDir } from './paths.js';
+import { allRunConfigDirs, LEGACY_PLATFORM_ID, LOCAL_PLATFORM_ID, logsDir, platformHome, runConfigDir, scratchDir, slashCommandsPath } from './paths.js';
+import { claudeConfigDir, resolveSlashCommands, SlashCommandCatalog } from './slash-commands.js';
 import { runnerVersion } from './version.js';
 import { PlatformRejectedError, PROTOCOL, type ClaimAnnounce, type Platform, type PlatformContext, type PlatformFactories, type Protocol, type RunSegment } from './platforms/platform.js';
 import { DEFAULT_CEILING, EXPOSE_ALL, isExposed, LOCAL_PLATFORM_DEFAULTS, PLATFORM_DEFAULT_SLOTS, type PlatformConfig } from './platforms/types.js';
@@ -329,6 +330,10 @@ export class RunnerDaemon {
   private lastAuditPruneAt = 0;
   // secreto de la máquina para los machine id por plataforma (undefined = aún sin pedir; null = no se pudo guardar).
   private machineSecret: string | null | undefined;
+  // catálogo de slash commands de cada plataforma (t#555, slash-commands.ts: solo lo que cargaron sus runs) y las que
+  // están subiendo el suyo.
+  private readonly slashCatalogs = new Map<string, SlashCommandCatalog>();
+  private readonly slashUploads = new Set<string>();
   // lo que cada supervisor necesita del daemon.
   private readonly hooks: SupervisorHooks = {
     announce: (sup) => this.announce(sup),
@@ -610,6 +615,8 @@ export class RunnerDaemon {
     }
     await this.collectWorktrees(sup);
     const claim = this.stopping ? null : await sup.claim();
+    // el server ya contestó (y la fila de la máquina existe): si no tiene el catálogo de ahora, se le sube aparte.
+    void this.syncSlashCommands(sup);
     if (!claim) {
       this.scheduler.release(sup.id);
       // sin trabajo: el turno pasa en el acto a la siguiente que espera slot.
@@ -1245,6 +1252,16 @@ export class RunnerDaemon {
       if (mcpFile !== null) fs.rmSync(mcpFile, { force: true });
       clearInterval(heartbeat);
     }
+    // los slash commands que cargó el segmento (t#555), con el cwd aún en pie: sus ficheros dan las descripciones. los del
+    // proyecto solo cuentan en edición (lectura va con --setting-sources user).
+    // nunca lanza: un fallo aquí no puede saltarse la liberación de los recursos ni el informe.
+    const init = attempt?.stream.initCatalog ?? null;
+    const edit = run.profile === PROMPT_PROFILE.edit;
+    try {
+      if (init) this.slashCatalogOf(sup.id).record({ edit, repo: run.repo, commands: resolveSlashCommands(init, { configDir: claudeConfigDir(), projectCwd: edit ? res.cwd.dir : null }) });
+    } catch (err) {
+      console.error(`${log} ${tag}: slash commands sin registrar: ${(err as Error).message}`);
+    }
     // la foto de después y su diff, antes de soltar los recursos (el worktree puede borrarse) y con el cwd aún tomado.
     const changes = changesFrom !== null && claim.changes ? await turnChanges(res.cwd.dir, res.env, changesFrom, claim.changes) : null;
     // los recursos se sueltan (el worktree se marca o se borra) ANTES de reportar: ver cabecera. y con sus
@@ -1260,6 +1277,31 @@ export class RunnerDaemon {
     audited({ lockWaitMs, materialized: res.resources, report, toolsByName: attempt?.stream.toolsByName ?? {}, code });
     await sup.platform.result(run.id, { ...report, ...withShadow, ...seg });
     console.log(`${log} ${tag} terminado (${report.status}${report.error ? `: ${report.error}` : ''})`);
+    void this.syncSlashCommands(sup);
+  }
+
+  // sube el catálogo de slash commands a la plataforma si no tiene el de ahora (una subida a la vez por plataforma; el
+  // catálogo espacia los reintentos de un fallo). nunca lanza.
+  private async syncSlashCommands(sup: PlatformSupervisor): Promise<void> {
+    const upload = sup.platform.slashCommands?.bind(sup.platform);
+    const catalog = upload && !this.slashUploads.has(sup.id) ? this.slashCatalogOf(sup.id) : null;
+    const pending = catalog?.pending() ?? null;
+    if (!upload || !catalog || !pending) return;
+    this.slashUploads.add(sup.id);
+    try {
+      catalog.settle(pending.hash, await upload(pending.catalog));
+    } finally {
+      this.slashUploads.delete(sup.id);
+    }
+  }
+
+  // el catálogo de la plataforma, cargado de su fichero la primera vez.
+  private slashCatalogOf(id: string): SlashCommandCatalog {
+    const known = this.slashCatalogs.get(id);
+    if (known) return known;
+    const fresh = new SlashCommandCatalog(slashCommandsPath(id));
+    this.slashCatalogs.set(id, fresh);
+    return fresh;
   }
 
   // el flip de toolset_v1 (t#495, M5): un claim de duckhunt-42 con `toolset` se lanza con el render del daemon

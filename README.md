@@ -21,7 +21,9 @@ learns a repo's `workspace/slug` key and, optionally, an AWS account id — neve
 disk. With the progress feed on, it also receives what the agent says and one line per tool call
 (see [Progress feed](#progress-feed)), never file contents or command output. The one exception is
 the diff of what an `edit` conversation changed in its repo, so you can review it in the conversation
-(see [Code changes per turn](#code-changes-per-turn-0140-or-later)).
+(see [Code changes per turn](#code-changes-per-turn-0140-or-later)). From 0.16.0 it also receives the
+names of the slash commands your runs load, with the one-line description from each command's file (see
+[Slash commands](#slash-commands-0160-or-later)).
 
 ## Requirements
 
@@ -89,7 +91,8 @@ another file (a second account, a test instance) and `DUCKHUNT_RUNNER_HOME` to m
 directory (`~/.duckhunt-runner`: the scratch directory, `--verbose` logs, the daemon lock, the
 per-run MCP configs and `server-state.json`, what duckhunt last said about this machine; from 0.13.0
 also `audit/`, `platforms/<id>/` for other platforms, `browser-vault/` for saved browser sessions and
-`sockets/` for `runner run`). `--version` prints the daemon version.
+`sockets/` for `runner run`; from 0.16.0 `slash-commands.json`, the catalogue of slash commands your runs
+load, one per platform). `--version` prints the daemon version.
 
 From 0.13.0 the same file can also hold `platforms` (other platforms and your settings for each, see
 [Platforms](#platforms-0130-or-later)), `resources` (resource types other than repos and AWS: today
@@ -593,6 +596,30 @@ does it when the claim asks for it.
 The daemon also strips variables of the Claude Code session it may have been started from
 (`CLAUDECODE`, `CLAUDE_CODE_SESSION_ID`…), empty `ANTHROPIC_*` values and a dead `SSH_AUTH_SOCK` from
 the environment of each run, and disables git's terminal prompts.
+
+### Slash commands (0.16.0 or later)
+
+Typing `/` at the start of a message in a duckhunt conversation suggests the slash commands the agent of
+that turn can run: your own (`~/.claude/commands`, `~/.claude/skills` or `$CLAUDE_CONFIG_DIR`), your
+plugins', Claude Code's bundled skills and, in an `edit` conversation, the repo's (`.claude/commands`,
+`.claude/skills`). A message that starts with one asks the agent to run it with the `Skill` tool. Claude
+Code only expands a command at the very start of a prompt, and duckhunt's instructions come first. In
+`dontAsk` mode Claude Code refuses a command that asks for extra permissions (`allowed-tools`), so a command
+never widens what the conversation may do. Built-in commands (`/compact`, `/model`…) are not skills and are
+not offered.
+
+- The list is what Claude Code reports at the start of each step (`system/init`), never a guess. Read-only
+  steps load only yours (`--setting-sources user`), so the repo's commands come from the last `edit`
+  step in that repo.
+- For each name the daemon reads its file's frontmatter (`description`, `argument-hint`) or, failing that,
+  the first line of the command. It reads only the first 8 KB of a regular file, masks secrets and keeps
+  one line. A repo's commands are its content, so the daemon only reads them, or goes into their
+  directories, if their real path stays inside the step's working directory: a committed symlink
+  (`.claude/commands` → somewhere in `~`, say) is never followed. A plugin's files are read only inside its own
+  directory (a repo can ship a local plugin). Your own config is trusted.
+- Each platform has its own catalogue (`slash-commands.json` in its state directory) and only receives what
+  its own runs loaded. It is uploaded whole when it changes. A failed upload is retried a minute later; a
+  server without the endpoint is not asked again until the list changes. The run is never affected.
 
 ## Platforms (0.13.0 or later)
 

@@ -6,9 +6,12 @@
 // principal, tras --model si lo hubo) y, sin init, la clave de modelUsage con más coste. antes era la
 // primera clave de modelUsage, que suele ser el haiku auxiliar del cli (títulos, resúmenes): prod tenía
 // 30 runs reportados como claude-haiku-4-5.
+// catálogo de slash commands (t#555): del mismo init se guarda lo que el segmento cargó (slash_commands, skills y
+// plugins), que slash-commands.ts resuelve a ficheros con su descripción.
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { parseInitCatalog, type InitCatalog } from './slash-commands.js';
 
 const execFileP = promisify(execFile);
 
@@ -99,11 +102,13 @@ export interface StreamState {
   sessionId: string | null;
   // modelo del evento system/init: el del bucle principal de este proceso.
   initModel: string | null;
+  // slash commands, skills y plugins que cargó (system/init; null = sin init o un cli que no los anuncia).
+  initCatalog: InitCatalog | null;
   result: StreamResult | null;
 }
 
 export function newStreamState(): StreamState {
-  return { toolCalls: 0, toolsByName: {}, sawAssistant: false, sessionId: null, initModel: null, result: null };
+  return { toolCalls: 0, toolsByName: {}, sawAssistant: false, sessionId: null, initModel: null, initCatalog: null, result: null };
 }
 
 // bloque de contenido de un mensaje del stream: text (prosa), tool_use (name + input),
@@ -126,6 +131,9 @@ export interface StreamLine {
   modelUsage?: Record<string, unknown>;
   // solo en system/init.
   model?: unknown;
+  slash_commands?: unknown;
+  skills?: unknown;
+  plugins?: unknown;
   message?: { content?: StreamContent[] | string };
 }
 
@@ -158,7 +166,10 @@ export function consumeStreamLine(state: StreamState, line: string): StreamLine 
     return null;
   }
   if (typeof ev.session_id === 'string' && ev.session_id) state.sessionId = ev.session_id;
-  if (ev.type === 'system' && ev.subtype === 'init' && typeof ev.model === 'string' && ev.model) state.initModel = ev.model;
+  if (ev.type === 'system' && ev.subtype === 'init') {
+    if (typeof ev.model === 'string' && ev.model) state.initModel = ev.model;
+    state.initCatalog = parseInitCatalog(ev);
+  }
   if (ev.type === 'assistant') {
     state.sawAssistant = true;
     const content = ev.message?.content;
