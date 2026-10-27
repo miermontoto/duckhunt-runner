@@ -41,8 +41,8 @@ write(secret, 'ghp_abcdefghijklmnopqrstuvwxyz0123456789AB\n');
 fs.symlinkSync(secret, path.join(projectDir, '.claude', 'commands', 'leak.md'));
 
 const init: InitCatalog = {
-  slashCommands: ['bugfix', 'component', 'code-review:code-review', 'deploy', 'leak', 'compact', 'clear', 'deep-dive', 'deep-research'],
-  skills: ['deep-dive', 'deep-research'],
+  slashCommands: ['bugfix', 'component', 'code-review:code-review', 'deploy', 'leak', 'compact', 'clear', 'deep-dive', 'deep-research', 'code-review'],
+  skills: ['deep-dive', 'deep-research', 'code-review'],
   plugins: [{ name: 'code-review', path: pluginDir }],
 };
 const byName = (list: SlashCommand[]): Record<string, SlashCommand> => Object.fromEntries(list.map((c) => [c.name, c]));
@@ -67,7 +67,8 @@ test('la ayuda: frontmatter de una línea, con comillas o en bloque; sin descrip
 test('en lectura: sin los del proyecto, sin built-ins, la skill del cli sin fichero y cada uno con su ámbito', () => {
   const list = resolveSlashCommands(init, { configDir, projectCwd: null });
   const got = byName(list);
-  assert.deepEqual(Object.keys(got).sort(), ['bugfix', 'code-review:code-review', 'component', 'deep-dive', 'deep-research']);
+  assert.deepEqual(Object.keys(got).sort(), ['bugfix', 'code-review', 'code-review:code-review', 'component', 'deep-dive', 'deep-research']);
+  assert.equal(got['code-review']?.scope, 'bundled', 'un nombre suelto que coincide con un plugin es del cli');
   assert.deepEqual(got.bugfix, { name: 'bugfix', scope: 'user', description: 'arregla un bug', argumentHint: '[descripción]' });
   assert.equal(got.component?.description, 'crea un componente', 'comando anidado, por su nombre suelto');
   assert.equal(got['deep-dive']?.description, 'investiga a fondo con fuentes');

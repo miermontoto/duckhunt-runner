@@ -236,7 +236,9 @@ export function resolveSlashCommands(init: InitCatalog, dirs: ResolveDirs): Slas
     const inUser = user.get(name);
     if (inUser) return { scope: SLASH_COMMAND_SCOPE.user, file: inUser };
     if (!skills.has(name)) return null;
-    return { scope: plugins.has(name.split(NAME_SEP)[0]!) ? SLASH_COMMAND_SCOPE.plugin : SLASH_COMMAND_SCOPE.bundled, file: null };
+    // `plugin:x` sin fichero es de ese plugin; un nombre suelto es del cli aunque se llame como un plugin (code-review).
+    const fromPlugin = name.includes(NAME_SEP) && plugins.has(name.split(NAME_SEP)[0]!);
+    return { scope: fromPlugin ? SLASH_COMMAND_SCOPE.plugin : SLASH_COMMAND_SCOPE.bundled, file: null };
   };
   const resolve = (name: string): SlashCommand | null => {
     const found = locate(name);
