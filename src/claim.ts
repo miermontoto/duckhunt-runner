@@ -44,6 +44,11 @@
 //   sigue valiendo: el deny (el del server y los que fuerza el daemon) manda también en bypass, un proceso root lo
 //   rechaza (canBypassPermissions) y solo un prompt run de perfil edit lo puede pedir. no añadas un opt-in sin
 //   revisar esa decisión.
+// - volver atrás (0.17.0, t#564, rewind.ts del protocolo): `run.resumeAt` (capability `rewind`) es el uuid del mensaje
+//   en el que retomar la sesión, en una nueva (--resume-session-at + --fork-session); solo con sessionId y con forma de
+//   uuid (va al argv). `restore` (capability `rewind_files`) es la foto {tree, head} a la que volver ANTES del turno
+//   (rewind-files.ts): solo en un prompt run de edición con repo en su worktree, nunca en el checkout de la persona,
+//   y con ids de objeto git. lo que no cumple invalida el claim: el server nunca lo manda así.
 
 import { runIdFromLegacy } from './run-id.js';
 import {
@@ -68,6 +73,8 @@ import {
   RUN_CHANGES_FILES_MAX,
   RUN_CHANGES_PATCH_MAX_CHARS,
   RUNNER_CAPABILITY,
+  GIT_OBJECT_ID_RE,
+  RUN_MESSAGE_UUID_RE,
   TOOLSET_V1,
   type AgentAutonomy,
   type AgentPromptProfile,
@@ -75,6 +82,7 @@ import {
   type AgentRunSeed,
   type LegacyClaimChanges,
   type LegacyClaimPermissions,
+  type LegacyClaimRestore,
   type RunnerCapability,
 } from './vendor/runner-protocol/index.js';
 import { parseToolsetV1 } from './toolset/parse.js';
@@ -241,6 +249,8 @@ export interface ClaimedRun {
   model: string | null;
   // nivel de autonomía de una conversación en edición (0.15.0, t#527; null = el kit fijo, dontAsk).
   autonomy: AgentAutonomy | null;
+  // uuid del mensaje en el que retomar la sesión en una nueva (0.17.0, t#564; null = reanudar entera o no reanudar).
+  resumeAt: string | null;
 }
 
 export interface EventsConfig {
@@ -283,6 +293,8 @@ export interface ClaimResponse {
   changes?: LegacyClaimChanges;
   // dónde pregunta la tool de permisos (t#527): solo con una autonomía que pregunta (manual, auto).
   permissions?: LegacyClaimPermissions;
+  // la foto a la que vuelven los ficheros del worktree antes del turno (t#564, rewind-files.ts). ausente = ninguna.
+  restore?: LegacyClaimRestore;
   mcp: McpServer;
   // avisos de la validación local (rama ignorada…): el daemon los loguea y los sube al feed.
   warnings: string[];
@@ -417,6 +429,26 @@ function permissionsOf(v: unknown, autonomy: AgentAutonomy | null, mcp: { server
   return { url: url.href, ttlMs, waitMs: Math.min(waitMs, PERMISSION_WAIT_MAX_MS) };
 }
 
+// el punto en el que retomar (ver cabecera): ausente o null = ninguno; uno sin sesión o sin forma de uuid invalida el claim.
+function resumeAtOf(v: unknown, sessionId: string | null): string | null {
+  if (v === undefined || v === null) return null;
+  if (typeof v !== 'string' || !RUN_MESSAGE_UUID_RE.test(v)) throw new Error('claim inválido: run.resumeAt no es el uuid de un mensaje');
+  if (sessionId === null) throw new Error('claim inválido: run.resumeAt sin sesión que retomar');
+  return v;
+}
+
+// la foto a restaurar (ver cabecera): solo en una edición con repo en su worktree, con ids de objeto git.
+function restoreOf(v: unknown, run: { kind: string; profile: PromptProfile | null; isolation: RunIsolation; repo: string | null }): LegacyClaimRestore | null {
+  if (v === undefined || v === null) return null;
+  if (!isObj(v) || typeof v.tree !== 'string' || typeof v.head !== 'string' || !GIT_OBJECT_ID_RE.test(v.tree) || !GIT_OBJECT_ID_RE.test(v.head)) {
+    throw new Error('claim inválido: restore no es {tree, head} de git');
+  }
+  if (run.kind !== RUN_KIND.prompt || run.profile !== PROMPT_PROFILE.edit || run.repo === null || run.isolation !== RUN_ISOLATION.worktree) {
+    throw new Error('claim inválido: restore solo en una conversación en edición con repo en su worktree');
+  }
+  return { tree: v.tree, head: v.head };
+}
+
 /** valida y normaliza la respuesta 200 del claim. lanza con el motivo si algo no es seguro. */
 export function parseClaim(raw: unknown, machine: ClaimMachine = thisMachine()): ClaimResponse {
   if (!isObj(raw) || !isObj(raw.run)) throw new Error('claim inválido: falta run');
@@ -474,6 +506,9 @@ export function parseClaimBody(raw: unknown, id: string, machine: ClaimMachine =
   const changes = changesConfig(raw.changes);
   const segment = posInt(r.segment);
   const permissions = permissionsOf(raw.permissions, autonomy, { serverName, url }, segment);
+  const isolation = kind === RUN_KIND.prompt && r.isolation === RUN_ISOLATION.checkout ? RUN_ISOLATION.checkout : RUN_ISOLATION.worktree;
+  const resumeAt = resumeAtOf(r.resumeAt, sessionId);
+  const restore = restoreOf(raw.restore, { kind, profile, isolation, repo });
 
   return {
     run: {
@@ -490,10 +525,11 @@ export function parseClaimBody(raw: unknown, id: string, machine: ClaimMachine =
       parentRunId: posInt(r.parentRunId),
       profile,
       seed: r.seed === RUN_SEED.template || r.seed === RUN_SEED.prompt ? r.seed : null,
-      isolation: kind === RUN_KIND.prompt && r.isolation === RUN_ISOLATION.checkout ? RUN_ISOLATION.checkout : RUN_ISOLATION.worktree,
+      isolation,
       segment,
       model,
       autonomy,
+      resumeAt,
     },
     prompt,
     fallbackPrompt: str(raw.fallbackPrompt),
@@ -507,6 +543,7 @@ export function parseClaimBody(raw: unknown, id: string, machine: ClaimMachine =
     events: eventsConfig(raw.events),
     ...(changes !== null ? { changes } : {}),
     ...(permissions !== null ? { permissions } : {}),
+    ...(restore !== null ? { restore } : {}),
     mcp: { serverName, url, token, expiresAt: numOrNull(mcp.expiresAt) ?? 0 },
     warnings,
     toolset: null,

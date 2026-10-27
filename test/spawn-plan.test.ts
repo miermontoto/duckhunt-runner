@@ -5,6 +5,8 @@
 // mcp-config que recibe, y un server falso que guarda progress, feed y status. todo se normaliza (rutas del
 // tmpdir, sufijos aleatorios, shas) y se compara con test/golden/spawn-plan.json, que se capturó con el daemon de
 // antes de los recursos (P3): el refactor no puede mover ni un byte de lo que ve claude ni de lo que ve el server.
+// volver atrás (0.17.0, t#564): retomar en un mensaje (fork, y su reintento desde cero sin él) y una restauración que no
+// puede hacerse (HEAD movido) y por eso no lanza claude; desde entonces el status de un turno con diff lleva su foto.
 // UPDATE_SPAWN_PLAN=1 lo reescribe (solo para capturar, nunca para tapar una diferencia).
 
 import assert from 'node:assert/strict';
@@ -31,6 +33,8 @@ const MACHINE = '6f1d7c1e-5b0a-4c34-9b8e-2a3f7c1d9e01';
 const ACCOUNT = '123456789012';
 const UNMAPPED_ACCOUNT = '999999999999';
 const REPO = 'okt/api';
+// el mensaje en el que retoma una vuelta atrás (t#564).
+const REWIND_AT = '8f14e45f-ceea-467a-9bb4-1f6c2d1e0a77';
 // argumentos largos (listas de tools, prompts) van como hash + longitud.
 const LONG_ARG_CHARS = 200;
 const HASH_CHARS = 16;
@@ -200,6 +204,9 @@ function syntheticCases(): Case[] {
     { name: 'synthetic/escaping-symlink', raw: withRun(read, { id: 913 }), origin: 'escaping' },
     { name: 'synthetic/defaults-model-budget', raw: withRun(template, { id: 914 }), cfg: (c) => ({ ...c, defaults: { ...c.defaults, model: 'sonnet', maxBudgetUsd: 3 } }) },
     { name: 'synthetic/edit-no-repo-scratch', raw: withRun(edit, { id: 915, repo: null, branch: null, isolation: undefined }) },
+    { name: 'synthetic/rewind-fork', raw: withRun(edit, { id: 916, sessionId: 'sess-new', resumeAt: REWIND_AT }) },
+    { name: 'synthetic/rewind-fork-gone-fallback', raw: withRun(read, { id: 917, sessionId: 'gone', resumeAt: REWIND_AT }, { fallbackPrompt: 'empieza de cero' }) },
+    { name: 'synthetic/rewind-restore-head-moved', raw: withRun(edit, { id: 918 }, { restore: { tree: 'a'.repeat(40), head: 'b'.repeat(40) } }) },
   ];
 }
 

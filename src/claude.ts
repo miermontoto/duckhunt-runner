@@ -8,10 +8,14 @@
 // 30 runs reportados como claude-haiku-4-5.
 // catálogo de slash commands (t#555): del mismo init se guarda lo que el segmento cargó (slash_commands, skills y
 // plugins), que slash-commands.ts resuelve a ficheros con su descripción.
+// volver atrás (0.17.0, t#564): el `uuid` del último evento assistant del segmento es el punto donde duckhunt puede
+// retomar la conversación más tarde (--resume-session-at); un fork conserva los uuid de lo que copia (verificado con
+// 2.1.311), así que un punto de antes de un fork sigue valiendo en la sesión nueva.
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { parseInitCatalog, type InitCatalog } from './slash-commands.js';
+import { REWIND_CLI_MIN_VERSION, RUN_MESSAGE_UUID_RE } from './vendor/runner-protocol/index.js';
 
 const execFileP = promisify(execFile);
 
@@ -49,6 +53,9 @@ export function claudeAtLeast(version: string | null, min: string): boolean {
 
 /** ¿acepta el cli --permission-prompt-tool? (ver PERMISSION_PROMPT_TOOL_MIN_VERSION). */
 export const supportsPermissionPromptTool = (version: string | null): boolean => claudeAtLeast(version, PERMISSION_PROMPT_TOOL_MIN_VERSION);
+
+/** ¿acepta el cli --resume-session-at + --fork-session? flags ocultos del --help: se decide por versión (protocolo). */
+export const supportsRewind = (version: string | null): boolean => claudeAtLeast(version, REWIND_CLI_MIN_VERSION);
 
 export interface ClaudeInfo {
   version: string | null;
@@ -104,11 +111,13 @@ export interface StreamState {
   initModel: string | null;
   // slash commands, skills y plugins que cargó (system/init; null = sin init o un cli que no los anuncia).
   initCatalog: InitCatalog | null;
+  // uuid del último mensaje del asistente (t#564): dónde retomar más tarde. null = ninguno con un uuid válido.
+  lastAssistantUuid: string | null;
   result: StreamResult | null;
 }
 
 export function newStreamState(): StreamState {
-  return { toolCalls: 0, toolsByName: {}, sawAssistant: false, sessionId: null, initModel: null, initCatalog: null, result: null };
+  return { toolCalls: 0, toolsByName: {}, sawAssistant: false, sessionId: null, initModel: null, initCatalog: null, lastAssistantUuid: null, result: null };
 }
 
 // bloque de contenido de un mensaje del stream: text (prosa), tool_use (name + input),
@@ -124,6 +133,8 @@ export interface StreamLine {
   type?: string;
   subtype?: string;
   session_id?: string;
+  // id del mensaje en la sesión (assistant, user…).
+  uuid?: unknown;
   is_error?: boolean;
   result?: unknown;
   total_cost_usd?: unknown;
@@ -172,6 +183,7 @@ export function consumeStreamLine(state: StreamState, line: string): StreamLine 
   }
   if (ev.type === 'assistant') {
     state.sawAssistant = true;
+    if (typeof ev.uuid === 'string' && RUN_MESSAGE_UUID_RE.test(ev.uuid)) state.lastAssistantUuid = ev.uuid;
     const content = ev.message?.content;
     const uses = Array.isArray(content) ? content.filter((c) => c?.type === 'tool_use') : [];
     state.toolCalls += uses.length;

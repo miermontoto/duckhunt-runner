@@ -1,6 +1,8 @@
 // cierre de un segmento: traduce el resultado de un intento de `claude -p` al body de
 // POST /api/runner/runs/:id/status y lo recorta a los topes del server (un result de más de 20k
 // daba 400 y el run se quedaba colgado en running → lost → failed).
+// volver atrás (0.17.0, t#564): el informe lleva el uuid del último mensaje del asistente (dónde podrá retomarse) y, con
+// rewind_files, el árbol y el HEAD con los que empezó el segmento (los pone el daemon: no salen del intento).
 
 import { configPath } from './config.js';
 import { maskSecrets } from './secret-mask.js';
@@ -27,6 +29,10 @@ export interface StatusReport {
   segment?: number;
   // toolset_v1 en sombra (t#495, M5): solo si el claim trajo toolset; ya recortado (toolset/shadow.ts).
   toolsetShadow?: ToolsetShadow;
+  // volver atrás (t#564, RewindStatusFields del protocolo): el uuid del último mensaje del asistente y la foto del inicio.
+  lastMessageUuid?: string;
+  startTree?: string;
+  startHead?: string;
 }
 
 // resultado de una ejecución de claude (un intento).
@@ -62,6 +68,7 @@ export function reportFor(attempt: Attempt, resumed: boolean | undefined): Statu
     ...(sessionId ? { sessionId } : {}),
     ...(s.result?.model ? { model: s.result.model } : {}),
     ...(resumed !== undefined ? { resumed } : {}),
+    ...(s.lastAssistantUuid ? { lastMessageUuid: s.lastAssistantUuid } : {}),
     ...(attempt.stderrTail ? { stderrTail: attempt.stderrTail } : {}),
   };
   if (attempt.killedBy === 'cancel') return { ...base, status: 'canceled', error: 'cancelado desde el server' };
