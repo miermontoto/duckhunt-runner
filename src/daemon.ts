@@ -330,8 +330,9 @@ export class RunnerDaemon {
   private lastAuditPruneAt = 0;
   // secreto de la máquina para los machine id por plataforma (undefined = aún sin pedir; null = no se pudo guardar).
   private machineSecret: string | null | undefined;
-  // catálogo de slash commands de la máquina (t#555, slash-commands.ts) y las plataformas a las que se está subiendo.
-  private readonly slashCatalog = new SlashCommandCatalog(slashCommandsPath());
+  // catálogo de slash commands de cada plataforma (t#555, slash-commands.ts: solo lo que cargaron sus runs) y las que
+  // están subiendo el suyo.
+  private readonly slashCatalogs = new Map<string, SlashCommandCatalog>();
   private readonly slashUploads = new Set<string>();
   // lo que cada supervisor necesita del daemon.
   private readonly hooks: SupervisorHooks = {
@@ -1253,9 +1254,14 @@ export class RunnerDaemon {
     }
     // los slash commands que cargó el segmento (t#555), con el cwd aún en pie: sus ficheros dan las descripciones. los del
     // proyecto solo cuentan en edición (lectura va con --setting-sources user).
+    // nunca lanza: un fallo aquí no puede saltarse la liberación de los recursos ni el informe.
     const init = attempt?.stream.initCatalog ?? null;
     const edit = run.profile === PROMPT_PROFILE.edit;
-    if (init) this.slashCatalog.record({ edit, repo: run.repo, commands: resolveSlashCommands(init, { configDir: claudeConfigDir(), projectCwd: edit ? res.cwd.dir : null }) });
+    try {
+      if (init) this.slashCatalogOf(sup.id).record({ edit, repo: run.repo, commands: resolveSlashCommands(init, { configDir: claudeConfigDir(), projectCwd: edit ? res.cwd.dir : null }) });
+    } catch (err) {
+      console.error(`${log} ${tag}: slash commands sin registrar: ${(err as Error).message}`);
+    }
     // la foto de después y su diff, antes de soltar los recursos (el worktree puede borrarse) y con el cwd aún tomado.
     const changes = changesFrom !== null && claim.changes ? await turnChanges(res.cwd.dir, res.env, changesFrom, claim.changes) : null;
     // los recursos se sueltan (el worktree se marca o se borra) ANTES de reportar: ver cabecera. y con sus
@@ -1278,14 +1284,24 @@ export class RunnerDaemon {
   // catálogo espacia los reintentos de un fallo). nunca lanza.
   private async syncSlashCommands(sup: PlatformSupervisor): Promise<void> {
     const upload = sup.platform.slashCommands?.bind(sup.platform);
-    const pending = upload && !this.slashUploads.has(sup.id) ? this.slashCatalog.pendingFor(sup.id) : null;
-    if (!upload || !pending) return;
+    const catalog = upload && !this.slashUploads.has(sup.id) ? this.slashCatalogOf(sup.id) : null;
+    const pending = catalog?.pending() ?? null;
+    if (!upload || !catalog || !pending) return;
     this.slashUploads.add(sup.id);
     try {
-      this.slashCatalog.settle(sup.id, pending.hash, await upload(pending.catalog));
+      catalog.settle(pending.hash, await upload(pending.catalog));
     } finally {
       this.slashUploads.delete(sup.id);
     }
+  }
+
+  // el catálogo de la plataforma, cargado de su fichero la primera vez.
+  private slashCatalogOf(id: string): SlashCommandCatalog {
+    const known = this.slashCatalogs.get(id);
+    if (known) return known;
+    const fresh = new SlashCommandCatalog(slashCommandsPath(id));
+    this.slashCatalogs.set(id, fresh);
+    return fresh;
   }
 
   // el flip de toolset_v1 (t#495, M5): un claim de duckhunt-42 con `toolset` se lanza con el render del daemon

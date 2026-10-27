@@ -3,6 +3,7 @@
 // la máquina guarda y sube (una vez por huella, con reintento espaciado).
 
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -76,10 +77,30 @@ test('en lectura: sin los del proyecto, sin built-ins, la skill del cli sin fich
   assert.deepEqual(got['deep-research'], { name: 'deep-research', scope: 'bundled', description: null, argumentHint: null });
 });
 
-test('en edición: los del proyecto; un symlink que sale del directorio se lista sin leerlo', () => {
+test('en edición: los del proyecto; un symlink que sale del cwd se lista sin leerlo', () => {
   const got = byName(resolveSlashCommands(init, { configDir, projectCwd: projectDir }));
   assert.deepEqual(got.deploy, { name: 'deploy', scope: 'project', description: 'despliega el repo', argumentHint: null });
   assert.deepEqual(got.leak, { name: 'leak', scope: 'project', description: null, argumentHint: null });
+});
+
+test('un `.claude/commands` commiteado como symlink hacia fuera del cwd no se recorre ni se lee', () => {
+  const outside = path.join(tmp, 'fuera');
+  write(path.join(outside, 'robado.md'), '---\ndescription: secreto de fuera\n---\n');
+  const repo = path.join(tmp, 'repo-symlink');
+  fs.mkdirSync(path.join(repo, '.claude'), { recursive: true });
+  fs.symlinkSync(outside, path.join(repo, '.claude', 'commands'));
+  const got = resolveSlashCommands({ slashCommands: ['robado'], skills: [], plugins: [] }, { configDir, projectCwd: repo });
+  assert.deepEqual(got, [], 'ni siquiera se indexa: sin fichero dentro no es invocable');
+});
+
+test('un fifo con forma de comando no cuelga la lectura: se lista sin ayuda', () => {
+  const dir = path.join(tmp, 'claude-fifo');
+  fs.mkdirSync(path.join(dir, 'commands'), { recursive: true });
+  execFileSync('mkfifo', [path.join(dir, 'commands', 'tubo.md')]);
+  const started = Date.now();
+  const got = resolveSlashCommands({ slashCommands: ['tubo'], skills: [], plugins: [] }, { configDir: dir, projectCwd: null });
+  assert.deepEqual(got, [{ name: 'tubo', scope: 'user', description: null, argumentHint: null }]);
+  assert.ok(Date.now() - started < 1000, 'sin bloquear');
 });
 
 test('el catálogo: usuario desde lectura, proyecto por repo desde edición, guardado y recargado', () => {
@@ -87,35 +108,42 @@ test('el catálogo: usuario desde lectura, proyecto por repo desde edición, gua
   const catalog = new SlashCommandCatalog(file);
   const user = (name: string): SlashCommand => ({ name, scope: 'user', description: null, argumentHint: null });
   const project = (name: string): SlashCommand => ({ name, scope: 'project', description: null, argumentHint: null });
-  assert.equal(catalog.pendingFor('duckhunt'), null, 'vacío: nada que subir');
+  assert.equal(catalog.pending(), null, 'vacío: nada que subir');
 
   assert.equal(catalog.record({ edit: true, repo: 'okt/api', commands: [user('bugfix'), project('deploy')] }), true);
-  assert.deepEqual(catalog.pendingFor('duckhunt')?.catalog, { user: [user('bugfix')], repos: [{ repo: 'okt/api', commands: [project('deploy')] }] });
+  assert.deepEqual(catalog.pending()?.catalog, { user: [user('bugfix')], repos: [{ repo: 'okt/api', commands: [project('deploy')] }] });
   // uno de lectura fija la lista del usuario; uno de edición posterior ya no la pisa.
   catalog.record({ edit: false, repo: 'okt/api', commands: [user('bugfix'), user('pr')] });
   catalog.record({ edit: true, repo: 'okt/web', commands: [user('solo-en-web')] });
   assert.equal(catalog.record({ edit: false, repo: null, commands: [user('bugfix'), user('pr')] }), false, 'sin cambios no escribe');
-  const reloaded = new SlashCommandCatalog(file).pendingFor('duckhunt')!.catalog;
+  const reloaded = new SlashCommandCatalog(file).pending()!.catalog;
   assert.deepEqual(reloaded.user.map((c) => c.name), ['bugfix', 'pr']);
   assert.deepEqual(reloaded.repos.map((r) => r.repo), ['okt/api'], 'un repo sin comandos de proyecto no se guarda');
   // otro de edición en okt/api sin comandos de proyecto lo saca.
   catalog.record({ edit: true, repo: 'okt/api', commands: [user('bugfix')] });
-  assert.deepEqual(catalog.pendingFor('duckhunt')?.catalog.repos, []);
+  assert.deepEqual(catalog.pending()?.catalog.repos, []);
 });
 
 test('la subida: una vez por huella, el fallo espaciado y un server sin la ruta no se reintenta', () => {
   const catalog = new SlashCommandCatalog(path.join(tmp, 'upload.json'));
   catalog.record({ edit: false, repo: null, commands: [{ name: 'bugfix', scope: 'user', description: null, argumentHint: null }] });
   const now = 1_000_000;
-  const first = catalog.pendingFor('duckhunt', now)!;
-  catalog.settle('duckhunt', first.hash, SLASH_UPLOAD.failed, now);
-  assert.equal(catalog.pendingFor('duckhunt', now + 1), null, 'recién fallada');
-  assert.ok(catalog.pendingFor('duckhunt', now + SLASH_COMMANDS_RETRY_MS), 'pasado el espacio, otra vez');
-  catalog.settle('duckhunt', first.hash, SLASH_UPLOAD.ok, now);
-  assert.equal(catalog.pendingFor('duckhunt', now + SLASH_COMMANDS_RETRY_MS * 2), null, 'ya la tiene');
-  assert.ok(catalog.pendingFor('otra', now), 'otra plataforma va aparte');
-  catalog.settle('otra', first.hash, SLASH_UPLOAD.unsupported, now);
-  assert.equal(catalog.pendingFor('otra', now + SLASH_COMMANDS_RETRY_MS * 2), null, 'un server sin la ruta no se reintenta');
+  const first = catalog.pending(now)!;
+  catalog.settle(first.hash, SLASH_UPLOAD.failed, now);
+  assert.equal(catalog.pending(now + 1), null, 'recién fallada');
+  assert.ok(catalog.pending(now + SLASH_COMMANDS_RETRY_MS), 'pasado el espacio, otra vez');
+  catalog.settle(first.hash, SLASH_UPLOAD.ok, now);
+  assert.equal(catalog.pending(now + SLASH_COMMANDS_RETRY_MS * 2), null, 'ya la tiene');
+  catalog.settle(first.hash, SLASH_UPLOAD.unsupported, now);
+  assert.equal(catalog.pending(now + SLASH_COMMANDS_RETRY_MS * 2), null, 'un server sin la ruta no se reintenta');
   catalog.record({ edit: false, repo: null, commands: [{ name: 'pr', scope: 'user', description: null, argumentHint: null }] });
-  assert.ok(catalog.pendingFor('otra', now + 1), 'con un catálogo nuevo, sí');
+  assert.ok(catalog.pending(now + 1), 'con un catálogo nuevo, sí');
+});
+
+test('cada plataforma tiene su catálogo: los comandos de un repo de una no llegan a otra', () => {
+  const a = new SlashCommandCatalog(path.join(tmp, 'a.json'));
+  const b = new SlashCommandCatalog(path.join(tmp, 'b.json'));
+  a.record({ edit: true, repo: 'cliente/privado', commands: [{ name: 'deploy', scope: 'project', description: 'despliega', argumentHint: null }] });
+  assert.equal(b.pending(), null, 'la otra no tiene nada que subir');
+  assert.deepEqual(a.pending()?.catalog.repos.map((r) => r.repo), ['cliente/privado']);
 });

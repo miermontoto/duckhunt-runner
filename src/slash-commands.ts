@@ -5,16 +5,19 @@
 //   descubrimiento del cli. de sus nombres se quedan las skills y los comandos con fichero; los built-ins (clear,
 //   compact, model…) salen en slash_commands sin fichero, no son skills y Skill no los ejecuta.
 // - descripción y argument-hint salen del frontmatter del fichero (sin descripción, la primera línea del cuerpo de un
-//   comando), en una línea, enmascarados (maskSecrets) y recortados. solo se lee un fichero cuyo realpath nativo queda
-//   dentro de su directorio, y solo sus primeros FRONTMATTER_READ_BYTES: un repo puede commitear
-//   `.claude/commands/x.md` → ~/.aws/credentials y su primera línea saldría de la máquina.
+//   comando), en una línea, enmascarados (maskSecrets) y recortados, y solo los primeros FRONTMATTER_READ_BYTES de un
+//   fichero regular (abierto sin bloquear: un fifo colgaría el daemon). lo del proyecto es contenido del repo: solo se
+//   lee (y solo se baja a un directorio) si su realpath nativo queda dentro del cwd del segmento, así que un
+//   `.claude/commands` o un `x.md` commiteados como symlink hacia ~/.aws no sacan nada de la máquina. la config del
+//   usuario y sus plugins son de confianza (sus symlinks los puso la persona).
 // - ámbitos: user (la config del usuario), plugin (los del init), bundled (skills del init sin fichero: las del cli) y
 //   project (el .claude del cwd, que solo carga un segmento en edición: los de lectura van con --setting-sources user).
 //   la lista del usuario sale del último segmento de lectura (o, sin ninguno aún, del último de edición: un plugin
 //   activado solo en un proyecto se colaría ahí, se acepta) y la del proyecto de un repo, del último de edición en él.
-// - se guarda en <runnerHome>/slash-commands.json (sobrevive a reinicios: la landing tiene comandos antes del primer
-//   run) y se sube entero a cada plataforma que lo admite cuando cambia lo que ella tiene (huella sha256), con un
-//   reintento espaciado si falla y sin reintentar ante un server que no conoce la ruta hasta que el catálogo cambie.
+// - un catálogo POR PLATAFORMA (<platformHome>/slash-commands.json: sobrevive a reinicios, así la landing tiene comandos
+//   antes del primer run): cada una recibe solo lo que cargaron SUS runs, nunca los comandos del proyecto de un repo
+//   que trabajó otra. se sube entero cuando cambia lo que su server tiene (huella sha256), con un reintento espaciado
+//   si falla y sin reintentar ante un server que no conoce la ruta hasta que el catálogo cambie.
 // - nunca tumba un run: un fichero ilegible es un comando sin descripción; un fallo al guardar o al subir, un log.
 
 import { createHash } from 'node:crypto';
@@ -128,8 +131,10 @@ export function parseCommandHelp(text: string, bodyFallback: boolean): CommandHe
 
 interface CommandFile {
   file: string;
-  // directorio del que no puede salir su realpath (commands/ o skills/ de esa raíz).
-  base: string;
+  // frontera de lo que se lee: el realpath del cwd para los del proyecto (contenido del repo: sus `.claude`,
+  // `commands/` o el fichero pueden ser symlinks commiteados hacia fuera); null = de confianza (la config del usuario
+  // y sus plugins, donde los symlinks los puso la persona).
+  anchor: string | null;
   skill: boolean;
 }
 
@@ -143,14 +148,23 @@ function realpath(p: string): string | null {
   }
 }
 
-// primeros bytes de un fichero que de verdad vive dentro de `base`; null si sale de él o no se puede leer.
-function readInside(f: CommandFile): string | null {
-  const root = realpath(f.base);
+// ¿el realpath de `p` queda dentro de `anchor` (ya resuelto)? sin frontera, siempre.
+function within(p: string, anchor: string | null): boolean {
+  if (anchor === null) return true;
+  const real = realpath(p);
+  return real !== null && (real === anchor || real.startsWith(anchor + path.sep));
+}
+
+// primeros bytes de un fichero REGULAR dentro de su frontera; null si sale, si es otra cosa (un fifo o un dispositivo
+// colgarían la lectura: se abre sin bloquear y se comprueba lo abierto) o si no se puede leer.
+function readHelpFile(f: CommandFile): string | null {
   const real = realpath(f.file);
-  if (!root || !real || (real !== root && !real.startsWith(root + path.sep))) return null;
+  if (real === null || !within(real, f.anchor)) return null;
   try {
-    const fd = fs.openSync(real, 'r');
+    if (!fs.statSync(real).isFile()) return null;
+    const fd = fs.openSync(real, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
     try {
+      if (!fs.fstatSync(fd).isFile()) return null;
       const buf = Buffer.alloc(FRONTMATTER_READ_BYTES);
       return buf.subarray(0, fs.readSync(fd, buf, 0, buf.length, 0)).toString('utf8');
     } finally {
@@ -171,30 +185,41 @@ const listDir = (dir: string): fs.Dirent[] => {
   }
 };
 
+// ¿se baja a esta entrada? un directorio, o un symlink a uno que no sale de la frontera.
+function isDirInside(full: string, d: fs.Dirent, anchor: string | null): boolean {
+  if (d.isDirectory()) return true;
+  if (!d.isSymbolicLink() || !within(full, anchor)) return false;
+  try {
+    return fs.statSync(full).isDirectory();
+  } catch {
+    // colgante entre el realpath y el stat: no aporta comandos.
+    return false;
+  }
+}
+
 // commands/**/*.md hasta COMMANDS_MAX_DEPTH, con el nombre anidado (`carpeta:comando`) y el suelto (`comando`).
-function commandEntries(dir: string, base: string, prefix: string[] = [], depth = 0): [string, CommandFile][] {
+function commandEntries(dir: string, anchor: string | null, prefix: string[] = [], depth = 0): [string, CommandFile][] {
+  if (!within(dir, anchor)) return [];
   return listDir(dir).flatMap((d): [string, CommandFile][] => {
     const full = path.join(dir, d.name);
-    if (d.isDirectory() || (d.isSymbolicLink() && realpath(full) !== null && fs.statSync(full).isDirectory())) {
-      return depth + 1 < COMMANDS_MAX_DEPTH ? commandEntries(full, base, [...prefix, d.name], depth + 1) : [];
-    }
+    if (isDirInside(full, d, anchor)) return depth + 1 < COMMANDS_MAX_DEPTH ? commandEntries(full, anchor, [...prefix, d.name], depth + 1) : [];
     if (!d.name.endsWith(MD_EXT)) return [];
     const name = d.name.slice(0, -MD_EXT.length);
-    const file = { file: full, base, skill: false };
+    const file = { file: full, anchor, skill: false };
     return prefix.length > 0 ? [[[...prefix, name].join(NAME_SEP), file], [name, file]] : [[name, file]];
   });
 }
 
 /** comandos y skills de una raíz (la config del usuario, un plugin, el .claude del proyecto) por nombre. */
-function indexRoot(root: string): Map<string, CommandFile> {
-  const commands = path.join(root, COMMANDS_DIR);
+function indexRoot(root: string, anchor: string | null): Map<string, CommandFile> {
+  if (!within(root, anchor)) return new Map();
   const skills = path.join(root, SKILLS_DIR);
-  const skillEntries = listDir(skills)
-    .filter((d) => d.isDirectory() || d.isSymbolicLink())
-    .map((d): [string, CommandFile] => [d.name, { file: path.join(skills, d.name, SKILL_FILE), base: skills, skill: true }])
+  const skillEntries = (within(skills, anchor) ? listDir(skills) : [])
+    .filter((d) => isDirInside(path.join(skills, d.name), d, anchor))
+    .map((d): [string, CommandFile] => [d.name, { file: path.join(skills, d.name, SKILL_FILE), anchor, skill: true }])
     .filter(([, f]) => fs.existsSync(f.file));
   // el primero gana: un comando anidado no pisa a uno de la raíz con el mismo nombre suelto.
-  return [...commandEntries(commands, commands), ...skillEntries].reduce((m, [k, v]) => (m.has(k) ? m : m.set(k, v)), new Map<string, CommandFile>());
+  return [...commandEntries(path.join(root, COMMANDS_DIR), anchor), ...skillEntries].reduce((m, [k, v]) => (m.has(k) ? m : m.set(k, v)), new Map<string, CommandFile>());
 }
 
 /** la config de claude code del usuario que carga el cli ($CLAUDE_CONFIG_DIR o ~/.claude). */
@@ -214,15 +239,17 @@ export interface ResolveDirs {
  * `plugin:x` se busca en ese plugin; uno suelto, en el proyecto (si se cargó) y luego en la config del usuario.
  */
 export function resolveSlashCommands(init: InitCatalog, dirs: ResolveDirs): SlashCommand[] {
-  const user = indexRoot(dirs.configDir);
-  const project = dirs.projectCwd ? indexRoot(path.join(dirs.projectCwd, PROJECT_CONFIG_DIR)) : new Map<string, CommandFile>();
+  const user = indexRoot(dirs.configDir, null);
+  // el proyecto, con su cwd de frontera (resuelto: el worktree o el checkout los pone el daemon, no el repo).
+  const cwd = dirs.projectCwd ? realpath(dirs.projectCwd) : null;
+  const project = cwd ? indexRoot(path.join(cwd, PROJECT_CONFIG_DIR), cwd) : new Map<string, CommandFile>();
   const plugins = new Map(init.plugins.map((p) => [p.name, p.path]));
   const pluginIndex = new Map<string, Map<string, CommandFile>>();
   const pluginEntry = (name: string): CommandFile | null => {
     const [plugin, ...rest] = name.split(NAME_SEP);
     const root = plugins.get(plugin!);
     if (!root || rest.length === 0) return null;
-    if (!pluginIndex.has(root)) pluginIndex.set(root, indexRoot(root));
+    if (!pluginIndex.has(root)) pluginIndex.set(root, indexRoot(root, null));
     return pluginIndex.get(root)!.get(rest.join(NAME_SEP)) ?? null;
   };
   const skills = new Set(init.skills);
@@ -243,7 +270,7 @@ export function resolveSlashCommands(init: InitCatalog, dirs: ResolveDirs): Slas
   const resolve = (name: string): SlashCommand | null => {
     const found = locate(name);
     if (!found) return null;
-    const text = found.file ? readInside(found.file) : null;
+    const text = found.file ? readHelpFile(found.file) : null;
     const help = found.file && text !== null ? parseCommandHelp(text, !found.file.skill) : { description: null, argumentHint: null };
     return { name, scope: found.scope, ...help };
   };
@@ -291,12 +318,12 @@ function loadStored(file: string): Stored {
   }
 }
 
-/** el catálogo de la máquina: lo que registran los segmentos y lo que falta por subir a cada plataforma. */
+/** el catálogo de una plataforma: lo que registran sus segmentos y si a su server le falta. */
 export class SlashCommandCatalog {
   private stored: Stored;
-  // por plataforma: la huella que ya tiene y cuándo falló la última subida.
-  private readonly uploaded = new Map<string, string>();
-  private readonly failedAt = new Map<string, number>();
+  // la huella que ya tiene el server y cuándo falló la última subida.
+  private uploaded: string | null = null;
+  private failedAt = -Infinity;
 
   constructor(private readonly file: string) {
     this.stored = loadStored(file);
@@ -322,25 +349,24 @@ export class SlashCommandCatalog {
     return true;
   }
 
-  /** lo que hay que subir a la plataforma `id` (null si ya lo tiene, si está vacío o si falló hace poco). */
-  pendingFor(id: string, now = Date.now()): SlashCommandsUpload | null {
+  /** lo que hay que subir (null si el server ya lo tiene, si está vacío o si falló hace poco). */
+  pending(now = Date.now()): SlashCommandsUpload | null {
     if (this.stored.user.length === 0 && Object.keys(this.stored.repos).length === 0) return null;
     const catalog: RunnerSlashCommands = { user: this.stored.user, repos: Object.entries(this.stored.repos).map(([repo, commands]) => ({ repo, commands })) };
     const hash = createHash('sha256').update(JSON.stringify(catalog)).digest('hex');
-    if (this.uploaded.get(id) === hash) return null;
-    if (now - (this.failedAt.get(id) ?? -Infinity) < SLASH_COMMANDS_RETRY_MS) return null;
+    if (this.uploaded === hash || now - this.failedAt < SLASH_COMMANDS_RETRY_MS) return null;
     return { catalog, hash };
   }
 
-  /** apunta cómo fue la subida de `hash` a la plataforma `id`. */
-  settle(id: string, hash: string, outcome: SlashUploadOutcome, now = Date.now()): void {
+  /** apunta cómo fue la subida de `hash`. */
+  settle(hash: string, outcome: SlashUploadOutcome, now = Date.now()): void {
     if (outcome === SLASH_UPLOAD.failed) {
-      this.failedAt.set(id, now);
+      this.failedAt = now;
       return;
     }
     // guardada, o un server que no conoce la ruta: no se vuelve a mandar hasta que el catálogo cambie.
-    this.uploaded.set(id, hash);
-    this.failedAt.delete(id);
+    this.uploaded = hash;
+    this.failedAt = -Infinity;
   }
 
   private save(): void {

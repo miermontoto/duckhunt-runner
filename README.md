@@ -92,7 +92,7 @@ directory (`~/.duckhunt-runner`: the scratch directory, `--verbose` logs, the da
 per-run MCP configs and `server-state.json`, what duckhunt last said about this machine; from 0.13.0
 also `audit/`, `platforms/<id>/` for other platforms, `browser-vault/` for saved browser sessions and
 `sockets/` for `runner run`; from 0.16.0 `slash-commands.json`, the catalogue of slash commands your runs
-load). `--version` prints the daemon version.
+load, one per platform). `--version` prints the daemon version.
 
 From 0.13.0 the same file can also hold `platforms` (other platforms and your settings for each, see
 [Platforms](#platforms-0130-or-later)), `resources` (resource types other than repos and AWS: today
@@ -612,12 +612,13 @@ not offered.
   steps load only yours (`--setting-sources user`), so the repo's commands come from the last `edit`
   step in that repo.
 - For each name the daemon reads its file's frontmatter (`description`, `argument-hint`) or, failing that,
-  the first line of the command. It reads only the first 8 KB, masks secrets and keeps one line. A file
-  whose real path is outside its `commands/` or `skills/` directory (a symlink a repo committed, say) is
-  listed without being read.
-- It is saved in `slash-commands.json` in the state directory and uploaded whole when it changes. A
-  failed upload is retried a minute later; a server without the endpoint is not asked again until the
-  list changes. The run is never affected.
+  the first line of the command. It reads only the first 8 KB of a regular file, masks secrets and keeps
+  one line. A repo's commands are its content, so the daemon only reads them, or goes into their
+  directories, if their real path stays inside the step's working directory: a committed symlink
+  (`.claude/commands` → somewhere in `~`, say) is never followed. Your own config and plugins are trusted.
+- Each platform has its own catalogue (`slash-commands.json` in its state directory) and only receives what
+  its own runs loaded. It is uploaded whole when it changes. A failed upload is retried a minute later; a
+  server without the endpoint is not asked again until the list changes. The run is never affected.
 
 ## Platforms (0.13.0 or later)
 
