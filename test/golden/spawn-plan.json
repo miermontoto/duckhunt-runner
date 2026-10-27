@@ -71,7 +71,7 @@
           }
         ],
         "status": [
-          "{\"status\":\"done\",\"toolCalls\":1,\"costUsd\":0.5,\"numTurns\":2,\"sessionId\":\"sess-new\",\"model\":\"claude-opus-5-5\",\"result\":\"hecho\",\"segment\":1}"
+          "{\"status\":\"done\",\"toolCalls\":1,\"costUsd\":0.5,\"numTurns\":2,\"sessionId\":\"sess-new\",\"model\":\"claude-opus-5-5\",\"result\":\"hecho\",\"startTree\":\"<sha>\",\"startHead\":\"<sha>\",\"segment\":1}"
         ]
       }
     },
@@ -11414,6 +11414,287 @@
       "runConfig": [],
       "worktrees": [],
       "exclude": []
+    }
+  },
+  "synthetic/rewind-fork": {
+    "spawns": [
+      {
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-916",
+        "argv": [
+          "-p",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--mcp-config",
+          "<case>/home/run-config/mcp-916-<rand>.json",
+          "--strict-mcp-config",
+          "--allowedTools",
+          {
+            "allowed": "732549a8fc0ece7c",
+            "count": 99,
+            "notFromClaim": [],
+            "dropped": []
+          },
+          "--disallowedTools",
+          {
+            "disallowed": "73f6ad061dc79311",
+            "count": 2,
+            "notFromClaim": [
+              "Read(/<case>/home/run-config/**)"
+            ]
+          },
+          "--permission-mode",
+          "dontAsk",
+          "--resume",
+          "sess-new",
+          "--resume-session-at",
+          "8f14e45f-ceea-467a-9bb4-1f6c2d1e0a77",
+          "--fork-session",
+          "--",
+          "<claim.prompt>"
+        ],
+        "env": {
+          "set": {
+            "AWS_PAGER": "",
+            "DUCKHUNT_RUNNER_CONFIG": "<case>/runner.json",
+            "DUCKHUNT_RUNNER_HOME": "<case>/home",
+            "GIT_TERMINAL_PROMPT": "0"
+          },
+          "removed": [
+            "ANTHROPIC_API_KEY",
+            "CLAUDECODE",
+            "CLAUDE_CODE_SESSION_ID"
+          ]
+        },
+        "mcp": "{\"mcpServers\":{\"duckhunt\":{\"type\":\"http\",\"url\":\"http://duckhunt.test/mcp\",\"headers\":{\"Authorization\":\"Bearer dho_fixture\"}}}}"
+      }
+    ],
+    "runs": {
+      "916": {
+        "progress": [
+          "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":1}"
+        ],
+        "feed": [
+          {
+            "kind": "system",
+            "body": "origin/main@<sha>",
+            "seq": 1
+          },
+          {
+            "kind": "text",
+            "body": "miro el repo",
+            "seq": 2
+          },
+          {
+            "kind": "tool",
+            "tool": "Read",
+            "body": "README.md",
+            "seq": 3
+          }
+        ],
+        "status": [
+          "{\"status\":\"done\",\"toolCalls\":1,\"costUsd\":0.5,\"numTurns\":2,\"sessionId\":\"sess-new\",\"model\":\"claude-opus-5-5\",\"resumed\":true,\"result\":\"hecho\",\"segment\":1}"
+        ]
+      }
+    },
+    "left": {
+      "runConfig": [],
+      "worktrees": [
+        "conv-916"
+      ],
+      "exclude": [
+        "/.duckhunt/"
+      ]
+    }
+  },
+  "synthetic/rewind-fork-gone-fallback": {
+    "spawns": [
+      {
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-917",
+        "argv": [
+          "-p",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--mcp-config",
+          "<case>/home/run-config/mcp-917-<rand>.json",
+          "--strict-mcp-config",
+          "--setting-sources",
+          "user",
+          "--allowedTools",
+          {
+            "allowed": "2452bf74c5c743e1",
+            "count": 388,
+            "notFromClaim": [],
+            "dropped": []
+          },
+          "--disallowedTools",
+          {
+            "disallowed": "f8c30cdda3ec790c",
+            "count": 71,
+            "notFromClaim": [
+              "Bash(npm test:*)",
+              "Edit(src/**)",
+              "Read(/<case>/runner.json)",
+              "Read(/<case>/home/run-config/**)",
+              "Read(/<case>/home/logs/**)",
+              "Read(/<case>/home/daemon.lock)",
+              "Read(/<case>/home/server-state.json)"
+            ]
+          },
+          "--permission-mode",
+          "dontAsk",
+          "--resume",
+          "gone",
+          "--resume-session-at",
+          "8f14e45f-ceea-467a-9bb4-1f6c2d1e0a77",
+          "--fork-session",
+          "--",
+          "<claim.prompt>"
+        ],
+        "env": {
+          "set": {
+            "AWS_PAGER": "",
+            "DUCKHUNT_RUNNER_CONFIG": "<case>/runner.json",
+            "DUCKHUNT_RUNNER_HOME": "<case>/home",
+            "GIT_TERMINAL_PROMPT": "0"
+          },
+          "removed": [
+            "ANTHROPIC_API_KEY",
+            "CLAUDECODE",
+            "CLAUDE_CODE_SESSION_ID"
+          ]
+        },
+        "mcp": "{\"mcpServers\":{\"duckhunt\":{\"type\":\"http\",\"url\":\"http://duckhunt.test/mcp\",\"headers\":{\"Authorization\":\"Bearer dho_fixture\"}}}}"
+      },
+      {
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-917",
+        "argv": [
+          "-p",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--mcp-config",
+          "<case>/home/run-config/mcp-917-<rand>.json",
+          "--strict-mcp-config",
+          "--setting-sources",
+          "user",
+          "--allowedTools",
+          {
+            "allowed": "2452bf74c5c743e1",
+            "count": 388,
+            "notFromClaim": [],
+            "dropped": []
+          },
+          "--disallowedTools",
+          {
+            "disallowed": "f8c30cdda3ec790c",
+            "count": 71,
+            "notFromClaim": [
+              "Bash(npm test:*)",
+              "Edit(src/**)",
+              "Read(/<case>/runner.json)",
+              "Read(/<case>/home/run-config/**)",
+              "Read(/<case>/home/logs/**)",
+              "Read(/<case>/home/daemon.lock)",
+              "Read(/<case>/home/server-state.json)"
+            ]
+          },
+          "--permission-mode",
+          "dontAsk",
+          "--",
+          "<claim.fallbackPrompt>"
+        ],
+        "env": {
+          "set": {
+            "AWS_PAGER": "",
+            "DUCKHUNT_RUNNER_CONFIG": "<case>/runner.json",
+            "DUCKHUNT_RUNNER_HOME": "<case>/home",
+            "GIT_TERMINAL_PROMPT": "0"
+          },
+          "removed": [
+            "ANTHROPIC_API_KEY",
+            "CLAUDECODE",
+            "CLAUDE_CODE_SESSION_ID"
+          ]
+        },
+        "mcp": "{\"mcpServers\":{\"duckhunt\":{\"type\":\"http\",\"url\":\"http://duckhunt.test/mcp\",\"headers\":{\"Authorization\":\"Bearer dho_fixture\"}}}}"
+      }
+    ],
+    "runs": {
+      "917": {
+        "progress": [
+          "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":1}",
+          "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":1}"
+        ],
+        "feed": [
+          {
+            "kind": "system",
+            "body": "origin/main@<sha>",
+            "seq": 1
+          },
+          {
+            "kind": "system",
+            "body": "la sesión anterior no se pudo reanudar en este runner: reintento desde cero",
+            "seq": 2
+          },
+          {
+            "kind": "text",
+            "body": "miro el repo",
+            "seq": 3
+          },
+          {
+            "kind": "tool",
+            "tool": "Read",
+            "body": "README.md",
+            "seq": 4
+          }
+        ],
+        "status": [
+          "{\"status\":\"done\",\"toolCalls\":1,\"costUsd\":0.5,\"numTurns\":2,\"sessionId\":\"sess-new\",\"model\":\"claude-opus-5-5\",\"resumed\":false,\"result\":\"hecho\",\"segment\":1}"
+        ]
+      }
+    },
+    "left": {
+      "runConfig": [],
+      "worktrees": [
+        "conv-917"
+      ],
+      "exclude": [
+        "/.duckhunt/"
+      ]
+    }
+  },
+  "synthetic/rewind-restore-head-moved": {
+    "spawns": [],
+    "runs": {
+      "918": {
+        "progress": [],
+        "feed": [
+          {
+            "kind": "system",
+            "body": "origin/main@<sha>",
+            "seq": 1
+          },
+          {
+            "kind": "system",
+            "body": "no se pudieron restaurar los ficheros (HEAD cambió desde ese turno (hay commits por medio): los ficheros no se tocan): el turno no se lanza",
+            "seq": 2
+          }
+        ],
+        "status": [
+          "{\"status\":\"failed\",\"error\":\"restore_failed: HEAD cambió desde ese turno (hay commits por medio): los ficheros no se tocan\",\"segment\":1}"
+        ]
+      }
+    },
+    "left": {
+      "runConfig": [],
+      "worktrees": [
+        "conv-918"
+      ],
+      "exclude": [
+        "/.duckhunt/"
+      ]
     }
   }
 }

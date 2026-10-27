@@ -621,6 +621,28 @@ not offered.
   its own runs loaded. It is uploaded whole when it changes. A failed upload is retried a minute later; a
   server without the endpoint is not asked again until the list changes. The run is never affected.
 
+### Going back in a conversation (0.17.0 or later)
+
+In a duckhunt conversation you can edit one of your earlier messages and send it again: the conversation
+continues from just before that message, as if what came after had not happened. Optionally the files go
+back too. It needs Claude Code 2.1.311 or later (the daemon checks `claude --version`; older versions
+don't announce it).
+
+- **The conversation.** At the end of each step the daemon reports the id of the agent's last message. To
+  go back, duckhunt asks it to resume the session at the message where the earlier step ended, in a new
+  session (`--resume-session-at` + `--fork-session`). The original session stays as it was. Editing the
+  first message starts a new session from scratch. A machine without this support never resumes after
+  going back; it starts from the fallback prompt with the conversation as it now stands.
+- **The files.** Claude Code's own file rewind does not work headless, so the daemon does it with the
+  [per-turn snapshots](#code-changes-per-turn-0140-or-later). Each `edit` step with a repo reports the
+  snapshot it started from and the `HEAD` at that time. When you ask for the files, before the step starts
+  the daemon writes that snapshot back into the conversation's worktree with a temporary index. It deletes
+  what was created since (ignored files are never touched) and resets the worktree's index to `HEAD`, so
+  nothing from the discarded turns is left staged. This only happens in a conversation worktree, never in
+  your checkout, and only if `HEAD` hasn't moved. If a commit came in between, or `git gc` has removed the
+  snapshot, the step fails with `restore_failed` without launching Claude, and nothing is changed.
+- What the agent did outside the worktree (in duckhunt, Jira, a push) stays done.
+
 ## Platforms (0.13.0 or later)
 
 duckhunt is the built-in platform: `login` and `logout` without an id are still the duckhunt ones,

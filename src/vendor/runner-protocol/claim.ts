@@ -6,6 +6,7 @@
 // no estos tipos: los fixtures lo comprueban byte a byte.
 
 import type { AgentAutonomy, LegacyClaimPermissions } from './autonomy.js';
+import type { LegacyClaimRestore } from './rewind.js';
 import type { LegacyClaimChanges } from './changes.js';
 import type { ToolsetV1 } from './toolset.js';
 
@@ -103,6 +104,9 @@ export interface LegacyClaimRun {
   // solo a un daemon con RUNNER_CAPABILITY.autonomy (t#527, autonomy.ts), tras model: el nivel de la conversación en
   // edición (null = el kit fijo, dontAsk). el permission mode que viaja es el suyo.
   autonomy?: AgentAutonomy | null;
+  // solo a un daemon con RUNNER_CAPABILITY.rewind (t#564, rewind.ts), tras autonomy y con sessionId: el uuid del
+  // mensaje assistant en el que retomar la sesión, en una sesión nueva (--resume-session-at + --fork-session).
+  resumeAt?: string;
 }
 
 /** cadencia y topes del feed de progreso (events.ts) para este run. */
@@ -159,6 +163,9 @@ export interface LegacyClaimBody {
   // solo a un daemon con RUNNER_CAPABILITY.turnChanges y en un segmento de perfil edit con repo (changes.ts): los
   // topes del diff del turno. sin la clave, el daemon no lo calcula.
   changes?: LegacyClaimChanges;
+  // solo a un daemon con RUNNER_CAPABILITY.rewindFiles (t#564, rewind.ts), tras changes: el árbol que restaurar en el
+  // worktree antes del turno y el HEAD que tiene que seguir teniendo.
+  restore?: LegacyClaimRestore;
   mcp: LegacyClaimMcp;
   runner?: LegacyClaimRunner;
 }

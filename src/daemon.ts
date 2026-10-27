@@ -24,6 +24,10 @@
 //   un run cerrado. igual el diff del turno (t#514, turn-changes.ts): si el claim trae `changes`, foto del árbol
 //   tras tomar el turno del cwd y otra antes de soltar los recursos (el worktree puede borrarse); su diff se sube
 //   tras el feed y antes del status, y un fallo solo se loguea.
+// - volver atrás (0.17.0, t#564): con `restore` en el claim, el worktree vuelve a esa foto (rewind-files.ts) ANTES de
+//   la foto de turn-changes, ya con el turno del cwd tomado; si no puede, el segmento falla con REWIND_RESTORE_ERROR y
+//   claude no se lanza. el status lleva la foto del inicio (startTree, la de turn-changes) con su HEAD, y el uuid del
+//   último mensaje del asistente; con `run.resumeAt`, la reanudación va en una sesión nueva desde ese mensaje.
 // - el segmento del claim viaja en heartbeat/progress/events/status: es lo que distingue a ESTE
 //   proceso del siguiente turno de la misma fila. el latido mata claude en cuanto el run deja de ser
 //   suyo (cancelado, re-encolado tras detenerlo, dado por fallido, borrado → 404, reclamado por otro
@@ -143,16 +147,17 @@ import {
 import { derivedMachineId, ensureMachineId, ensureMachineSecret } from './machine.js';
 import { browserVaultDeny, otherPlatformsDeny, otherScratchDeny, secretPathsDeny } from './secret-paths.js';
 import { CLAIM_OUTCOME } from './server-state.js';
-import { consumeStreamLine, detectClaude, newStreamState, supportsPermissionPromptTool, type ClaudeInfo } from './claude.js';
+import { consumeStreamLine, detectClaude, newStreamState, supportsPermissionPromptTool, supportsRewind, type ClaudeInfo } from './claude.js';
 import { buildClaudeArgs, claudeRunEnv } from './claude-args.js';
 import { announcedCapabilities } from './announced-capabilities.js';
 import { mirroredDeny, READ_MIRRORED_TOOLS, settingsFilesFor, WRITE_TOOLS } from './user-permissions.js';
-import { canBypassPermissions, EVENTS_DEFAULTS, PROMPT_PROFILE, RUN_KIND, type ClaimResponse } from './claim.js';
+import { canBypassPermissions, EVENTS_DEFAULTS, PROMPT_PROFILE, RUN_ISOLATION, RUN_KIND, type ClaimResponse } from './claim.js';
 import { EventUploader } from './event-uploader.js';
 import { clip, feedEventsFromStream, systemEvent, type FeedContext } from './feed.js';
 import { scrubEnv } from './scrub-env.js';
 import { reportFor, type Attempt, type KillReason, type StatusReport } from './status-report.js';
 import { snapshotTree, turnChanges } from './turn-changes.js';
+import { headOf, restoreTree } from './rewind-files.js';
 import { AuditLog, AUDIT_OUTCOME, claimedRecord, closedRecord, DAY_MS, nextMidnight, outcomeCode, pruneAudit, rejectedRecord, retentionDays, toolsetSummary, type AttemptFacts, type AuditSubject, type ClaimedRecord } from './audit.js';
 import { readShellGuard, readShellLog, readShellNote } from './read-shell-guard.js';
 import { clearLegacyTmpConfigs, clearRunMcpConfigs, permissionMcpServers, runConfigDeny, writeRunMcpConfig } from './run-mcp-config.js';
@@ -182,7 +187,7 @@ import { credentialStore } from './platforms/credentials.js';
 import { PLATFORM_FACTORIES } from './platforms/factories.js';
 import { Scheduler } from './platforms/scheduler.js';
 import { PLATFORM_STATE, PlatformSupervisor, type SupervisorHooks } from './platforms/supervisor.js';
-import { RUNNER_LABEL_MAX_CHARS, type ToolsetShadow } from './vendor/runner-protocol/index.js';
+import { REWIND_RESTORE_ERROR, RUNNER_LABEL_MAX_CHARS, type ToolsetShadow } from './vendor/runner-protocol/index.js';
 import { shadowOf } from './toolset/shadow.js';
 import { intersectToolset } from './toolset/intersect.js';
 import { v0Announce } from './platforms/v0.js';
@@ -1233,8 +1238,13 @@ export class RunnerDaemon {
     const lockStart = Date.now();
     const releaseLocks = await holdLocks(res.locks, this.cwdLocks, lease.killed, note);
     const lockWaitMs = Date.now() - lockStart;
+    // volver atrás con los ficheros (t#564, ver cabecera): antes de la foto del turno y con el cwd ya tomado.
+    const restoreError = claim.restore ? await this.restoreFiles(claim, res, note) : null;
     // diff del turno (t#514, turn-changes.ts): la foto de antes, ya con el turno del cwd tomado.
-    const changesFrom = claim.changes && res.cwd.checkout ? await snapshotTree(res.cwd.dir, res.env) : null;
+    const changesFrom = restoreError === null && claim.changes && res.cwd.checkout ? await snapshotTree(res.cwd.dir, res.env) : null;
+    // y su HEAD (t#564): con la foto, el punto al que podrá volver este turno.
+    const startHead = changesFrom !== null ? await headOf(res.cwd.dir, res.env) : null;
+    const start = changesFrom !== null && startHead !== null ? { startTree: changesFrom, startHead } : {};
     // mcp-config con el token per-run (run-mcp-config.ts: 0600 en un directorio 0700; se borra al terminar).
     let mcpFile: string | null = null;
     let report: StatusReport;
@@ -1242,12 +1252,13 @@ export class RunnerDaemon {
     // los servidores mcp de los recursos (t#495, M7), con los turnos ya tomados; null = no se pudieron preparar.
     let resourceMcp: RunMcp | null = null;
     try {
+      if (restoreError !== null) throw restoreError;
       resourceMcp = await res.mcp();
       // la tool de permisos (t#527) junto a los de los recursos: res_<tipo>_<clave> nunca choca con su nombre.
       mcpFile = writeRunMcpConfig(run.id, claim.mcp, sup.id, claim.extraMcp, { ...permissionMcpServers(claim), ...resourceMcp.servers });
       ({ report, attempt } = await this.runAttempts(sup, withResourceTools(claim, resourceMcp), lease, res, mcpFile, feed, ctx, note));
     } catch (err) {
-      report = { status: 'failed', error: resourceMcp === null ? legacyResourceError(err) : (err as Error).message };
+      report = { status: 'failed', error: err === restoreError || resourceMcp !== null ? (err as Error).message : legacyResourceError(err) };
     } finally {
       if (mcpFile !== null) fs.rmSync(mcpFile, { force: true });
       clearInterval(heartbeat);
@@ -1273,11 +1284,28 @@ export class RunnerDaemon {
     await feed?.close();
     // tras el feed y antes del cierre: con el run aún corriendo, el server lo acepta (ver turn-changes.ts).
     if (changes !== null) await sup.platform.changes?.(run.id, changes, seg);
-    const code = resourceMcp === null ? AUDIT_OUTCOME.resourceUnavailable : outcomeCode(report.status, attempt && attemptFacts(attempt));
+    const code =
+      restoreError !== null ? AUDIT_OUTCOME.runnerError : resourceMcp === null ? AUDIT_OUTCOME.resourceUnavailable : outcomeCode(report.status, attempt && attemptFacts(attempt));
     audited({ lockWaitMs, materialized: res.resources, report, toolsByName: attempt?.stream.toolsByName ?? {}, code });
-    await sup.platform.result(run.id, { ...report, ...withShadow, ...seg });
+    await sup.platform.result(run.id, { ...report, ...start, ...withShadow, ...seg });
     console.log(`${log} ${tag} terminado (${report.status}${report.error ? `: ${report.error}` : ''})`);
     void this.syncSlashCommands(sup);
+  }
+
+  // el worktree de la conversación a la foto del claim (t#564, rewind-files.ts): null si volvió; si no, el error con el
+  // que falla el segmento (sin lanzar claude). parseClaim ya exige worktree; aquí además un cwd que sea un checkout.
+  private async restoreFiles(claim: ClaimResponse, res: MaterializedRun, note: (text: string) => void): Promise<Error | null> {
+    if (!claim.restore) return null;
+    try {
+      if (claim.run.isolation !== RUN_ISOLATION.worktree || !res.cwd.checkout) throw new Error('el run no trabaja en un worktree');
+      await restoreTree(res.cwd.dir, res.env, claim.restore);
+      note('ficheros restaurados a como estaban al empezar ese turno');
+      return null;
+    } catch (err) {
+      const error = new Error(`${REWIND_RESTORE_ERROR}: ${(err as Error).message}`);
+      note(`no se pudieron restaurar los ficheros (${(err as Error).message}): el turno no se lanza`);
+      return error;
+    }
   }
 
   // sube el catálogo de slash commands a la plataforma si no tiene el de ahora (una subida a la vez por plataforma; el
@@ -1397,6 +1425,9 @@ export class RunnerDaemon {
         secretPathsDeny: this.secretDeny,
         withoutShell: shell.dropShell,
         permissionPromptTool: supportsPermissionPromptTool(this.claude.version),
+        // volver atrás (t#564): solo con --resume; el reintento desde cero (resumeSessionId null) no lo lleva.
+        resumeAt: run.resumeAt,
+        rewind: supportsRewind(this.claude.version),
       });
     // reanudar o no lo decide el server: manda sessionId solo cuando hay sesión que retomar.
     const resume = run.sessionId;

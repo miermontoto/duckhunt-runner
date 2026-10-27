@@ -4,7 +4,7 @@
 
 import { RUNNER_CAPABILITY, type RunnerCapability } from './claim.js';
 import { PROMPT_REQUIRED_FLAGS } from './claude-args.js';
-import { supportsPermissionPromptTool, type OptionalFlag } from './claude.js';
+import { supportsPermissionPromptTool, supportsRewind, type OptionalFlag } from './claude.js';
 
 export interface MachineKit {
   // aws cli instalada.
@@ -24,10 +24,11 @@ export interface MachineKit {
 }
 
 /** capacidades del claim: prompt (y lo que va con él) solo si el cli puede cumplir su perfil, model solo con --model,
- *  autonomy solo con un cli >= PERMISSION_PROMPT_TOOL_MIN_VERSION. */
+ *  autonomy solo con un cli >= PERMISSION_PROMPT_TOOL_MIN_VERSION, rewind solo con uno >= REWIND_CLI_MIN_VERSION. */
 export function announcedCapabilities(kit: MachineKit): RunnerCapability[] {
   const prompt = PROMPT_REQUIRED_FLAGS.every((f) => kit.supported.has(f));
   const autonomy = prompt && supportsPermissionPromptTool(kit.claudeVersion ?? null);
+  const rewind = prompt && supportsRewind(kit.claudeVersion ?? null);
   return [
     ...(kit.hasAws ? [RUNNER_CAPABILITY.aws] : []),
     // read_shell y native_memory van con prompt: exigen poder cumplir el perfil read (parseClaim lo
@@ -57,5 +58,8 @@ export function announcedCapabilities(kit: MachineKit): RunnerCapability[] {
     // bypass además fuera de root (el cli lo rechaza).
     ...(autonomy ? [RUNNER_CAPABILITY.autonomy] : []),
     ...(autonomy && kit.bypassPermissions === true ? [RUNNER_CAPABILITY.autonomyBypass] : []),
+    // volver atrás (t#564): retomar en un mensaje con un cli que sabe (claude.ts::supportsRewind) y, con turn_changes
+    // (siempre anunciada), restaurar los ficheros de un turno (rewind-files.ts).
+    ...(rewind ? [RUNNER_CAPABILITY.rewind, RUNNER_CAPABILITY.rewindFiles] : []),
   ];
 }

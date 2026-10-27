@@ -42,6 +42,10 @@
 // reglas sigue como estaba). con `permissions` (un nivel que pregunta) el cli recibe --permission-prompt-tool con la
 // tool que sirve el daemon (permission-server.ts) y su env MCP_TOOL_TIMEOUT de margen sobre el ttl de la petición
 // (claudeRunEnv): el flag no sale en `claude --help`, así que lo decide la versión del cli (claude.ts).
+// volver atrás (0.17.0, t#564): con `resumeAt` (run.resumeAt del claim) la reanudación va con --resume-session-at <uuid>
+// y --fork-session: una sesión nueva que solo sabe hasta ese mensaje (la original queda entera). solo tras --resume
+// (el reintento desde cero no lo lleva) y con un cli que los acepta (supportsRewind, por versión: están ocultos del
+// --help); sin él, el turno no se lanza: reanudar entera sería seguir con lo que la persona descartó.
 
 import { BASH_TOOL, MEMORY_WRITE_TOOLS, PROMPT_PROFILE, RUN_KIND, RUN_SEED, type ClaimResponse, type PromptProfile, type RunSeed } from './claim.js';
 import type { OptionalFlag } from './claude.js';
@@ -77,6 +81,10 @@ export interface ClaudeArgsInput {
   // el cli acepta --permission-prompt-tool (claude.ts::supportsPermissionPromptTool): sin él, un claim con
   // permissions no se lanza.
   permissionPromptTool?: boolean;
+  // uuid del mensaje en el que retomar la sesión en una nueva (solo con resumeSessionId) y si el cli sabe hacerlo
+  // (claude.ts::supportsRewind).
+  resumeAt?: string | null;
+  rewind?: boolean;
 }
 
 /** flags sin los que el cli no puede cumplir un prompt run (el daemon solo anuncia `prompt` si los tiene todos). */
@@ -97,6 +105,10 @@ export function buildClaudeArgs(i: ClaudeArgsInput): string[] {
   }
   if (claim.permissions && !i.permissionPromptTool) {
     throw new Error('el claude instalado no soporta --permission-prompt-tool: actualiza claude code (sin él la conversación no puede preguntarte)');
+  }
+  const forkAt = i.resumeSessionId ? (i.resumeAt ?? null) : null;
+  if (forkAt !== null && !i.rewind) {
+    throw new Error('el claude instalado no soporta --resume-session-at: actualiza claude code (sin él la conversación no puede volver atrás)');
   }
   if (i.runConfigDeny.length === 0 || !has('--disallowedTools')) {
     throw new Error('sin --disallowedTools y el deny del directorio de configs de run no se lanza nada: los mcp-config de los runs quedarían al alcance de Read');
@@ -139,6 +151,7 @@ export function buildClaudeArgs(i: ClaudeArgsInput): string[] {
     ...(i.model ? ['--model', i.model] : []),
     ...(skip ? ['--dangerously-skip-permissions'] : []),
     ...(i.resumeSessionId ? ['--resume', i.resumeSessionId] : []),
+    ...(forkAt !== null ? ['--resume-session-at', forkAt, '--fork-session'] : []),
     '--',
     i.prompt,
   ];

@@ -65,5 +65,11 @@ export const RUNNER_CAPABILITY = {
   // >= 0.15.0: además lanza en bypassPermissions (el cli lo rechaza como root o con sudo: un daemon así no la
   // anuncia). sin ella una conversación en bypass no se le entrega.
   autonomyBypass: 'autonomy_bypass',
+  // >= 0.17.0 (t#564, rewind.ts): devuelve el uuid del último mensaje assistant de cada segmento y acepta `run.resumeAt`
+  // (vuelve atrás la conversación con --resume-session-at + --fork-session). solo con un cli >= REWIND_CLI_MIN_VERSION.
+  rewind: 'rewind',
+  // >= 0.17.0, con rewind y turn_changes: devuelve el árbol y el HEAD con los que empezó un segmento de edición con repo
+  // y restaura uno en el worktree antes del turno cuando el claim trae `restore`.
+  rewindFiles: 'rewind_files',
 } as const;
 export type RunnerCapability = (typeof RUNNER_CAPABILITY)[keyof typeof RUNNER_CAPABILITY];
