@@ -13,8 +13,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "732549a8fc0ece7c",
-            "count": 99,
+            "allowed": "869432abff535f3c",
+            "count": 100,
             "notFromClaim": [],
             "dropped": []
           },
@@ -99,8 +99,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "732549a8fc0ece7c",
-            "count": 99,
+            "allowed": "869432abff535f3c",
+            "count": 100,
             "notFromClaim": [],
             "dropped": []
           },
@@ -187,15 +187,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -281,15 +281,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "3b069d8ba18530c2",
-            "count": 386,
+            "allowed": "be8af663629ba657",
+            "count": 387,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -379,15 +379,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "9cf57d41a4ef09cb",
-            "count": 19,
+            "allowed": "598482d7d1bc34fa",
+            "count": 20,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "81b845e3facfcf75",
-            "count": 62,
+            "disallowed": "db6dc0129bbc3152",
+            "count": 63,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -473,15 +473,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "be51ae1fcd789796",
-            "count": 18,
+            "allowed": "220d37457bd17e7a",
+            "count": 19,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "8e9884b41dbd7137",
-            "count": 64,
+            "disallowed": "ec0bb2648ffaf990",
+            "count": 65,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -567,15 +567,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "73685fa52d2d62af",
-            "count": 314,
+            "allowed": "55379a88b799efff",
+            "count": 315,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -663,15 +663,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "be51ae1fcd789796",
-            "count": 18,
+            "allowed": "220d37457bd17e7a",
+            "count": 19,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -757,15 +757,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "be51ae1fcd789796",
-            "count": 18,
+            "allowed": "220d37457bd17e7a",
+            "count": 19,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -851,15 +851,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "73685fa52d2d62af",
-            "count": 314,
+            "allowed": "55379a88b799efff",
+            "count": 315,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -943,15 +943,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "bd80727a212bb0b9",
-            "count": 395,
+            "allowed": "f1b24c745ec5f94e",
+            "count": 396,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -1039,8 +1039,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "dfe8c1b35e69f058",
-            "count": 98,
+            "allowed": "d2bbcf6163656b08",
+            "count": 99,
             "notFromClaim": [],
             "dropped": []
           },
@@ -1128,8 +1128,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "732549a8fc0ece7c",
-            "count": 99,
+            "allowed": "869432abff535f3c",
+            "count": 100,
             "notFromClaim": [],
             "dropped": []
           },
@@ -1214,8 +1214,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "732549a8fc0ece7c",
-            "count": 99,
+            "allowed": "869432abff535f3c",
+            "count": 100,
             "notFromClaim": [],
             "dropped": []
           },
@@ -1300,8 +1300,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "f6f0282b585e816e",
-            "count": 96,
+            "allowed": "f90a44b475609d60",
+            "count": 97,
             "notFromClaim": [],
             "dropped": []
           },
@@ -1389,8 +1389,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "95097164d338d900",
-            "count": 94,
+            "allowed": "dcc3e49348f16657",
+            "count": 95,
             "notFromClaim": [],
             "dropped": []
           },
@@ -1480,15 +1480,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -1574,15 +1574,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "73685fa52d2d62af",
-            "count": 314,
+            "allowed": "55379a88b799efff",
+            "count": 315,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -1670,15 +1670,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -1764,15 +1764,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "73685fa52d2d62af",
-            "count": 314,
+            "allowed": "55379a88b799efff",
+            "count": 315,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -1860,15 +1860,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -1954,15 +1954,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -2050,15 +2050,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "be51ae1fcd789796",
-            "count": 18,
+            "allowed": "220d37457bd17e7a",
+            "count": 19,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -2142,15 +2142,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -2232,8 +2232,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "732549a8fc0ece7c",
-            "count": 99,
+            "allowed": "869432abff535f3c",
+            "count": 100,
             "notFromClaim": [],
             "dropped": []
           },
@@ -2316,8 +2316,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "732549a8fc0ece7c",
-            "count": 99,
+            "allowed": "869432abff535f3c",
+            "count": 100,
             "notFromClaim": [],
             "dropped": []
           },
@@ -2404,15 +2404,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -2498,8 +2498,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "732549a8fc0ece7c",
-            "count": 99,
+            "allowed": "869432abff535f3c",
+            "count": 100,
             "notFromClaim": [],
             "dropped": []
           },
@@ -2586,8 +2586,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "732549a8fc0ece7c",
-            "count": 99,
+            "allowed": "869432abff535f3c",
+            "count": 100,
             "notFromClaim": [],
             "dropped": []
           },
@@ -2655,8 +2655,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "732549a8fc0ece7c",
-            "count": 99,
+            "allowed": "869432abff535f3c",
+            "count": 100,
             "notFromClaim": [],
             "dropped": []
           },
@@ -2741,8 +2741,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "732549a8fc0ece7c",
-            "count": 99,
+            "allowed": "869432abff535f3c",
+            "count": 100,
             "notFromClaim": [],
             "dropped": []
           },
@@ -2825,15 +2825,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -2919,15 +2919,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -3011,8 +3011,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "732549a8fc0ece7c",
-            "count": 99,
+            "allowed": "869432abff535f3c",
+            "count": 100,
             "notFromClaim": [],
             "dropped": []
           },
@@ -3099,15 +3099,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -3193,15 +3193,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -3287,8 +3287,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "732549a8fc0ece7c",
-            "count": 99,
+            "allowed": "869432abff535f3c",
+            "count": 100,
             "notFromClaim": [],
             "dropped": []
           },
@@ -3373,8 +3373,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "732549a8fc0ece7c",
-            "count": 99,
+            "allowed": "869432abff535f3c",
+            "count": 100,
             "notFromClaim": [],
             "dropped": []
           },
@@ -3459,8 +3459,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "984632cb954da8c1",
-            "count": 108,
+            "allowed": "3701eadd73b7aff4",
+            "count": 109,
             "notFromClaim": [],
             "dropped": []
           },
@@ -3549,15 +3549,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -3645,15 +3645,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -3741,15 +3741,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -3837,15 +3837,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -3929,15 +3929,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -4023,15 +4023,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -4117,15 +4117,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -4211,15 +4211,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -4305,15 +4305,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -4382,15 +4382,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -4476,15 +4476,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -4572,15 +4572,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "9ca42d87a60b5549",
-            "count": 92,
+            "allowed": "29f556b79c1671a8",
+            "count": 93,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "8c778bbf83b4c951",
-            "count": 62,
+            "disallowed": "5c777ecee3980179",
+            "count": 63,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -4649,15 +4649,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "9ca42d87a60b5549",
-            "count": 92,
+            "allowed": "29f556b79c1671a8",
+            "count": 93,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -4743,15 +4743,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -4820,15 +4820,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "3e8e556a3ed6870d",
-            "count": 73,
+            "disallowed": "eccd50291fb1a7c3",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -4914,15 +4914,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "9ca42d87a60b5549",
-            "count": 92,
+            "allowed": "29f556b79c1671a8",
+            "count": 93,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "8c778bbf83b4c951",
-            "count": 62,
+            "disallowed": "5c777ecee3980179",
+            "count": 63,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -5008,15 +5008,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -5098,15 +5098,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -5192,15 +5192,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -5286,15 +5286,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -5380,15 +5380,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -5476,15 +5476,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -5570,15 +5570,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "ae80a0f308158462",
-            "count": 397,
+            "allowed": "8fbac03494f790c2",
+            "count": 398,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -5666,15 +5666,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -5761,15 +5761,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -5853,8 +5853,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "732549a8fc0ece7c",
-            "count": 99,
+            "allowed": "869432abff535f3c",
+            "count": 100,
             "notFromClaim": [],
             "dropped": []
           },
@@ -5941,8 +5941,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "b02673b8964e39f6",
-            "count": 106,
+            "allowed": "ca86ac9092217ae8",
+            "count": 107,
             "notFromClaim": [],
             "dropped": []
           },
@@ -6029,8 +6029,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "9676f373b5c2fc64",
-            "count": 75,
+            "allowed": "9d17a3fc679c3c55",
+            "count": 76,
             "notFromClaim": [],
             "dropped": []
           },
@@ -6117,15 +6117,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "78f8ccf9bc9728c8",
-            "count": 369,
+            "allowed": "fafe0219766c6578",
+            "count": 370,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -6207,15 +6207,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "bd80727a212bb0b9",
-            "count": 395,
+            "allowed": "f1b24c745ec5f94e",
+            "count": 396,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -6303,15 +6303,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "78f8ccf9bc9728c8",
-            "count": 369,
+            "allowed": "fafe0219766c6578",
+            "count": 370,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -6397,15 +6397,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "78f8ccf9bc9728c8",
-            "count": 369,
+            "allowed": "fafe0219766c6578",
+            "count": 370,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -6485,8 +6485,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "9676f373b5c2fc64",
-            "count": 75,
+            "allowed": "9d17a3fc679c3c55",
+            "count": 76,
             "notFromClaim": [],
             "dropped": []
           },
@@ -6573,15 +6573,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "3b069d8ba18530c2",
-            "count": 386,
+            "allowed": "be8af663629ba657",
+            "count": 387,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -6671,15 +6671,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "3b069d8ba18530c2",
-            "count": 386,
+            "allowed": "be8af663629ba657",
+            "count": 387,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -6769,15 +6769,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "3b069d8ba18530c2",
-            "count": 386,
+            "allowed": "be8af663629ba657",
+            "count": 387,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -6867,15 +6867,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "3b069d8ba18530c2",
-            "count": 386,
+            "allowed": "be8af663629ba657",
+            "count": 387,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -6965,15 +6965,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "200f54dba2bd66a0",
-            "count": 91,
+            "allowed": "803c8372201d07d7",
+            "count": 92,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "81b845e3facfcf75",
-            "count": 62,
+            "disallowed": "db6dc0129bbc3152",
+            "count": 63,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -7061,15 +7061,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "9cf57d41a4ef09cb",
-            "count": 19,
+            "allowed": "598482d7d1bc34fa",
+            "count": 20,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "8e9884b41dbd7137",
-            "count": 64,
+            "disallowed": "ec0bb2648ffaf990",
+            "count": 65,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -7155,15 +7155,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "9cf57d41a4ef09cb",
-            "count": 19,
+            "allowed": "598482d7d1bc34fa",
+            "count": 20,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "81b845e3facfcf75",
-            "count": 62,
+            "disallowed": "db6dc0129bbc3152",
+            "count": 63,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -7249,15 +7249,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "3b069d8ba18530c2",
-            "count": 386,
+            "allowed": "be8af663629ba657",
+            "count": 387,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -7345,15 +7345,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "73685fa52d2d62af",
-            "count": 314,
+            "allowed": "55379a88b799efff",
+            "count": 315,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -7424,15 +7424,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "73685fa52d2d62af",
-            "count": 314,
+            "allowed": "55379a88b799efff",
+            "count": 315,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -7520,15 +7520,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "be51ae1fcd789796",
-            "count": 18,
+            "allowed": "220d37457bd17e7a",
+            "count": 19,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -7614,15 +7614,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "be51ae1fcd789796",
-            "count": 18,
+            "allowed": "220d37457bd17e7a",
+            "count": 19,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -7708,15 +7708,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "73685fa52d2d62af",
-            "count": 314,
+            "allowed": "55379a88b799efff",
+            "count": 315,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -7804,15 +7804,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "be51ae1fcd789796",
-            "count": 18,
+            "allowed": "220d37457bd17e7a",
+            "count": 19,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "8e9884b41dbd7137",
-            "count": 64,
+            "disallowed": "ec0bb2648ffaf990",
+            "count": 65,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -7881,15 +7881,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "be51ae1fcd789796",
-            "count": 18,
+            "allowed": "220d37457bd17e7a",
+            "count": 19,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -7975,15 +7975,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "73685fa52d2d62af",
-            "count": 314,
+            "allowed": "55379a88b799efff",
+            "count": 315,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "7d209012e22d294c",
-            "count": 75,
+            "disallowed": "a0e4c93ea4edb849",
+            "count": 76,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -8071,15 +8071,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "be51ae1fcd789796",
-            "count": 18,
+            "allowed": "220d37457bd17e7a",
+            "count": 19,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "8e9884b41dbd7137",
-            "count": 64,
+            "disallowed": "ec0bb2648ffaf990",
+            "count": 65,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -8165,15 +8165,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "73685fa52d2d62af",
-            "count": 314,
+            "allowed": "55379a88b799efff",
+            "count": 315,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -8257,15 +8257,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "73685fa52d2d62af",
-            "count": 314,
+            "allowed": "55379a88b799efff",
+            "count": 315,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -8353,15 +8353,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "0d4914aaa7dcdc42",
-            "count": 313,
+            "allowed": "3c93e3c095f633db",
+            "count": 314,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -8449,15 +8449,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "73685fa52d2d62af",
-            "count": 314,
+            "allowed": "55379a88b799efff",
+            "count": 315,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -8545,15 +8545,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "3b069d8ba18530c2",
-            "count": 386,
+            "allowed": "be8af663629ba657",
+            "count": 387,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -8641,15 +8641,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "73685fa52d2d62af",
-            "count": 314,
+            "allowed": "55379a88b799efff",
+            "count": 315,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -8737,15 +8737,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "73685fa52d2d62af",
-            "count": 314,
+            "allowed": "55379a88b799efff",
+            "count": 315,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -8833,15 +8833,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "73685fa52d2d62af",
-            "count": 314,
+            "allowed": "55379a88b799efff",
+            "count": 315,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -8930,15 +8930,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "73685fa52d2d62af",
-            "count": 314,
+            "allowed": "55379a88b799efff",
+            "count": 315,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -9028,15 +9028,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "73685fa52d2d62af",
-            "count": 314,
+            "allowed": "55379a88b799efff",
+            "count": 315,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "7d209012e22d294c",
-            "count": 75,
+            "disallowed": "a0e4c93ea4edb849",
+            "count": 76,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -9124,15 +9124,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "be51ae1fcd789796",
-            "count": 18,
+            "allowed": "220d37457bd17e7a",
+            "count": 19,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -9218,15 +9218,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "be51ae1fcd789796",
-            "count": 18,
+            "allowed": "220d37457bd17e7a",
+            "count": 19,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -9312,15 +9312,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "73685fa52d2d62af",
-            "count": 314,
+            "allowed": "55379a88b799efff",
+            "count": 315,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -9408,15 +9408,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "bd80727a212bb0b9",
-            "count": 395,
+            "allowed": "f1b24c745ec5f94e",
+            "count": 396,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -9506,15 +9506,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "44a746dbe8967ab2",
-            "count": 99,
+            "allowed": "86e5907fa86e8c21",
+            "count": 100,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "81b845e3facfcf75",
-            "count": 62,
+            "disallowed": "db6dc0129bbc3152",
+            "count": 63,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -9602,15 +9602,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "bd80727a212bb0b9",
-            "count": 395,
+            "allowed": "f1b24c745ec5f94e",
+            "count": 396,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -9698,8 +9698,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "732549a8fc0ece7c",
-            "count": 99,
+            "allowed": "869432abff535f3c",
+            "count": 100,
             "notFromClaim": [],
             "dropped": []
           },
@@ -9790,8 +9790,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "732549a8fc0ece7c",
-            "count": 99,
+            "allowed": "869432abff535f3c",
+            "count": 100,
             "notFromClaim": [],
             "dropped": []
           },
@@ -9884,8 +9884,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "732549a8fc0ece7c",
-            "count": 99,
+            "allowed": "869432abff535f3c",
+            "count": 100,
             "notFromClaim": [],
             "dropped": []
           },
@@ -9979,15 +9979,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "73685fa52d2d62af",
-            "count": 314,
+            "allowed": "55379a88b799efff",
+            "count": 315,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -10084,15 +10084,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "73685fa52d2d62af",
-            "count": 314,
+            "allowed": "55379a88b799efff",
+            "count": 315,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -10179,15 +10179,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "73685fa52d2d62af",
-            "count": 314,
+            "allowed": "55379a88b799efff",
+            "count": 315,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -10275,15 +10275,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -10385,8 +10385,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "732549a8fc0ece7c",
-            "count": 99,
+            "allowed": "869432abff535f3c",
+            "count": 100,
             "notFromClaim": [],
             "dropped": []
           },
@@ -10430,8 +10430,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "732549a8fc0ece7c",
-            "count": 99,
+            "allowed": "869432abff535f3c",
+            "count": 100,
             "notFromClaim": [],
             "dropped": []
           },
@@ -10538,15 +10538,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -10593,15 +10593,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -10691,8 +10691,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "732549a8fc0ece7c",
-            "count": 99,
+            "allowed": "869432abff535f3c",
+            "count": 100,
             "notFromClaim": [],
             "dropped": []
           },
@@ -10736,8 +10736,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "732549a8fc0ece7c",
-            "count": 99,
+            "allowed": "869432abff535f3c",
+            "count": 100,
             "notFromClaim": [],
             "dropped": []
           },
@@ -10853,8 +10853,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "9ca42d87a60b5549",
-            "count": 92,
+            "allowed": "29f556b79c1671a8",
+            "count": 93,
             "notFromClaim": [],
             "dropped": [
               "Bash(aws acm describe-*)",
@@ -11157,8 +11157,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "9e494e2c46f5b43a",
-            "count": 72,
+            "disallowed": "7d3062e4060f9a5d",
+            "count": 73,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -11250,15 +11250,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "73685fa52d2d62af",
-            "count": 314,
+            "allowed": "55379a88b799efff",
+            "count": 315,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f664ef386378d821",
+            "count": 74,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -11348,8 +11348,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "732549a8fc0ece7c",
-            "count": 99,
+            "allowed": "869432abff535f3c",
+            "count": 100,
             "notFromClaim": [],
             "dropped": []
           },
@@ -11430,8 +11430,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "732549a8fc0ece7c",
-            "count": 99,
+            "allowed": "869432abff535f3c",
+            "count": 100,
             "notFromClaim": [],
             "dropped": []
           },
@@ -11523,15 +11523,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -11581,15 +11581,15 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2452bf74c5c743e1",
-            "count": 388,
+            "allowed": "4dc473e960d5c0f6",
+            "count": 389,
             "notFromClaim": [],
             "dropped": []
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "4776baf9af34b117",
+            "count": 72,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",

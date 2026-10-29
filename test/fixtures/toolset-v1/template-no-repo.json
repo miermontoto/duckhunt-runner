@@ -38,6 +38,7 @@
       "duckhunt-ask-user",
       "duckhunt-entry-suggestions",
       "duckhunt-pipeline-status",
+      "duckhunt-atlas-get",
       "duckhunt-run-propose-edit"
     ]
   },
@@ -356,6 +357,7 @@
       "mcp__duckhunt__duckhunt-ask-user",
       "mcp__duckhunt__duckhunt-entry-suggestions",
       "mcp__duckhunt__duckhunt-pipeline-status",
+      "mcp__duckhunt__duckhunt-atlas-get",
       "mcp__duckhunt__duckhunt-run-propose-edit"
     ],
     "disallowed": [
@@ -387,6 +389,7 @@
       "Read(~/.netrc)",
       "Read(~/.git-credentials)",
       "Read(~/.docker/config.json)",
+      "Read(~/okt/runbooks/assets/credentials.md)",
       "Read(//tmp/duckhunt-runner-*)"
     ]
   },
