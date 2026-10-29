@@ -337,6 +337,7 @@
       "mcp__duckhunt__duckhunt-ask-user",
       "mcp__duckhunt__duckhunt-entry-suggestions",
       "mcp__duckhunt__duckhunt-pipeline-status",
+      "mcp__duckhunt__duckhunt-doc-guide",
       "mcp__duckhunt__duckhunt-atlas-get"
     ],
     "disallowed": [
