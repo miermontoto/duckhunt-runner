@@ -43,6 +43,7 @@
       "duckhunt-ask-user",
       "duckhunt-entry-suggestions",
       "duckhunt-pipeline-status",
+      "duckhunt-doc-guide",
       "duckhunt-atlas-get"
     ]
   },
@@ -361,6 +362,7 @@
       "mcp__duckhunt__duckhunt-ask-user",
       "mcp__duckhunt__duckhunt-entry-suggestions",
       "mcp__duckhunt__duckhunt-pipeline-status",
+      "mcp__duckhunt__duckhunt-doc-guide",
       "mcp__duckhunt__duckhunt-atlas-get"
     ],
     "disallowed": [
