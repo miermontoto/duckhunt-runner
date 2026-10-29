@@ -336,7 +336,8 @@
       "mcp__duckhunt__duckhunt-run-reply",
       "mcp__duckhunt__duckhunt-ask-user",
       "mcp__duckhunt__duckhunt-entry-suggestions",
-      "mcp__duckhunt__duckhunt-pipeline-status"
+      "mcp__duckhunt__duckhunt-pipeline-status",
+      "mcp__duckhunt__duckhunt-atlas-get"
     ],
     "disallowed": [
       "NotebookEdit",
@@ -367,6 +368,7 @@
       "Read(~/.netrc)",
       "Read(~/.git-credentials)",
       "Read(~/.docker/config.json)",
+      "Read(~/okt/runbooks/assets/credentials.md)",
       "Read(//tmp/duckhunt-runner-*)"
     ]
   },

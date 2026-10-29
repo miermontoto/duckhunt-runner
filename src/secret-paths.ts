@@ -40,7 +40,7 @@ import { auditPath, LEGACY_PLATFORM_ID, PLATFORM_ID_RE, PLATFORM_PRIVATE_ENTRIES
 // lo último que dijo el server): directorios con `/` final.
 const RUNNER_HOME_PRIVATE = ['logs/', 'daemon.lock', 'server-state.json'];
 // la lista genérica del server (AGENT_SECRET_READ_DENY), relativa a ~: aquí solo cuenta su realpath.
-const HOME_SECRETS = ['.aws/', '.ssh/', '.duckhunt-runner.json', '.claude/.credentials.json', '.config/gh/', '.netrc', '.git-credentials', '.docker/config.json'];
+const HOME_SECRETS = ['.aws/', '.ssh/', '.duckhunt-runner.json', '.claude/.credentials.json', '.config/gh/', '.netrc', '.git-credentials', '.docker/config.json', 'okt/runbooks/assets/credentials.md'];
 const CLAUDE_CREDENTIALS = '.credentials.json';
 
 /** las reglas que se añaden al deny de lectura y las rutas que no cupieron en una regla (para avisar). */

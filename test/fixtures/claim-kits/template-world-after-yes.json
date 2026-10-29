@@ -337,6 +337,7 @@
       "mcp__duckhunt__duckhunt-ask-user",
       "mcp__duckhunt__duckhunt-entry-suggestions",
       "mcp__duckhunt__duckhunt-pipeline-status",
+      "mcp__duckhunt__duckhunt-atlas-get",
       "mcp__duckhunt__duckhunt-target-create",
       "mcp__duckhunt__duckhunt-target-update",
       "mcp__duckhunt__duckhunt-target-attach",
@@ -449,6 +450,7 @@
       "Read(~/.netrc)",
       "Read(~/.git-credentials)",
       "Read(~/.docker/config.json)",
+      "Read(~/okt/runbooks/assets/credentials.md)",
       "Read(//tmp/duckhunt-runner-*)"
     ]
   },

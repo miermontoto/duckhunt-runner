@@ -276,6 +276,7 @@ const SERVER_SECRET_READ_DENY = [
   'Read(~/.netrc)',
   'Read(~/.git-credentials)',
   'Read(~/.docker/config.json)',
+  'Read(~/okt/runbooks/assets/credentials.md)',
   'Read(//tmp/duckhunt-runner-*)',
 ];
 const fixturesIn = (dir: string) => {
