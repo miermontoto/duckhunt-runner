@@ -191,10 +191,10 @@ test('registro: un tipo sin proveedor no se materializa a medias; aislar solo co
     () => registry.plan([request('kube')], () => null),
     (err: unknown) => err instanceof ResourceUnavailableError && err.kind === UNAVAILABLE_KIND.unknownType && err.type === 'kube',
   );
-  const refs = registry.plan([request('repo', 'okt/api')], (type, key) => (type === 'repo' && key === 'okt/api' ? { path: '/dev/api' } : null));
+  const refs = registry.plan([request('repo', 'org/api')], (type, key) => (type === 'repo' && key === 'org/api' ? { path: '/dev/api' } : null));
   assert.deepEqual(
     refs.map((p) => [p.provider.type, p.request?.key, p.ref]),
-    [['repo', 'okt/api', { path: '/dev/api' }]],
+    [['repo', 'org/api', { path: '/dev/api' }]],
   );
   assert.deepEqual(registry.plan([request('repo')], () => null, true).map((p) => [p.provider.type, p.request === null]), [
     ['repo', false],
@@ -207,12 +207,12 @@ test('registro: un tipo sin proveedor no se materializa a medias; aislar solo co
 test('claim legacy: el repo con su rama y su aislamiento; sin repo, nada; el scratch exclusivo solo en edición', () => {
   const raw = (run: Record<string, unknown>) =>
     parseClaim({
-      run: { id: 7, kind: 'prompt', profile: 'edit', repo: 'okt/api', branch: 'feat/x', isolation: 'worktree', ...run },
+      run: { id: 7, kind: 'prompt', profile: 'edit', repo: 'org/api', branch: 'feat/x', isolation: 'worktree', ...run },
       prompt: 'p',
       permissionMode: 'dontAsk',
       mcp: { serverName: 'duckhunt', url: 'https://d.test/mcp', token: 't' },
     }).run;
-  assert.deepEqual(legacyRequests(raw({})), [{ type: REPO_TYPE, key: 'okt/api', access: ACCESS.full, params: { branch: 'feat/x', worktree: 'conversation' } }]);
+  assert.deepEqual(legacyRequests(raw({})), [{ type: REPO_TYPE, key: 'org/api', access: ACCESS.full, params: { branch: 'feat/x', worktree: 'conversation' } }]);
   assert.equal(legacyRequests(raw({ isolation: 'checkout', profile: 'read' }))[0]?.params.worktree, 'checkout');
   assert.equal(legacyRequests(raw({ profile: 'read' }))[0]?.access, ACCESS.read);
   assert.equal(legacyRequests(raw({ kind: 'investigate', profile: undefined }))[0]?.params.worktree, 'run');
@@ -224,7 +224,7 @@ test('claim legacy: el repo con su rama y su aislamiento; sin repo, nada; el scr
 test('error legacy de /status: el del repo con el texto de siempre; el de otro recurso sin paths', (t) => {
   t.mock.method(console, 'error', () => {});
   const git = new Error('el checkout no tiene ningún commit (HEAD vacío)');
-  assert.equal(legacyResourceError(new ResourceUnavailableError(REPO_TYPE, 'okt/api', UNAVAILABLE_KIND.failed, git)), 'no se pudo preparar el directorio del run: el checkout no tiene ningún commit (HEAD vacío)');
+  assert.equal(legacyResourceError(new ResourceUnavailableError(REPO_TYPE, 'org/api', UNAVAILABLE_KIND.failed, git)), 'no se pudo preparar el directorio del run: el checkout no tiene ningún commit (HEAD vacío)');
   const aws = legacyResourceError(new ResourceUnavailableError('aws', '123456789012', UNAVAILABLE_KIND.failed, new Error('EACCES /home/u/x')));
   assert.equal(aws, 'no se pudo preparar el run: recurso aws 123456789012 no disponible (materialize_failed)');
 });

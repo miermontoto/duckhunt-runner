@@ -25,7 +25,7 @@ const TREE = 'a'.repeat(40);
 const HEAD = 'b'.repeat(40);
 
 const rawClaim = (run: Record<string, unknown> = {}, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
-  run: { id: 88, kind: 'prompt', entryId: 5, workspaceId: 1, repo: 'okt/app', branch: null, repoSource: 'explicit', repoAvailable: true, aws: null, sessionId: SESSION, parentRunId: null, profile: 'edit', segment: 3, ...run },
+  run: { id: 88, kind: 'prompt', entryId: 5, workspaceId: 1, repo: 'org/app', branch: null, repoSource: 'explicit', repoAvailable: true, aws: null, sessionId: SESSION, parentRunId: null, profile: 'edit', segment: 3, ...run },
   prompt: 'segundo, mejor',
   fallbackPrompt: 'empieza de cero',
   tier: 'act',

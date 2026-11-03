@@ -27,7 +27,7 @@
     "grants": [
       {
         "type": "repo",
-        "key": "okt/api",
+        "key": "org/api",
         "access": "full"
       }
     ],
@@ -121,6 +121,7 @@
       "duckhunt-automation-create-run-prompt",
       "duckhunt-automation-update-run-prompt",
       "duckhunt-agent-investigate",
+      "duckhunt-atlas-assert",
       "duckhunt-pr-open",
       "duckhunt-target-branch-set",
       "duckhunt-target-branch-delete",
@@ -224,6 +225,7 @@
       "mcp__duckhunt__duckhunt-automation-create-run-prompt",
       "mcp__duckhunt__duckhunt-automation-update-run-prompt",
       "mcp__duckhunt__duckhunt-agent-investigate",
+      "mcp__duckhunt__duckhunt-atlas-assert",
       "mcp__duckhunt__duckhunt-pr-open",
       "mcp__duckhunt__duckhunt-target-branch-set",
       "mcp__duckhunt__duckhunt-target-branch-delete",

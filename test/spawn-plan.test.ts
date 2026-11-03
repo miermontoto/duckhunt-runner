@@ -32,7 +32,7 @@ const UPDATE = process.env.UPDATE_SPAWN_PLAN === '1';
 const MACHINE = '6f1d7c1e-5b0a-4c34-9b8e-2a3f7c1d9e01';
 const ACCOUNT = '123456789012';
 const UNMAPPED_ACCOUNT = '999999999999';
-const REPO = 'okt/api';
+const REPO = 'org/api';
 // el mensaje en el que retoma una vuelta atrás (t#564).
 const REWIND_AT = '8f14e45f-ceea-467a-9bb4-1f6c2d1e0a77';
 // argumentos largos (listas de tools, prompts) van como hash + longitud.
