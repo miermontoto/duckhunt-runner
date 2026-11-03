@@ -11,6 +11,11 @@
 //   del presupuesto) como su cabecera sola: el hilo los lista por `files` igual.
 // - el daemon enmascara secretos y recorta; el server lo hace OTRA VEZ (no puede verificar lo que llega, solo acotarlo).
 // - en checkout (la copia de trabajo de la persona) la foto incluye lo que ella edite a la vez: se acepta.
+// - repos adicionales (t#597, RUNNER_CAPABILITY.extraRepoChanges): con `extraRepos` en el bloque del claim, el daemon
+//   fotografía también el worktree de cada repo adicional y sube sus ficheros en el MISMO informe: cada uno con su
+//   `repo` (la clave del claim) y, en el patch, con las rutas de su cabecera bajo el repo (`diff --git a/<repo>/<ruta>
+//   b/<repo>/<ruta>`: extraRepoPatchPath), así dos repos con la misma ruta no se confunden. los topes son del informe
+//   entero (el principal primero).
 // non-goals: el diff acumulado de la conversación (el hilo suma los turnos) y el cable v0 (su claim no lo lleva).
 
 // estado de un fichero en el turno (letras de `git diff --name-status`, sin el % de similitud).
@@ -40,11 +45,19 @@ export interface LegacyClaimChanges {
   filesMax: number;
   filePatchMaxChars: number;
   patchMaxChars: number;
+  // t#597: también los repos adicionales del run (solo a un daemon con extra_repo_changes y si el run los tiene).
+  extraRepos?: true;
 }
+
+/** la ruta de un fichero de un repo adicional en las cabeceras del patch (t#597): bajo la clave de su repo. */
+export const extraRepoPatchPath = (repo: string, path: string): string => `${repo}/${path}`;
 
 /** un fichero del diff de un turno. additions/deletions null = binario (git no cuenta líneas). */
 export interface RunChangeFile {
+  // ruta relativa a la raíz de SU repo.
   path: string;
+  // t#597: el repo adicional del fichero (la clave del claim); ausente = el principal.
+  repo?: string;
   // ruta anterior de un renombrado o una copia.
   oldPath?: string;
   status: RunChangeStatus;

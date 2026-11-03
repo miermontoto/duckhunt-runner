@@ -545,8 +545,10 @@ detects them from what you launch (the task's repos, the refs and repo names in 
 you can add or drop them before launching. The machine only takes such a conversation if it maps
 every repo; each extra one gets its own `conv-<id>` worktree in its checkout, on the branch duckhunt
 sends (or the remote's default), and reaches Claude through `--add-dir` (Claude Code must list that
-flag in `--help`). The main repo is still the working directory, and only it gets the per-turn diff
-and the rewind of files.
+flag in `--help`). The main repo is still the working directory. From 0.21.0 the per-turn diff and the
+rewind of files cover the extra repos too: each extra file is reported with its repo (its patch paths
+sit under the repo key), the step's status carries the starting tree of each extra worktree, and a
+rewind restores every repo or none (if one has new commits or lost its snapshot, nothing is touched).
 
 An extra repo that duckhunt marks read-only (its repo mode in an editing conversation) gets `Edit`,
 `Write` and `NotebookEdit` denied on its worktree path. Bash is not confined to a path, so in an

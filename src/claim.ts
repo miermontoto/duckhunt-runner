@@ -408,6 +408,8 @@ function changesConfig(v: unknown): LegacyClaimChanges | null {
     filesMax: capped(v.filesMax, RUN_CHANGES_FILES_MAX),
     filePatchMaxChars: capped(v.filePatchMaxChars, RUN_CHANGES_FILE_PATCH_MAX_CHARS),
     patchMaxChars: capped(v.patchMaxChars, RUN_CHANGES_PATCH_MAX_CHARS),
+    // t#597: también los repos adicionales (solo `true` cuenta).
+    ...(v.extraRepos === true ? { extraRepos: true as const } : {}),
   };
 }
 
@@ -449,7 +451,10 @@ function resumeAtOf(v: unknown, sessionId: string | null): string | null {
 }
 
 // la foto a restaurar (ver cabecera): solo en una edición con repo en su worktree, con ids de objeto git.
-function restoreOf(v: unknown, run: { kind: string; profile: PromptProfile | null; isolation: RunIsolation; repo: string | null }): LegacyClaimRestore | null {
+function restoreOf(
+  v: unknown,
+  run: { kind: string; profile: PromptProfile | null; isolation: RunIsolation; repo: string | null; extraRepos: readonly ExtraRepo[] },
+): LegacyClaimRestore | null {
   if (v === undefined || v === null) return null;
   if (!isObj(v) || typeof v.tree !== 'string' || typeof v.head !== 'string' || !GIT_OBJECT_ID_RE.test(v.tree) || !GIT_OBJECT_ID_RE.test(v.head)) {
     throw new Error('claim inválido: restore no es {tree, head} de git');
@@ -457,7 +462,19 @@ function restoreOf(v: unknown, run: { kind: string; profile: PromptProfile | nul
   if (run.kind !== RUN_KIND.prompt || run.profile !== PROMPT_PROFILE.edit || run.repo === null || run.isolation !== RUN_ISOLATION.worktree) {
     throw new Error('claim inválido: restore solo en una conversación en edición con repo en su worktree');
   }
-  return { tree: v.tree, head: v.head };
+  // la de los repos adicionales (t#597): cada una de un repo adicional del run, con su forma.
+  const extras = Array.isArray(v.extras) ? v.extras : v.extras === undefined ? [] : null;
+  if (extras === null) throw new Error('claim inválido: restore.extras no es una lista');
+  const parsed = extras.map((x: unknown) => {
+    const o = isObj(x) ? x : {};
+    const repo = str(o.repo);
+    const known = repo !== null && run.extraRepos.some((e) => sameRepoKey(e.repo, repo));
+    if (!known || typeof o.tree !== 'string' || typeof o.head !== 'string' || !GIT_OBJECT_ID_RE.test(o.tree) || !GIT_OBJECT_ID_RE.test(o.head)) {
+      throw new Error('claim inválido: restore.extras con un repo que no es del run o sin {tree, head} de git');
+    }
+    return { repo: repo!, tree: o.tree, head: o.head };
+  });
+  return { tree: v.tree, head: v.head, ...(parsed.length > 0 ? { extras: parsed } : {}) };
 }
 
 /** valida y normaliza la respuesta 200 del claim. lanza con el motivo si algo no es seguro. */
@@ -520,7 +537,7 @@ export function parseClaimBody(raw: unknown, id: string, machine: ClaimMachine =
   const isolation = kind === RUN_KIND.prompt && r.isolation === RUN_ISOLATION.checkout ? RUN_ISOLATION.checkout : RUN_ISOLATION.worktree;
   const resumeAt = resumeAtOf(r.resumeAt, sessionId);
   const extraRepos = extraReposOf(r.extraRepos, { kind, profile, repo }, warnings);
-  const restore = restoreOf(raw.restore, { kind, profile, isolation, repo });
+  const restore = restoreOf(raw.restore, { kind, profile, isolation, repo, extraRepos });
 
   return {
     run: {

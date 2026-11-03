@@ -14,6 +14,9 @@
 //   en el worktree ANTES del turno cuando el claim trae `restore`. nunca en el checkout de la persona, nunca si HEAD
 //   cambió desde entonces (habría commits del agente por medio) ni si el árbol ya no está: el segmento falla con su
 //   motivo sin lanzar el cli.
+// - repos adicionales (t#597, RUNNER_CAPABILITY.extraRepoChanges): el status trae además la foto y el HEAD de cada uno
+//   (`extraStarts`) y el claim los pide en `restore.extras`; el daemon restaura cada worktree con las mismas
+//   comprobaciones y, si uno no puede, el segmento falla igual (todo o nada).
 // non-goals: deshacer lo que el agente hizo FUERA del worktree (duckhunt, jira, un push) y volver atrás en el cable v0.
 
 /** cli mínimo con --resume-session-at y --fork-session (flag oculto del --help: el daemon lo decide por versión). */
@@ -28,6 +31,15 @@ export const GIT_OBJECT_ID_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 export interface LegacyClaimRestore {
   tree: string;
   head: string;
+  // t#597: los de los repos adicionales (la clave del claim de cada uno); ausente = solo el principal.
+  extras?: RewindRepoSnapshot[];
+}
+
+/** la foto con la que empezó un segmento en un repo adicional (t#597). */
+export interface RewindRepoSnapshot {
+  repo: string;
+  tree: string;
+  head: string;
 }
 
 /** lo que añade al status de un segmento un daemon con rewind (todo opcional: sin él, el status de siempre). */
@@ -37,6 +49,8 @@ export interface RewindStatusFields {
   // con rewind_files y en un segmento de edición con repo: el árbol y el HEAD al empezarlo.
   startTree?: string;
   startHead?: string;
+  // t#597, con extra_repo_changes: la foto de cada repo adicional al empezarlo.
+  extraStarts?: RewindRepoSnapshot[];
 }
 
 /** motivo de un segmento que no pudo restaurar los ficheros (va en el error del status). */

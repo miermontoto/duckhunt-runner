@@ -156,8 +156,9 @@ import { EventUploader } from './event-uploader.js';
 import { clip, feedEventsFromStream, systemEvent, type FeedContext } from './feed.js';
 import { scrubEnv } from './scrub-env.js';
 import { reportFor, type Attempt, type KillReason, type StatusReport } from './status-report.js';
-import { snapshotTree, turnChanges } from './turn-changes.js';
-import { headOf, restoreTree } from './rewind-files.js';
+import { combineChanges, remainingLimits, snapshotTree, turnChanges } from './turn-changes.js';
+import { assertRestorable, headOf, restoreTree } from './rewind-files.js';
+import { sameRepoKey } from './repo-key.js';
 import { AuditLog, AUDIT_OUTCOME, claimedRecord, closedRecord, DAY_MS, nextMidnight, outcomeCode, pruneAudit, rejectedRecord, retentionDays, toolsetSummary, type AttemptFacts, type AuditSubject, type ClaimedRecord } from './audit.js';
 import { mergeShellVerdicts, readShellGuard, readShellLog, readShellNote } from './read-shell-guard.js';
 import { clearLegacyTmpConfigs, clearRunMcpConfigs, permissionMcpServers, readOnlyDirDeny, runConfigDeny, writeRunMcpConfig } from './run-mcp-config.js';
@@ -187,7 +188,7 @@ import { credentialStore } from './platforms/credentials.js';
 import { PLATFORM_FACTORIES } from './platforms/factories.js';
 import { Scheduler } from './platforms/scheduler.js';
 import { PLATFORM_STATE, PlatformSupervisor, type SupervisorHooks } from './platforms/supervisor.js';
-import { REWIND_RESTORE_ERROR, RUNNER_LABEL_MAX_CHARS, type ToolsetShadow } from './vendor/runner-protocol/index.js';
+import { REWIND_RESTORE_ERROR, RUNNER_LABEL_MAX_CHARS, type LegacyClaimChanges, type RunChangesReport, type ToolsetShadow } from './vendor/runner-protocol/index.js';
 import { shadowOf } from './toolset/shadow.js';
 import { intersectToolset } from './toolset/intersect.js';
 import { v0Announce } from './platforms/v0.js';
@@ -262,6 +263,36 @@ const localPart = (cfg: StoredConfig): LocalConfig => {
   const { baseUrl: _b, clientId: _c, refreshToken: _r, replacesClientId: _p, ...local } = cfg;
   return local;
 };
+
+
+// la foto y el HEAD de cada repo adicional del run (t#597) al empezar el turno; uno que no se puede fotografiar se queda
+// fuera (su diff y su vuelta atrás no estarán). i/o secuencial: git, uno tras otro.
+async function extraSnapshots(res: MaterializedRun): Promise<Array<{ repo: string; dir: string; tree: string; head: string }>> {
+  const out: Array<{ repo: string; dir: string; tree: string; head: string }> = [];
+  for (const a of res.addDirs.filter((d) => d.checkout)) {
+    const tree = await snapshotTree(a.dir, res.env);
+    const head = tree !== null ? await headOf(a.dir, res.env) : null;
+    if (tree !== null && head !== null) out.push({ repo: a.key, dir: a.dir, tree, head });
+  }
+  return out;
+}
+
+// el diff del turno con el de cada repo adicional detrás, cada uno con los topes que le dejan los anteriores (t#597,
+// turn-changes.ts::combineChanges). i/o secuencial por lo mismo.
+async function withExtraChanges(
+  primary: RunChangesReport | null,
+  extras: ReadonlyArray<{ repo: string; dir: string; tree: string }>,
+  limits: LegacyClaimChanges,
+  env: NodeJS.ProcessEnv,
+): Promise<RunChangesReport | null> {
+  let combined = primary;
+  for (const x of extras) {
+    const left = remainingLimits(limits, combined);
+    if (left.filesMax === 0) break;
+    combined = combineChanges([combined, await turnChanges(x.dir, env, x.tree, left, x.repo)]);
+  }
+  return combined;
+}
 
 export class RunnerDaemon {
   // una por plataforma (platforms/supervisor.ts): hoy la legacy, con las rutas de siempre (paths.ts).
@@ -1246,7 +1277,12 @@ export class RunnerDaemon {
     const changesFrom = restoreError === null && claim.changes && res.cwd.checkout ? await snapshotTree(res.cwd.dir, res.env) : null;
     // y su HEAD (t#564): con la foto, el punto al que podrá volver este turno.
     const startHead = changesFrom !== null ? await headOf(res.cwd.dir, res.env) : null;
-    const start = changesFrom !== null && startHead !== null ? { startTree: changesFrom, startHead } : {};
+    // los de los repos adicionales (t#597), si el claim pide su diff.
+    const extraFrom = changesFrom !== null && claim.changes?.extraRepos ? await extraSnapshots(res) : [];
+    const start =
+      changesFrom !== null && startHead !== null
+        ? { startTree: changesFrom, startHead, ...(extraFrom.length > 0 ? { extraStarts: extraFrom.map(({ repo, tree, head }) => ({ repo, tree, head })) } : {}) }
+        : {};
     // mcp-config con el token per-run (run-mcp-config.ts: 0600 en un directorio 0700; se borra al terminar).
     let mcpFile: string | null = null;
     let report: StatusReport;
@@ -1275,8 +1311,10 @@ export class RunnerDaemon {
     } catch (err) {
       console.error(`${log} ${tag}: slash commands sin registrar: ${(err as Error).message}`);
     }
-    // la foto de después y su diff, antes de soltar los recursos (el worktree puede borrarse) y con el cwd aún tomado.
-    const changes = changesFrom !== null && claim.changes ? await turnChanges(res.cwd.dir, res.env, changesFrom, claim.changes) : null;
+    // la foto de después y su diff, antes de soltar los recursos (el worktree puede borrarse) y con el cwd aún tomado; los
+    // de los repos adicionales detrás, con los topes que queden (t#597).
+    const primaryChanges = changesFrom !== null && claim.changes ? await turnChanges(res.cwd.dir, res.env, changesFrom, claim.changes) : null;
+    const changes = claim.changes ? await withExtraChanges(primaryChanges, extraFrom, claim.changes, res.env) : primaryChanges;
     // los recursos se sueltan (el worktree se marca o se borra) ANTES de reportar: ver cabecera. y con sus
     // turnos aún tomados: un recurso exclusivo se suelta entero antes de que lo reciba el siguiente run.
     // un recurso que no se pudo preparar: nada se lanzó, se suelta todo como aborted (sin devolver nada al vault).
@@ -1300,8 +1338,18 @@ export class RunnerDaemon {
     if (!claim.restore) return null;
     try {
       if (claim.run.isolation !== RUN_ISOLATION.worktree || !res.cwd.checkout) throw new Error('el run no trabaja en un worktree');
+      // los repos adicionales (t#597): todo o nada, así que se comprueban todos antes de tocar ninguno.
+      const extras = (claim.restore.extras ?? []).map((x) => {
+        const dir = res.addDirs.find((a) => a.checkout && sameRepoKey(a.key, x.repo))?.dir;
+        if (!dir) throw new Error(`el repo adicional ${x.repo} no está en esta máquina`);
+        return { dir, snapshot: x };
+      });
+      await assertRestorable(res.cwd.dir, res.env, claim.restore);
+      // i/o secuencial: git sobre checkouts distintos, uno tras otro.
+      for (const x of extras) await assertRestorable(x.dir, res.env, x.snapshot);
       await restoreTree(res.cwd.dir, res.env, claim.restore);
-      note('ficheros restaurados a como estaban al empezar ese turno');
+      for (const x of extras) await restoreTree(x.dir, res.env, x.snapshot);
+      note(extras.length > 0 ? 'ficheros restaurados a como estaban al empezar ese turno, también en los repos adicionales' : 'ficheros restaurados a como estaban al empezar ese turno');
       return null;
     } catch (err) {
       const error = new Error(`${REWIND_RESTORE_ERROR}: ${(err as Error).message}`);

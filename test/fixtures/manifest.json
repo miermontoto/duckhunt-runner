@@ -1,5 +1,5 @@
 {
-  "version": "0.14.0",
+  "version": "0.15.0",
   "files": {
     "claim-kits/autonomy-auto.json": "ca7f1476e1225470361a0b46e37023412040566e327db5ee63ba638587113a14",
     "claim-kits/autonomy-bypass.json": "b8f4d02919ae2167e8d47c2a97b174ef00564b6911960003ec71f4620e437f5a",
@@ -359,6 +359,7 @@
     "claims-browser/prompt-edit-browser-full.json": "836c2f58394e3b6e1bb3539a5239f81412315b246989be8b38597e736cb01839",
     "claims-browser/prompt-read-browser-interact.json": "e364a1237f8663cd554ccc46294cab1db14e595938e8a2d8f8dda9671e417f13",
     "claims-browser/prompt-read-browser-read.json": "a701e4dd9926b7c1cdc2d5649b75c901c12acc60d6ebb17db4d401a086bc953f",
+    "claims-multi-repo/prompt-edit-extra-repos-changes.json": "2fa828b8562b11c59fdfe3132e2f64c899e4a07f494c58c2b052cc7a1b75b88e",
     "claims-multi-repo/prompt-edit-extra-repos.json": "4cdb1bc254a5fa77153f319906eaa2899f6d65a413b616b1f5e871d042b107fa",
     "claims-multi-repo/prompt-read-extra-repos.json": "6c8adea1e08bf2d123248531d42525635d1977ed6c64b1736be943d4a82440b6"
   }

@@ -75,5 +75,8 @@ export const RUNNER_CAPABILITY = {
   // uno en su worktree conv-<id>, los pasa al cli con --add-dir y niega Edit/Write en los de acceso read. sin ella el
   // enrutado no le entrega un run con repos adicionales (routingRefusal).
   multiRepo: 'multi_repo',
+  // t#597 (changes.ts, rewind.ts): con multi_repo, el diff de cada turno y volver atrás con los ficheros también en los
+  // repos adicionales (`changes.extraRepos`, `restore.extras`, `extraStarts` en el status). sin ella, solo el principal.
+  extraRepoChanges: 'extra_repo_changes',
 } as const;
 export type RunnerCapability = (typeof RUNNER_CAPABILITY)[keyof typeof RUNNER_CAPABILITY];
