@@ -58,11 +58,12 @@ function requestsOf(grants: readonly ToolsetGrant[], run: ClaimedRun): ResourceR
   const repo = granted(REPO_TYPE);
   const aws = granted(AWS_TYPE);
   const access = (g: ToolsetGrant): ResourceRequest['access'] => g.access ?? ACCESS.read;
-  // los repos adicionales (t#597): cada uno con el acceso de su grant, nunca más que el del claim (sin grant, el del
-  // claim: degrada como el principal si la máquina no lo tiene).
+  // los repos adicionales (t#597): cada uno con el menor acceso de su grant (el efectivo: ya pasado por el techo) y del
+  // claim. sin grant se pide igual para que degrade como el principal (sin mapear, se salta con su aviso), pero solo en
+  // lectura: nada fuera del toolset abre la escritura.
   const extras = extraRepoRequests(run).map((r) => {
     const g = grants.find((x) => x !== repo && x.type === REPO_TYPE && sameRepoKey(x.key, r.key ?? ''));
-    return g ? { ...r, key: g.key, access: access(g) === ACCESS.full && r.access === ACCESS.full ? ACCESS.full : ACCESS.read } : r;
+    return g ? { ...r, key: g.key, access: access(g) === ACCESS.full && r.access === ACCESS.full ? ACCESS.full : ACCESS.read } : { ...r, access: ACCESS.read };
   });
   return [
     ...(repo ? [{ type: REPO_TYPE, key: repo.key, access: access(repo), params: legacyRepoParams(run) }] : legacy.filter((r) => r.type === REPO_TYPE && r.params[REPO_PARAM.mount] === undefined)),
