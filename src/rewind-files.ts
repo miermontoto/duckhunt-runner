@@ -57,11 +57,17 @@ async function addedSince(dir: string, env: NodeJS.ProcessEnv, then: string, now
   return out.split('\0').filter((p) => p !== '');
 }
 
-/** devuelve el working tree de `dir` a la foto `restore` y su índice a HEAD (ver cabecera); lanza con el motivo si no puede. */
-export async function restoreTree(dir: string, env: NodeJS.ProcessEnv, restore: LegacyClaimRestore): Promise<void> {
+/** lo que se comprueba antes de tocar nada (ver cabecera): mismo HEAD y la foto aún en el repo; lanza con el motivo si no.
+ *  con repos adicionales (t#597) se comprueban todos antes de restaurar ninguno. */
+export async function assertRestorable(dir: string, env: NodeJS.ProcessEnv, restore: Pick<LegacyClaimRestore, 'tree' | 'head'>): Promise<void> {
   const head = await headOf(dir, env);
   if (head !== restore.head) throw new Error('HEAD cambió desde ese turno (hay commits por medio): los ficheros no se tocan');
   if (!(await isTree(dir, env, restore.tree))) throw new Error('la foto de ese turno ya no está en el repo');
+}
+
+/** devuelve el working tree de `dir` a la foto `restore` y su índice a HEAD (ver cabecera); lanza con el motivo si no puede. */
+export async function restoreTree(dir: string, env: NodeJS.ProcessEnv, restore: Pick<LegacyClaimRestore, 'tree' | 'head'>): Promise<void> {
+  await assertRestorable(dir, env, restore);
   const now = await snapshotTree(dir, env);
   if (now === null) throw new Error('no se pudo fotografiar el árbol de ahora');
   const root = path.resolve(dir);

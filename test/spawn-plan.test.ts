@@ -114,6 +114,11 @@ const finish = () => {
   // un turno que cambia el repo (t#514): crea el fichero que diga el prompt.
   const write = /WRITE:(\\S+)/.exec(prompt);
   if (write) fs.writeFileSync(path.join(process.cwd(), write[1]), 'export const nuevo = 1;\\n');
+  // y en cada repo adicional (t#597): los directorios de --add-dir.
+  const writex = /WRITEX:(\\S+)/.exec(prompt);
+  const at = args.indexOf('--add-dir');
+  const dirs = at < 0 ? [] : args.slice(at + 1, args.findIndex((a, i) => i > at && a.startsWith('--')));
+  if (writex) dirs.forEach((d) => fs.writeFileSync(path.join(d, writex[1]), 'export const extra = 2;\\n'));
   const sid = resume || 'sess-new';
   out({ type: 'system', subtype: 'init', session_id: sid, model: 'claude-opus-5-5' });
   out({ type: 'assistant', message: { content: [{ type: 'text', text: 'miro el repo' }, { type: 'tool_use', name: 'Read', input: { file_path: path.join(process.cwd(), 'README.md') } }] } });
@@ -931,4 +936,76 @@ test('varios repos: en lectura van como --add-dir sin escritura; uno que la máq
   const web = conversationWorktree(path.join(caseDir(mapped), 'web'), runId);
   assert.equal(fs.realpathSync(read!.argv[at + 1]!), web);
   assert.ok(flagValue(read!.argv, '--disallowedTools').includes(`Write(/${web}/**)`), 'un adicional de lectura nunca se escribe');
+});
+
+// el diff y la vuelta atrás de los repos adicionales (t#597, 0.15.0): con `changes.extraRepos` el informe del turno lleva
+// también los ficheros de cada adicional (con su `repo` y sus cabeceras bajo él) y el status, la foto de cada uno.
+test('varios repos: el diff del turno lleva los ficheros de los adicionales con su repo; el status, su foto', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  t.mock.method(console, 'warn', () => {});
+  t.mock.method(console, 'error', () => {});
+  const name = 'multi-repo/changes';
+  const raw: Record<string, unknown> = { ...multiFx('prompt-edit-extra-repos-changes'), prompt: 'cambia los dos WRITE:a.ts WRITEX:b.ts' };
+  const runId = String((raw.run as { id: number }).id);
+  await runCase({
+    name,
+    raw,
+    cfg: (c, dir) => {
+      const checkout = path.join(dir, 'web');
+      git(dir, 'clone', '-q', origin, checkout);
+      return { ...c, repos: { ...c.repos, 'Org/Web': { path: checkout } } };
+    },
+  });
+  const rec = servers.get(`${name.replace(/[^a-z0-9]+/gi, '-')}.${BASE_HOST}`.toLowerCase())!.get(runId)!;
+  const body = JSON.parse(rec.changes?.[0] ?? '{}') as { files: { path: string; repo?: string }[]; filesTotal: number; patch: string };
+  assert.deepEqual(body.files.map((f) => [f.path, f.repo ?? null]), [['a.ts', null], ['b.ts', 'Org/Web']]);
+  assert.equal(body.filesTotal, 2);
+  assert.match(body.patch, /^diff --git a\/a\.ts b\/a\.ts\n/m);
+  assert.match(body.patch, /^diff --git a\/Org\/Web\/b\.ts b\/Org\/Web\/b\.ts\n[\s\S]*\+\+\+ b\/Org\/Web\/b\.ts\n[\s\S]*\+export const extra = 2;/m);
+  const status = JSON.parse(rec.status[0]!) as { startTree?: string; extraStarts?: { repo: string; tree: string; head: string }[] };
+  assert.ok(status.startTree);
+  assert.deepEqual(status.extraStarts?.map((x) => x.repo), ['Org/Web']);
+  assert.match(status.extraStarts?.[0]?.tree ?? '', /^[0-9a-f]{40}$/);
+});
+
+test('varios repos: volver atrás restaura también los adicionales; si uno no puede, no se toca ninguno', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  t.mock.method(console, 'warn', () => {});
+  t.mock.method(console, 'error', () => {});
+  const base = multiFx('prompt-edit-extra-repos-changes');
+  const runId = (base.run as { id: number }).id;
+  const withWeb = (c: RunnerConfig, dir: string): RunnerConfig => {
+    const checkout = path.join(dir, 'web');
+    git(dir, 'clone', '-q', origin, checkout);
+    return { ...c, repos: { ...c.repos, 'Org/Web': { path: checkout } } };
+  };
+  // primer turno: escribe en los dos y deja la foto de antes; segundo turno: la restaura.
+  const name = 'multi-repo/rewind';
+  const first = { ...base, prompt: 'cambia WRITE:a.ts WRITEX:b.ts' };
+  await runCase({ name, raw: first, cfg: withWeb });
+  const rec = servers.get(`${name.replace(/[^a-z0-9]+/gi, '-')}.${BASE_HOST}`.toLowerCase())!.get(String(runId))!;
+  const started = JSON.parse(rec.status[0]!) as { startTree: string; startHead: string; extraStarts: { repo: string; tree: string; head: string }[] };
+  const dir = caseDir(name);
+  const web = path.join(dir, 'web', '.duckhunt', 'worktrees', `conv-${runId}`);
+  const main = path.join(dir, 'checkout', '.duckhunt', 'worktrees', `conv-${runId}`);
+  assert.ok(fs.existsSync(path.join(web, 'b.ts')) && fs.existsSync(path.join(main, 'a.ts')));
+  const second = {
+    ...base,
+    run: { ...(base.run as object), segment: 2 },
+    prompt: 'sigue',
+    restore: { tree: started.startTree, head: started.startHead, extras: started.extraStarts },
+  };
+  // un HEAD que no casa en el adicional: el turno falla y nada se toca.
+  const broken = { ...second, restore: { ...second.restore, extras: [{ ...started.extraStarts[0]!, head: 'f'.repeat(40) }] } };
+  // el mismo daemon del caso (su config y su home siguen en el env del proceso), como runCase.
+  const d = internals(loadConfig()!) as DaemonInternals;
+  await d.reloadConfig();
+  d.claude = claude;
+  d.secretDeny = secretPathsDeny(process.env).rules;
+  const exec = (raw: Record<string, unknown>) => d.executeRun(legacyOf(d), parseClaim(raw, { canBypass: true }), new RunLease(String(runId)));
+  await exec(broken);
+  assert.match(rec.status.at(-1)!, /restore_failed/);
+  assert.ok(fs.existsSync(path.join(web, 'b.ts')) && fs.existsSync(path.join(main, 'a.ts')), 'ninguno se tocó');
+  await exec(second);
+  assert.ok(!fs.existsSync(path.join(web, 'b.ts')) && !fs.existsSync(path.join(main, 'a.ts')), 'los dos, como al empezar el turno');
 });

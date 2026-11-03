@@ -54,8 +54,8 @@ export function announcedCapabilities(kit: MachineKit): RunnerCapability[] {
     ...(kit.browser && kit.toolsetRender !== false ? [RUNNER_CAPABILITY.browser] : []),
     // el diff de cada turno (t#514, turn-changes.ts): solo lo calcula si el claim trae el bloque `changes`.
     RUNNER_CAPABILITY.turnChanges,
-    // varios repos por conversación (t#597): con prompt y un cli que acepta --add-dir.
-    ...(prompt && kit.supported.has('--add-dir') ? [RUNNER_CAPABILITY.multiRepo] : []),
+    // varios repos por conversación (t#597): con prompt y un cli que acepta --add-dir; con ellos, su diff y su vuelta atrás.
+    ...(prompt && kit.supported.has('--add-dir') ? [RUNNER_CAPABILITY.multiRepo, RUNNER_CAPABILITY.extraRepoChanges] : []),
     // autonomía de las conversaciones en edición (t#527): con prompt y un cli que acepta --permission-prompt-tool;
     // bypass además fuera de root (el cli lo rechaza).
     ...(autonomy ? [RUNNER_CAPABILITY.autonomy] : []),

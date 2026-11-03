@@ -15,6 +15,10 @@
 //   demás, el del feed entero). las rutas no son código: siempre el entero (maskDiffText). el server lo repite.
 // - nunca tumba el run: un git que falla deja el turno sin diff y una línea en el log.
 // - en checkout la foto incluye lo que la persona edite a la vez en su copia: se acepta (está en el contrato).
+// - repos adicionales (t#597, con `changes.extraRepos`): cada worktree adicional con su foto y su diff, en el MISMO
+//   informe: sus ficheros llevan `repo` y sus cabeceras van bajo él (`a/<repo>/<ruta>`, extraRepoPatchPath del
+//   protocolo). los topes son del informe entero: el principal primero y cada adicional con lo que quede
+//   (combineChanges).
 
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
@@ -23,6 +27,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { maskDiffChunk, maskDiffText } from './secret-mask.js';
 import {
+  extraRepoPatchPath,
   RUN_CHANGE_STATUS,
   RUN_CHANGES_PATH_MAX_CHARS,
   type LegacyClaimChanges,
@@ -43,7 +48,10 @@ const RACY_MARGIN_MS = 1000;
 const FILE_HEADER = 'diff --git ';
 const STATUSES: ReadonlySet<string> = new Set(Object.values(RUN_CHANGE_STATUS));
 // el diff de git sin nada de la config del usuario que cambie su forma o lance programas (ver cabecera).
-const DIFF = ['-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '-M', '--src-prefix=a/', '--dst-prefix=b/'];
+const diffArgs = (repo: string | null): string[] => {
+  const prefix = repo === null ? '' : extraRepoPatchPath(repo, '');
+  return ['-c', 'core.quotePath=false', 'diff', '--no-color', '--no-ext-diff', '--no-textconv', '-M', `--src-prefix=a/${prefix}`, `--dst-prefix=b/${prefix}`];
+};
 
 async function git(cwd: string, args: string[], env: NodeJS.ProcessEnv): Promise<string> {
   const { stdout } = await execFileP('git', args, { cwd, env, timeout: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER, encoding: 'utf-8' });
@@ -128,9 +136,18 @@ export function budgetPatch(patch: string, limits: Pick<LegacyClaimChanges, 'fil
   ).out.join('');
 }
 
-/** el diff entre dos fotos del árbol con los topes del claim; null = nada cambió o git falló. */
-export async function diffTrees(dir: string, env: NodeJS.ProcessEnv, from: string, to: string, limits: LegacyClaimChanges): Promise<RunChangesReport | null> {
+/** el diff entre dos fotos del árbol con los topes del claim; null = nada cambió o git falló. `repo` = el de un repo
+ *  adicional (t#597): sus ficheros lo llevan y sus cabeceras van bajo él. */
+export async function diffTrees(
+  dir: string,
+  env: NodeJS.ProcessEnv,
+  from: string,
+  to: string,
+  limits: LegacyClaimChanges,
+  repo: string | null = null,
+): Promise<RunChangesReport | null> {
   if (from === to) return null;
+  const DIFF = diffArgs(repo);
   try {
     const [nameStatus, numstat, patch] = await Promise.all([
       git(dir, [...DIFF, '--name-status', '-z', from, to], env),
@@ -142,6 +159,7 @@ export async function diffTrees(dir: string, env: NodeJS.ProcessEnv, from: strin
     if (all.length === 0) return null;
     const files: RunChangeFile[] = all.slice(0, limits.filesMax).map((f) => ({
       path: clipPath(f.path),
+      ...(repo !== null ? { repo } : {}),
       ...(f.oldPath !== undefined ? { oldPath: clipPath(f.oldPath) } : {}),
       status: f.status,
       ...(stats.get(f.path) ?? { additions: null, deletions: null }),
@@ -153,8 +171,32 @@ export async function diffTrees(dir: string, env: NodeJS.ProcessEnv, from: strin
   }
 }
 
-/** foto del final del turno + su diff contra la del principio. */
-export async function turnChanges(dir: string, env: NodeJS.ProcessEnv, from: string, limits: LegacyClaimChanges): Promise<RunChangesReport | null> {
+/** foto del final del turno + su diff contra la del principio (`repo` = el de un repo adicional, ver diffTrees). */
+export async function turnChanges(
+  dir: string,
+  env: NodeJS.ProcessEnv,
+  from: string,
+  limits: LegacyClaimChanges,
+  repo: string | null = null,
+): Promise<RunChangesReport | null> {
   const to = await snapshotTree(dir, env);
-  return to === null ? null : diffTrees(dir, env, from, to, limits);
+  return to === null ? null : diffTrees(dir, env, from, to, limits, repo);
+}
+
+/** los topes que le quedan a un repo adicional tras lo que ya ocupa el informe (ver cabecera). */
+export const remainingLimits = (limits: LegacyClaimChanges, used: RunChangesReport | null): LegacyClaimChanges => ({
+  ...limits,
+  filesMax: Math.max(0, limits.filesMax - (used?.files.length ?? 0)),
+  patchMaxChars: Math.max(0, limits.patchMaxChars - (used?.patch.length ?? 0)),
+});
+
+/** el informe del turno con los de los repos adicionales detrás (null = ninguno cambió). puro. */
+export function combineChanges(reports: readonly (RunChangesReport | null)[]): RunChangesReport | null {
+  const present = reports.filter((r): r is RunChangesReport => r !== null);
+  if (present.length === 0) return null;
+  return {
+    files: present.flatMap((r) => r.files),
+    filesTotal: present.reduce((n, r) => n + r.filesTotal, 0),
+    patch: present.map((r) => r.patch).join(''),
+  };
 }
