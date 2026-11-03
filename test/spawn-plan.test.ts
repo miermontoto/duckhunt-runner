@@ -848,3 +848,87 @@ test('autonomía: manual lanza en default con la tool de permisos del runner; by
   assert.ok(!bypassSpawn!.mcp.includes('duckhunt-runner-permission'));
   assert.equal(statusOf(bypass, 991).status, 'done');
 });
+
+// varios repos (t#597): los claims de una conversación con repos adicionales (test/fixtures/claims-multi-repo, del
+// server) ante una máquina que los mapea: cada adicional en su worktree conv-<id> de SU checkout, pasado al cli con
+// un solo --add-dir tras el mcp-config; el de acceso read, con Edit/Write/NotebookEdit negadas sobre su ruta. la nota
+// del run es la del principal y la de cada adicional sale al feed aparte.
+const EXTRA_REPOS = { web: 'org/web', docs: 'org/docs' } as const;
+const multiFx = (name: string): Record<string, unknown> =>
+  JSON.parse(fs.readFileSync(new URL(`claims-multi-repo/${name}.json`, FIXTURES), 'utf8')) as Record<string, unknown>;
+// la config del caso con un clon por repo adicional (del mismo origin: cada uno es su propio checkout).
+const withExtraRepos = (c: RunnerConfig, dir: string): RunnerConfig => ({
+  ...c,
+  repos: {
+    ...c.repos,
+    ...Object.fromEntries(
+      Object.entries(EXTRA_REPOS).map(([name, key]) => {
+        const checkout = path.join(dir, name);
+        git(dir, 'clone', '-q', origin, checkout);
+        return [key, { path: checkout }];
+      }),
+    ),
+  },
+});
+const conversationWorktree = (dir: string, runId: number): string => fs.realpathSync(path.join(dir, '.duckhunt', 'worktrees', `conv-${runId}`));
+
+test('varios repos: cada adicional en su worktree, con --add-dir; el de solo lectura, con la escritura negada en él', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  t.mock.method(console, 'warn', () => {});
+  t.mock.method(console, 'error', () => {});
+  const name = 'multi-repo/edit';
+  const raw = multiFx('prompt-edit-extra-repos');
+  const runId = (raw.run as { id: number }).id;
+  const plan = (await runCase({ name, raw, cfg: withExtraRepos })) as { runs: Record<string, { status: string[]; feed: { body?: string }[] }> };
+  const [spawn] = browserSpawns(name);
+  assert.ok(spawn, 'claude se lanzó');
+  const dir = caseDir(name);
+  const web = conversationWorktree(path.join(dir, 'web'), runId);
+  const docs = conversationWorktree(path.join(dir, 'docs'), runId);
+  assert.equal(fs.realpathSync(spawn.cwd), conversationWorktree(path.join(dir, 'checkout'), runId), 'el cwd es el worktree del principal');
+  const at = spawn.argv.indexOf('--add-dir');
+  assert.ok(at > spawn.argv.indexOf('--mcp-config'), '--add-dir tras el mcp-config');
+  assert.deepEqual(spawn.argv.slice(at + 1, at + 3).map((d) => fs.realpathSync(d)), [web, docs], 'los dos adicionales, en orden');
+  assert.ok(spawn.argv[at + 3]?.startsWith('--'), 'el flag variádico lo cierra el siguiente');
+  const deny = flagValue(spawn.argv, '--disallowedTools');
+  ['Edit', 'Write', 'NotebookEdit'].forEach((tool) => {
+    assert.ok(deny.includes(`${tool}(/${docs}/**)`), `${tool} negada en el de solo lectura`);
+    assert.ok(!deny.some((r) => r.startsWith(`${tool}(/`) && r.includes(web)), `${tool} libre en el editable`);
+  });
+  const feed = plan.runs[String(runId)]!.feed.map((e) => JSON.stringify(e));
+  assert.ok(feed.some((e) => e.includes('+ org/web: ')) && feed.some((e) => e.includes('+ org/docs: ')), 'la nota de cada adicional, aparte');
+  assert.equal(JSON.parse(plan.runs[String(runId)]!.status[0]!).status, 'done');
+});
+
+test('varios repos: en lectura van como --add-dir sin escritura; uno que la máquina no mapea se salta con su aviso', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  t.mock.method(console, 'warn', () => {});
+  t.mock.method(console, 'error', () => {});
+  const name = 'multi-repo/read';
+  const raw = multiFx('prompt-read-extra-repos');
+  const runId = (raw.run as { id: number }).id;
+  // la máquina del fixture escribe Org/Web; aquí no mapea ninguno de los dos: el run sigue sin ellos.
+  const plan = (await runCase({ name, raw })) as { runs: Record<string, { status: string[]; feed: { body?: string }[] }> };
+  const [spawn] = browserSpawns(name);
+  assert.ok(spawn);
+  assert.ok(!spawn.argv.includes('--add-dir'), 'sin adicionales materializados no hay --add-dir');
+  assert.ok(plan.runs[String(runId)]!.feed.some((e) => JSON.stringify(e).includes('repo adicional Org/Web no mapeado en este runner')), 'su aviso en el feed');
+  assert.equal(JSON.parse(plan.runs[String(runId)]!.status[0]!).status, 'done');
+
+  const mapped = 'multi-repo/read-mapped';
+  await runCase({
+    name: mapped,
+    raw,
+    cfg: (c, dir) => {
+      const checkout = path.join(dir, 'web');
+      git(dir, 'clone', '-q', origin, checkout);
+      return { ...c, repos: { ...c.repos, 'Org/Web': { path: checkout } } };
+    },
+  });
+  const [read] = browserSpawns(mapped);
+  const at = read!.argv.indexOf('--add-dir');
+  assert.ok(at > 0, 'mapeado, va como directorio adicional');
+  const web = conversationWorktree(path.join(caseDir(mapped), 'web'), runId);
+  assert.equal(fs.realpathSync(read!.argv[at + 1]!), web);
+  assert.ok(flagValue(read!.argv, '--disallowedTools').includes(`Write(/${web}/**)`), 'un adicional de lectura nunca se escribe');
+});

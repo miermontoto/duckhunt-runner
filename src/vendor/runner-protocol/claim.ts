@@ -8,7 +8,7 @@
 import type { AgentAutonomy, LegacyClaimPermissions } from './autonomy.js';
 import type { LegacyClaimRestore } from './rewind.js';
 import type { LegacyClaimChanges } from './changes.js';
-import type { ToolsetV1 } from './toolset.js';
+import type { GrantAccess, ToolsetV1 } from './toolset.js';
 
 // investigate = run de reglas o manual sobre un entry; prompt = conversación libre desde /agents
 // (t#378), su texto va en agent_run.prompt. en ambos los mensajes del usuario (respuestas,
@@ -78,6 +78,19 @@ export interface LegacyClaimAws {
   region: string | null;
 }
 
+/** un repo adicional de una conversación (t#597): otro directorio de trabajo de la sesión además del cwd (el repo
+ *  principal), en su propio worktree conv-<id> sobre `branch` (null = la rama por defecto del remoto), nunca en el
+ *  checkout. llega solo a un daemon con RUNNER_CAPABILITY.multiRepo y solo con repos que la máquina mapea (el enrutado
+ *  no le entrega el run si no). el daemon lo pasa al cli con --add-dir; con `access` read le niega Edit/Write a ese
+ *  directorio (un candado del repo en una conversación en edición: de mejor esfuerzo, Bash no se acota por ruta). el
+ *  diff de cada turno y volver atrás con los ficheros siguen siendo solo del repo principal. */
+export interface LegacyClaimExtraRepo {
+  // clave del repo en la grafía del mapa de ESTA máquina.
+  repo: string;
+  branch: string | null;
+  access: Extract<GrantAccess, 'read' | 'full'>;
+}
+
 /** el run reclamado y su segmento. */
 export interface LegacyClaimRun {
   id: number;
@@ -107,6 +120,9 @@ export interface LegacyClaimRun {
   // solo a un daemon con RUNNER_CAPABILITY.rewind (t#564, rewind.ts), tras autonomy y con sessionId: el uuid del
   // mensaje assistant en el que retomar la sesión, en una sesión nueva (--resume-session-at + --fork-session).
   resumeAt?: string;
+  // solo a un daemon con RUNNER_CAPABILITY.multiRepo y solo si la conversación los tiene (t#597), tras resumeAt: sus
+  // repos adicionales, como mucho RUN_EXTRA_REPOS_MAX. sin ellos no viaja la clave (el cable de siempre).
+  extraRepos?: LegacyClaimExtraRepo[];
 }
 
 /** cadencia y topes del feed de progreso (events.ts) para este run. */

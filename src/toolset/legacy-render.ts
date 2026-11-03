@@ -7,7 +7,9 @@
 //   en un run, una clave que el usuario no expuso a la plataforma o un tipo sin acceso en el
 //   techo rechazan el claim entero con su código (ClaimRejectedError). nunca se corre quitando un grant en silencio.
 // - recursos = los grants: el repo con la rama del claim y el aislamiento de siempre (kind / isolation: los mismos
-//   worktrees conv-<id> de este cable), la aws con su clave (la cuenta, o `default`) y la región del claim.
+//   worktrees conv-<id> de este cable), sus repos adicionales (t#597: el primer grant de repo es el principal y el resto
+//   los de run.extraRepos, cada uno con el menor acceso de su grant y del claim), la aws con su clave (la cuenta, o
+//   `default`) y la región del claim.
 // - lo que el claim nombra sin grant se pide igual, para que degrade como hoy: un repo que la máquina no mapea (al
 //   scratch, con su aviso) o una cuenta aws que no anuncia (la aws vacía, con su aviso: aws_strict). el server concede
 //   todo lo mapeado y expuesto, así que esa petición solo puede degradar. un run sin cuenta ni grant de aws corre con
@@ -24,8 +26,9 @@ import { TOOLSET_V1, withRenderedTools, type ClaimedRun, type ClaimResponse } fr
 import { checkGrants, CLAIM_REJECT, ClaimRejectedError, forProfile, type V0Enforcement } from '../platforms/claim-v0.js';
 import { EXPOSE_ALL, type ToolsetCeiling } from '../platforms/types.js';
 import { AWS_PARAM, AWS_TYPE } from '../resources/aws.js';
-import { legacyRepoParams, legacyRequests } from '../resources/legacy.js';
-import { REPO_TYPE } from '../resources/repo/provider.js';
+import { extraRepoRequests, legacyRepoParams, legacyRequests } from '../resources/legacy.js';
+import { REPO_PARAM, REPO_TYPE } from '../resources/repo/provider.js';
+import { sameRepoKey } from '../repo-key.js';
 import { ACCESS, type ResourceRequest } from '../resources/types.js';
 import { TOOLSET_SHELL, type ToolsetGrant, type ToolsetV1 } from '../vendor/runner-protocol/index.js';
 import { intersectToolset } from './intersect.js';
@@ -55,8 +58,15 @@ function requestsOf(grants: readonly ToolsetGrant[], run: ClaimedRun): ResourceR
   const repo = granted(REPO_TYPE);
   const aws = granted(AWS_TYPE);
   const access = (g: ToolsetGrant): ResourceRequest['access'] => g.access ?? ACCESS.read;
+  // los repos adicionales (t#597): cada uno con el acceso de su grant, nunca más que el del claim (sin grant, el del
+  // claim: degrada como el principal si la máquina no lo tiene).
+  const extras = extraRepoRequests(run).map((r) => {
+    const g = grants.find((x) => x !== repo && x.type === REPO_TYPE && sameRepoKey(x.key, r.key ?? ''));
+    return g ? { ...r, key: g.key, access: access(g) === ACCESS.full && r.access === ACCESS.full ? ACCESS.full : ACCESS.read } : r;
+  });
   return [
-    ...(repo ? [{ type: REPO_TYPE, key: repo.key, access: access(repo), params: legacyRepoParams(run) }] : legacy.filter((r) => r.type === REPO_TYPE)),
+    ...(repo ? [{ type: REPO_TYPE, key: repo.key, access: access(repo), params: legacyRepoParams(run) }] : legacy.filter((r) => r.type === REPO_TYPE && r.params[REPO_PARAM.mount] === undefined)),
+    ...extras,
     ...(aws
       ? [{ type: AWS_TYPE, key: aws.key, access: access(aws), params: { [AWS_PARAM.region]: run.aws?.region ?? null } }]
       : run.aws?.accountId
@@ -71,7 +81,7 @@ function requestsOf(grants: readonly ToolsetGrant[], run: ClaimedRun): ResourceR
 export function renderLegacyClaim(claim: ClaimResponse, e: LegacyEnforcement): LegacyRender {
   const source = claim.toolsetShadow;
   if (source === null) return { claim, narrowed: [] };
-  checkGrants(source.toolset, e);
+  checkGrants(source.toolset, e, claim.run.extraRepos.map((x) => x.repo));
   const ceiled = intersectToolset(source.toolset, e.ceiling);
   const { toolset, narrowed: byProfile } = claim.run.profile === null ? { toolset: ceiled.toolset, narrowed: [] } : forProfile(ceiled.toolset, claim.run.profile);
   const gaps = toolset.autonomy !== undefined ? autonomyGaps(toolset, e.ceiling) : [];

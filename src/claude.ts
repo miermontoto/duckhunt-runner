@@ -34,6 +34,8 @@ export const OPTIONAL_FLAGS = [
   '--setting-sources',
   // 0.12.0: el modelo que pide duckhunt por run (capability `model`).
   '--model',
+  // t#597: los repos adicionales de una conversación como directorios de trabajo (capability `multi_repo`).
+  '--add-dir',
 ] as const;
 export type OptionalFlag = (typeof OPTIONAL_FLAGS)[number];
 

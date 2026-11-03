@@ -7,6 +7,9 @@
 //   de dos recursos es un env_conflict (aborta como arriba): ninguno gana en silencio.
 // - cwd: el del proveedor de la fase cwd; sin él (sin repo, o un repo sin mapear que degrada) el scratch de la
 //   plataforma, con turno exclusivo si el run escribe en él.
+// - directorios adicionales (t#597): los repos adicionales de la conversación (Materialized.addDir), en orden y sin
+//   repetir el cwd ni entre ellos. la nota del run (agent_run.workdir, acotada en el server) es la del principal; la de
+//   cada adicional sale al feed aparte (extraNotes). uno que no está no degrada el run: sigue sin él, con su aviso.
 // - locks: los de todos los recursos, sin repetir y ORDENADOS (dos runs que piden A y B nunca se esperan en
 //   cruz), esperando con el run vivo: un run cancelado mientras espera deja de esperar y suelta lo que le llegue.
 // - soltar: al revés del orden de materialización, cada recurso en su try/catch (uno que falla no deja a los
@@ -31,6 +34,7 @@ import {
   type Phase,
   type ReleaseOutcome,
   type ResourceLock,
+  type RunAddDir,
   type RunContext,
   type RunCwd,
 } from './types.js';
@@ -77,6 +81,9 @@ export interface MaterializedRun {
   note: string;
   warnings: string[];
   locks: ResourceLock[];
+  // los directorios adicionales del run (--add-dir) y la nota de cada uno para el feed (ver cabecera).
+  addDirs: RunAddDir[];
+  extraNotes: string[];
   resources: MaterializedSummary[];
   // los servidores mcp de los recursos, con los turnos ya tomados (ver cabecera).
   mcp(): Promise<RunMcp>;
@@ -129,7 +136,8 @@ async function materializeSteps(plan: readonly PlannedResource[], ctx: RunContex
       });
       // pedido y sin mapear (o un repo cuyo checkout no está, o un recurso mcp sin servidor): el run sigue, degradado.
       const degraded =
-        request !== null && (ref === null || (provider.phase === PHASE.cwd && m.cwd === undefined) || (provider.phase === PHASE.mcp && m.mcp === undefined));
+        request !== null &&
+        (ref === null || (provider.phase === PHASE.cwd && m.cwd === undefined && m.addDir === undefined) || (provider.phase === PHASE.mcp && m.mcp === undefined));
       steps.push({ type: provider.type, key, phase: provider.phase, m, degraded, isolated: request === null });
       const vars = m.env ?? {};
       if (Object.entries(vars).some(([k, v]) => setBy.has(k) && setBy.get(k) !== v)) throw new ResourceUnavailableError(provider.type, key, UNAVAILABLE_KIND.envConflict);
@@ -167,12 +175,18 @@ export async function materializeRun(plan: readonly PlannedResource[], ctx: RunC
   const cwd: RunCwd = own ?? { dir: scratch.dir(), checkout: false, skipPermissions: false };
   const scratchLock: ResourceLock[] = !own && scratch.exclusive ? [{ key: path.resolve(cwd.dir), waitNote: CWD_WAIT_NOTE }] : [];
   const byNotePhase = [...steps].sort((a, b) => phaseRank(PHASE_NOTE_ORDER, a.phase) - phaseRank(PHASE_NOTE_ORDER, b.phase));
+  const extras = steps.filter((s) => s.m.addDir !== undefined);
+  const addDirs = extras
+    .map((s) => s.m.addDir!)
+    .filter((a, i, all) => path.resolve(a.dir) !== path.resolve(cwd.dir) && all.findIndex((o) => path.resolve(o.dir) === path.resolve(a.dir)) === i);
   return {
     cwd,
     env,
-    note: steps.find((s) => s.phase === PHASE.cwd && s.m.note !== undefined)?.m.note ?? SCRATCH_NOTE,
+    note: steps.find((s) => s.phase === PHASE.cwd && s.m.addDir === undefined && s.m.note !== undefined)?.m.note ?? SCRATCH_NOTE,
     warnings: byNotePhase.flatMap((s) => s.m.warnings),
     locks: [...steps.flatMap((s) => s.m.locks ?? []), ...scratchLock],
+    addDirs,
+    extraNotes: extras.flatMap((s) => (s.m.note !== undefined ? [s.m.note] : [])),
     resources: steps.map(({ type, key, degraded, isolated }) => ({ type, key, degraded, isolated })),
     mcp: () => prepareMcp(steps),
     release: (outcome) => releaseInReverse(steps, outcome),

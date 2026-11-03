@@ -538,6 +538,21 @@ duckhunt how many changed files and unpushed commits each kept conversation work
 only, never paths), and the conversation shows it with a button that asks the agent to commit them.
 Worktrees kept from failed automation runs (`run-<id>`) expire after the same 7 days.
 
+### More than one repo in a conversation
+
+From 0.20.0 a conversation can work on extra repos besides its main one (up to three). duckhunt
+detects them from what you launch (the task's repos, the refs and repo names in your message) and
+you can add or drop them before launching. The machine only takes such a conversation if it maps
+every repo; each extra one gets its own `conv-<id>` worktree in its checkout, on the branch duckhunt
+sends (or the remote's default), and reaches Claude through `--add-dir` (Claude Code must list that
+flag in `--help`). The main repo is still the working directory, and only it gets the per-turn diff
+and the rewind of files.
+
+An extra repo that duckhunt marks read-only (its repo mode in an editing conversation) gets `Edit`,
+`Write` and `NotebookEdit` denied on its worktree path. Bash is not confined to a path, so in an
+editing conversation this is a best-effort guard, not a sandbox. If the machine does not map an
+extra repo, the conversation runs without it and says so in the feed.
+
 ### Working in the checkout instead
 
 When you open a conversation you can choose `checkout` instead of `worktree` (0.6.0 or later). The

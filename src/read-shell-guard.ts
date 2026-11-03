@@ -224,6 +224,14 @@ export async function readShellGuard(cwd: string | null, tools: ShellKit, extraD
   }
 }
 
+/** el veredicto de varios directorios del run (el cwd y los repos adicionales, t#597): sin shell si alguno la quita. */
+export const mergeShellVerdicts = (vs: readonly ReadShellVerdict[]): ReadShellVerdict => ({
+  dropShell: vs.some((v) => v.dropShell),
+  escaping: vs.flatMap((v) => v.escaping),
+  contains: vs.flatMap((v) => v.contains),
+  error: vs.find((v) => v.error !== null)?.error ?? null,
+});
+
 /** nota para el feed (sin paths: viaja al server). null si el segmento conserva la shell. */
 export function readShellNote(v: ReadShellVerdict): string | null {
   if (!v.dropShell) return null;

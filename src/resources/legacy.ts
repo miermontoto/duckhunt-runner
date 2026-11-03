@@ -1,12 +1,13 @@
 // peticiones de recursos de un claim legacy (contrato 42, t#495 M2): ese claim no trae grants, así que se derivan
 // de sus campos para que el mismo ciclo de vida sirva a los claims de hoy y a los toolset_v1 de mañana. el repo del
-// run, con su rama y su aislamiento (conversación, checkout o el worktree de un kind de reglas), y su aws: la cuenta
+// run, con su rama y su aislamiento (conversación, checkout o el worktree de un kind de reglas), sus repos adicionales
+// (t#597: cada uno en su worktree de la conversación, como directorio adicional) y su aws: la cuenta
 // (null si el claim solo trae región) con su región. el acceso es informativo hasta M5 (toolset_v1): quien acota
 // de verdad sigue siendo el kit del server. un claim legacy nunca aísla la aws: sin bloque aws, el env del usuario.
 
-import { PROMPT_PROFILE, RUN_ISOLATION, RUN_KIND, type ClaimedRun } from '../claim.js';
+import { PROMPT_PROFILE, RUN_ISOLATION, RUN_KIND, type ClaimedRun, type ExtraRepo } from '../claim.js';
 import { AWS_PARAM, AWS_TYPE } from './aws.js';
-import { REPO_PARAM, REPO_TYPE, REPO_WORKTREE } from './repo/provider.js';
+import { REPO_MOUNT, REPO_PARAM, REPO_TYPE, REPO_WORKTREE } from './repo/provider.js';
 import { ACCESS, ResourceUnavailableError, type ResourceRequest } from './types.js';
 
 // prefijo del error de /status de un run cuyo cwd no se pudo preparar (el texto de siempre en el cable legacy).
@@ -25,11 +26,23 @@ export const legacyRepoParams = (run: ClaimedRun): Readonly<Record<string, strin
   [REPO_PARAM.worktree]: repoWorktree(run),
 });
 
+/** parámetros de un repo adicional del run (t#597): su rama, siempre en su worktree de la conversación, como directorio adicional. */
+export const extraRepoParams = (extra: ExtraRepo): Readonly<Record<string, string | null>> => ({
+  [REPO_PARAM.branch]: extra.branch,
+  [REPO_PARAM.worktree]: REPO_WORKTREE.conversation,
+  [REPO_PARAM.mount]: REPO_MOUNT.addDir,
+});
+
+/** los repos adicionales de un run legacy (t#597), tras el principal: su acceso es el del claim (read = solo lectura). */
+export const extraRepoRequests = (run: ClaimedRun): ResourceRequest[] =>
+  run.extraRepos.map((x) => ({ type: REPO_TYPE, key: x.repo, access: x.access === ACCESS.full ? ACCESS.full : ACCESS.read, params: extraRepoParams(x) }));
+
 /** recursos que pide un run legacy. */
 export function legacyRequests(run: ClaimedRun): ResourceRequest[] {
   const access = run.profile === PROMPT_PROFILE.edit ? ACCESS.full : ACCESS.read;
   return [
     ...(run.repo ? [{ type: REPO_TYPE, key: run.repo, access, params: legacyRepoParams(run) }] : []),
+    ...extraRepoRequests(run),
     ...(run.aws ? [{ type: AWS_TYPE, key: run.aws.accountId, access: ACCESS.read, params: { [AWS_PARAM.region]: run.aws.region } }] : []),
   ];
 }
