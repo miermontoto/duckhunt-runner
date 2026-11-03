@@ -19,7 +19,7 @@
     "grants": [
       {
         "type": "repo",
-        "key": "okt/api",
+        "key": "org/api",
         "access": "full"
       }
     ],

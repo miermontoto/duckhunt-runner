@@ -126,17 +126,17 @@ test('el catálogo: usuario desde lectura, proyecto por repo desde edición, gua
   const project = (name: string): SlashCommand => ({ name, scope: 'project', description: null, argumentHint: null });
   assert.equal(catalog.pending(), null, 'vacío: nada que subir');
 
-  assert.equal(catalog.record({ edit: true, repo: 'okt/api', commands: [user('bugfix'), project('deploy')] }), true);
-  assert.deepEqual(catalog.pending()?.catalog, { user: [user('bugfix')], repos: [{ repo: 'okt/api', commands: [project('deploy')] }] });
+  assert.equal(catalog.record({ edit: true, repo: 'org/api', commands: [user('bugfix'), project('deploy')] }), true);
+  assert.deepEqual(catalog.pending()?.catalog, { user: [user('bugfix')], repos: [{ repo: 'org/api', commands: [project('deploy')] }] });
   // uno de lectura fija la lista del usuario; uno de edición posterior ya no la pisa.
-  catalog.record({ edit: false, repo: 'okt/api', commands: [user('bugfix'), user('pr')] });
-  catalog.record({ edit: true, repo: 'okt/web', commands: [user('solo-en-web')] });
+  catalog.record({ edit: false, repo: 'org/api', commands: [user('bugfix'), user('pr')] });
+  catalog.record({ edit: true, repo: 'org/web', commands: [user('solo-en-web')] });
   assert.equal(catalog.record({ edit: false, repo: null, commands: [user('bugfix'), user('pr')] }), false, 'sin cambios no escribe');
   const reloaded = new SlashCommandCatalog(file).pending()!.catalog;
   assert.deepEqual(reloaded.user.map((c) => c.name), ['bugfix', 'pr']);
-  assert.deepEqual(reloaded.repos.map((r) => r.repo), ['okt/api'], 'un repo sin comandos de proyecto no se guarda');
-  // otro de edición en okt/api sin comandos de proyecto lo saca.
-  catalog.record({ edit: true, repo: 'okt/api', commands: [user('bugfix')] });
+  assert.deepEqual(reloaded.repos.map((r) => r.repo), ['org/api'], 'un repo sin comandos de proyecto no se guarda');
+  // otro de edición en org/api sin comandos de proyecto lo saca.
+  catalog.record({ edit: true, repo: 'org/api', commands: [user('bugfix')] });
   assert.deepEqual(catalog.pending()?.catalog.repos, []);
 });
 

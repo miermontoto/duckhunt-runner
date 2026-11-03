@@ -114,6 +114,7 @@
       "duckhunt-automation-create-run-prompt",
       "duckhunt-automation-update-run-prompt",
       "duckhunt-agent-investigate",
+      "duckhunt-atlas-assert",
       "duckhunt-run-propose-edit"
     ]
   },
@@ -509,6 +510,7 @@
       "mcp__duckhunt__duckhunt-automation-create-run-prompt",
       "mcp__duckhunt__duckhunt-automation-update-run-prompt",
       "mcp__duckhunt__duckhunt-agent-investigate",
+      "mcp__duckhunt__duckhunt-atlas-assert",
       "mcp__duckhunt__duckhunt-run-propose-edit"
     ],
     "disallowed": [
@@ -538,7 +540,6 @@
       "Read(~/.netrc)",
       "Read(~/.git-credentials)",
       "Read(~/.docker/config.json)",
-      "Read(~/okt/runbooks/assets/credentials.md)",
       "Read(//tmp/duckhunt-runner-*)"
     ]
   },

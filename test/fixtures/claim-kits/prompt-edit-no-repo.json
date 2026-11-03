@@ -118,6 +118,7 @@
       "mcp__duckhunt__duckhunt-automation-create-run-prompt",
       "mcp__duckhunt__duckhunt-automation-update-run-prompt",
       "mcp__duckhunt__duckhunt-agent-investigate",
+      "mcp__duckhunt__duckhunt-atlas-assert",
       "mcp__duckhunt__duckhunt-pr-open",
       "mcp__duckhunt__duckhunt-target-branch-set",
       "mcp__duckhunt__duckhunt-target-branch-delete",

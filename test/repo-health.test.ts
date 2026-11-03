@@ -55,8 +55,8 @@ before(() => {
 after(() => fs.rmSync(root, { recursive: true, force: true }));
 
 test('key del remote: github y bitbucket por los dos primeros segmentos, el resto por los dos últimos', () => {
-  assert.equal(repoKeyFromRemote('git@bitbucket.org:okticket/okt-api.git'), 'okticket/okt-api');
-  assert.equal(repoKeyFromRemote('https://juan@bitbucket.org/okticket/new-boilerplate/src/main/'), 'okticket/new-boilerplate');
+  assert.equal(repoKeyFromRemote('git@bitbucket.org:acme/acme-api.git'), 'acme/acme-api');
+  assert.equal(repoKeyFromRemote('https://dev@bitbucket.org/acme/new-boilerplate/src/main/'), 'acme/new-boilerplate');
   assert.equal(repoKeyFromRemote('ssh://git@github.com/acme/app.git'), 'acme/app');
   assert.equal(repoKeyFromRemote('https://github.com/acme/app/tree/main'), 'acme/app');
   assert.equal(repoKeyFromRemote('https://gitlab.com/group/sub/repo.git'), 'sub/repo');

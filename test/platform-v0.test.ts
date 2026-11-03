@@ -28,7 +28,7 @@ import { internals, type DaemonInternals, type SupervisorInternals } from './dae
 
 const FIXTURES = new URL('../../test/fixtures/', import.meta.url);
 const BASE = 'https://plataforma.test';
-const REPO = 'okt/api';
+const REPO = 'org/api';
 const TYPES = ['repo', 'aws'];
 // el server de los fixtures (el de los tests de duckhunt) habla http con un host de pruebas: sus servidores mcp se
 // leen como el https que serían en producción, porque una plataforma remota solo puede tenerlos en su origen https.
@@ -146,7 +146,7 @@ test('rechazos: tipo que no se sirve, clave no expuesta, techo sin acceso, recur
   const reserved = clone(base);
   (reserved.mcpServers as Obj[])[0]!.name = 'res_browser_jira';
   rejected(() => claimOfV0(reserved, TRUSTED), CLAIM_REJECT.invalid);
-  rejected(() => claimOfV0(withGrant({ type: 'repo', key: 'okt/web', access: 'read' }), TRUSTED), CLAIM_REJECT.invalid);
+  rejected(() => claimOfV0(withGrant({ type: 'repo', key: 'org/web', access: 'read' }), TRUSTED), CLAIM_REJECT.invalid);
   rejected(() => claimOfV0({ ...clone(base), id: 'no vale' }, TRUSTED), CLAIM_REJECT.invalid);
 });
 

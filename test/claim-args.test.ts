@@ -30,7 +30,7 @@ import { clampReport } from '../src/status-report.js';
 import { scrubEnv } from '../src/scrub-env.js';
 
 const rawClaim = (run: Record<string, unknown> = {}, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
-  run: { id: 88, kind: 'prompt', entryId: 5, workspaceId: 1, repo: 'okt/app', branch: 'feat/x', repoSource: 'explicit', repoAvailable: true, aws: null, sessionId: null, parentRunId: null, profile: 'edit', ...run },
+  run: { id: 88, kind: 'prompt', entryId: 5, workspaceId: 1, repo: 'org/app', branch: 'feat/x', repoSource: 'explicit', repoAvailable: true, aws: null, sessionId: null, parentRunId: null, profile: 'edit', ...run },
   prompt: 'haz algo',
   fallbackPrompt: null,
   tier: 'act',
@@ -276,7 +276,6 @@ const SERVER_SECRET_READ_DENY = [
   'Read(~/.netrc)',
   'Read(~/.git-credentials)',
   'Read(~/.docker/config.json)',
-  'Read(~/okt/runbooks/assets/credentials.md)',
   'Read(//tmp/duckhunt-runner-*)',
 ];
 const fixturesIn = (dir: string) => {
@@ -393,7 +392,7 @@ test('enrutado del server (t#465 P10): --resume solo con la sesión que el serve
   assert.equal(moved.claim.fallbackPrompt, null);
   assert.match(moved.claim.prompt, /sesión no está disponible aquí/);
   // el repo en la grafía del mapa de esta máquina: la búsqueda de su carpeta es por la clave exacta.
-  assert.equal(golden('routing-machine-spelling').claim.run.repo, 'OKT/Api');
+  assert.equal(golden('routing-machine-spelling').claim.run.repo, 'ORG/Api');
 });
 
 test('lifecycle (t#465 P12): el claim de 0.11 es el kit de 0.10 más el bloque runner, que parseClaim ignora', () => {

@@ -40,7 +40,7 @@ const cfg = (extra: Partial<RunnerConfig> = {}): RunnerConfig => ({
   refreshToken: 'r1',
   label: 'fa',
   machineId: 'm-1',
-  repos: { 'okt/api': { path: path.join(dir, MARKER.checkout) } },
+  repos: { 'org/api': { path: path.join(dir, MARKER.checkout) } },
   aws: {},
   defaults: { maxConcurrent: 2 },
   ...extra,
@@ -136,20 +136,20 @@ test('un run de verdad: claimed y closed con lo que dice la cabecera, y nada del
     [claimed.platform, claimed.protocol, claimed.runId, claimed.segment, claimed.kind, claimed.profile, claimed.promptSha256],
     ['duckhunt', 'duckhunt-42', '31', 1, 'prompt', 'read', createHash('sha256').update(claim.prompt).digest('hex')],
   );
-  assert.deepEqual(claimed.grants, [{ type: 'repo', key: 'okt/api', access: 'read' }]);
+  assert.deepEqual(claimed.grants, [{ type: 'repo', key: 'org/api', access: 'read' }]);
   assert.deepEqual([claimed.mcpServers, claimed.toolset], [['duckhunt'], null]);
   assert.ok(claimed.attestations.length > 0);
   assert.deepEqual(closed.outcome, { status: 'done', code: null });
   assert.deepEqual([closed.costUsd, closed.numTurns, closed.model], [COST_USD, TURNS, 'claude-test']);
   assert.deepEqual(closed.toolCalls, { total: 3, byTool: { Bash: 2, Read: 1 } });
-  assert.deepEqual(closed.materialized, [{ type: 'repo', key: 'okt/api', degraded: true, isolated: false }], 'el checkout no está: corrió en el scratch');
+  assert.deepEqual(closed.materialized, [{ type: 'repo', key: 'org/api', degraded: true, isolated: false }], 'el checkout no está: corrió en el scratch');
   assert.ok(closed.durationMs >= 0 && closed.lockWaitMs >= 0 && closed.endedAt >= closed.startedAt);
 
   // beta: su propia auditoría, la aws aislada y el log con su id; la legacy con el prefijo de siempre.
   const betaClosed = records('beta').find((r): r is ClosedRecord => r.event === AUDIT_EVENT.closed);
   assert.deepEqual(betaClosed?.materialized, [
     { type: 'aws', key: null, degraded: false, isolated: true },
-    { type: 'repo', key: 'okt/api', degraded: true, isolated: false },
+    { type: 'repo', key: 'org/api', degraded: true, isolated: false },
   ]);
   const lines = log.mock.calls.map((c) => String(c.arguments[0]));
   assert.ok(lines.some((l) => l.startsWith('[runner] run 31 reclamado')));
@@ -163,7 +163,7 @@ test('un claim rechazado deja `rejected` con el código del runner; uno legacy q
   const { d, created } = await daemon(t, { beta: entry('beta') });
   const said = { state: 'claimed', runner: null };
   created.get('beta')!.claims = [
-    { kind: CLAIM_RESULT.invalid, runId: 'r_9', error: 'claim rechazado por el runner (resource_not_exposed: grant de repo okt/x: no está expuesto a esta plataforma)', said, commandsPending: false },
+    { kind: CLAIM_RESULT.invalid, runId: 'r_9', error: 'claim rechazado por el runner (resource_not_exposed: grant de repo org/x: no está expuesto a esta plataforma)', said, commandsPending: false },
   ];
   created.get('duckhunt')!.claims = [{ kind: CLAIM_RESULT.invalid, runId: '12', error: 'claim inválido: run sin entryId', said, commandsPending: false }];
   await d.pollOnce(d.supervisors.get('beta')!);
@@ -240,7 +240,7 @@ test('cli `audit`: tabla, jsonl y filtros por plataforma y desde cuándo; uso co
   const claim = markedClaim();
   const log = new AuditLog();
   log.append(claimedRecord({ platform: 'duckhunt', protocol: 'duckhunt-42', at: now - 10 * DAY_MS }, claim, { grants: [], toolset: null, attestations: [] }));
-  log.append(claimedRecord({ platform: 'beta', protocol: 'duckhunt-42', at: now - 1000 }, claim, { grants: [{ type: 'repo', key: 'okt/api', access: 'read', params: {} }], toolset: null, attestations: [] }));
+  log.append(claimedRecord({ platform: 'beta', protocol: 'duckhunt-42', at: now - 1000 }, claim, { grants: [{ type: 'repo', key: 'org/api', access: 'read', params: {} }], toolset: null, attestations: [] }));
   log.append(closedRecord({ platform: 'beta', protocol: 'duckhunt-42', at: now }, claim, { startedAt: now - 5000, lockWaitMs: 0, materialized: [], report: { status: 'failed' }, toolsByName: { Bash: 2 }, code: 'timeout' }));
   auditCommand(['--json', '--platform', 'beta'], now);
   assert.deepEqual(out.mock.calls.map((c) => (JSON.parse(String(c.arguments[0])) as AuditRecord).event), ['claimed', 'closed']);
@@ -249,7 +249,7 @@ test('cli `audit`: tabla, jsonl y filtros por plataforma y desde cuándo; uso co
   const table = out.mock.calls.map((c) => String(c.arguments[0]));
   assert.match(table[0]!, /^hora\s+plataforma\s+run/);
   assert.equal(table.length, 3, 'la de hace 10 días queda fuera de los 7 de por defecto');
-  assert.ok(table.some((l) => l.includes('repo:okt/api(read)')) && table.some((l) => l.includes('failed (timeout)') && l.includes('Bash×2')));
+  assert.ok(table.some((l) => l.includes('repo:org/api(read)')) && table.some((l) => l.includes('failed (timeout)') && l.includes('Bash×2')));
   out.mock.resetCalls();
   auditCommand(['--since', '30d'], now);
   assert.equal(out.mock.calls.length, 4);
@@ -261,13 +261,13 @@ test('cli `audit`: tabla, jsonl y filtros por plataforma y desde cuándo; uso co
 
 test('`status --platforms`: cada plataforma con su estado, lo que dijo su server, su cuota, su techo, lo expuesto y sus 24 h', () => {
   const now = Date.now();
-  write({ beta: entry('beta', { paused: true, runsPerDay: 5, slots: 1, expose: { repo: ['okt/api'] } }) });
+  write({ beta: entry('beta', { paused: true, runsPerDay: 5, slots: 1, expose: { repo: ['org/api'] } }) });
   writeServerState({ at: now - 60_000, baseUrl: 'https://duckhunt.test', clientId: 'c1', state: null, runner: null, kept: null }, 'duckhunt');
   const claim = markedClaim();
   const log = new AuditLog();
   log.append(claimedRecord({ platform: 'beta', protocol: 'duckhunt-42', at: now - 1000 }, claim, { grants: [], toolset: null, attestations: [] }));
   log.append(closedRecord({ platform: 'beta', protocol: 'duckhunt-42', at: now }, claim, { startedAt: now - 1000, lockWaitMs: 0, materialized: [], report: { status: 'failed', costUsd: 0.25 }, toolsByName: {}, code: 'exit_code' }));
-  const lines = platformsStatus(loadStoredConfig()!, [{ issue: { repo: 'okt/api', kind: 'missing' }, detail: 'okt/api: el checkout no existe' }], now);
+  const lines = platformsStatus(loadStoredConfig()!, [{ issue: { repo: 'org/api', kind: 'missing' }, detail: 'org/api: el checkout no existe' }], now);
   const at = (prefix: string): number => lines.findIndex((l) => l.startsWith(prefix));
   assert.ok(at('duckhunt · duckhunt-42 · https://duckhunt.test · credencial sí · trusted') >= 0, lines.join('\n'));
   assert.ok(lines.includes('  estado: activa'));
@@ -280,9 +280,9 @@ test('`status --platforms`: cada plataforma con su estado, lo que dijo su server
     '  en beta: sin datos (el daemon aún no ha reclamado con esta credencial)',
     '  cuota: 1 slot (de 2) · hoy 1/5 segmentos · 0.25 usd',
     '  techo: shell none · escritura no · memoria no · web no · push no · acceso ninguno',
-    '  expuesto: repo okt/api · aws nada',
+    '  expuesto: repo org/api · aws nada',
     '  avisos: 1',
     '  24 h: 1 segmentos · 1 fallidos · 0 rechazados · 0.25 usd',
   ].forEach((line) => assert.ok(block.includes(line), `${line}\n---\n${block.join('\n')}`));
-  assert.ok(block.some((l) => l.startsWith('    ⚠ okt/api: ')), 'el aviso del repo que ve');
+  assert.ok(block.some((l) => l.startsWith('    ⚠ org/api: ')), 'el aviso del repo que ve');
 });
