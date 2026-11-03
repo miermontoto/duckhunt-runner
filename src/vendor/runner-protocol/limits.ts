@@ -38,6 +38,9 @@ export const RUNNER_KEPT_COUNT_MAX = 100_000;
 
 // issues por claim (REPO_ISSUES_MAX del runner) y tope del recuento de cada uno.
 export const RUNNER_REPO_ISSUES_MAX = 200;
+// repos adicionales de una conversación además del principal (t#597, claim.ts::LegacyClaimExtraRepo): el alta no
+// admite más y el daemon rechaza un claim que los pase (cada uno es un worktree más y otro --add-dir).
+export const RUN_EXTRA_REPOS_MAX = 3;
 // repos mapeados que se guardan de un claim: por encima se recorta (y se loguea), nunca se
 // rechaza — un dato de presencia no tumba el claim (antes, > 500 = 400 y el daemon no reclamaba).
 export const RUNNER_REPOS_MAX = 2000;

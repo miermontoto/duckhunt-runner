@@ -88,6 +88,16 @@ export interface RunCwd {
   skipPermissions: boolean;
 }
 
+/** un directorio de trabajo adicional del run (t#597, un repo adicional): el cli lo recibe con --add-dir. readOnly =
+ *  el run no lo edita (Edit/Write negadas en él; de mejor esfuerzo: Bash no se acota por ruta). checkout = es un
+ *  checkout git (la guarda de la shell de lectura revisa sus symlinks como los del cwd). */
+export interface RunAddDir {
+  key: string;
+  dir: string;
+  readOnly: boolean;
+  checkout: boolean;
+}
+
 /** turno exclusivo que pide un recurso compartido y la nota del feed si toca esperarlo. */
 export interface ResourceLock {
   key: string;
@@ -113,6 +123,8 @@ export interface ResourceMcp {
 /** un recurso ya preparado para el run. */
 export interface Materialized {
   cwd?: RunCwd;
+  // otro directorio de trabajo del run, además del cwd (t#597): el de un repo adicional.
+  addDir?: RunAddDir;
   // variables que pone (null = la quita del env base).
   env?: Readonly<Record<string, string | null>>;
   // nota corta del cwd para agent_run.workdir y el feed (sin paths absolutos).

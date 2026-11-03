@@ -25,6 +25,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isToolId, type ClaimResponse, type McpServer } from './claim.js';
 import { runConfigDir } from './paths.js';
+import { WRITE_TOOLS } from './user-permissions.js';
 import { PERMISSION_ENV, PERMISSION_SUBCOMMAND } from './permission-server.js';
 import type { McpServerEntry } from './resources/types.js';
 import { AGENT_PERMISSION_TOOL } from './vendor/runner-protocol/index.js';
@@ -41,11 +42,27 @@ const RULE_UNSAFE_RE = /[,()*?[\]{}\\\n\r]/;
 // el entrypoint del runner (dist/index.js) junto a este módulo: lo lanza el cli como la tool de permisos.
 const RUNNER_ENTRY = fileURLToPath(new URL('./index.js', import.meta.url));
 
-/** regla `Read(//ruta)` (con `/**` si es un directorio) de una ruta absoluta, o null si no cabe en una regla de claude. */
-export function readDenyRule(abs: string, dir: boolean): string | null {
-  const rule = `Read(/${abs}${dir ? '/**' : ''})`;
+/** regla `<tool>(//ruta)` (con `/**` si es un directorio) de una ruta absoluta, o null si no cabe en una regla de claude. */
+export function pathRule(tool: string, abs: string, dir: boolean): string | null {
+  const rule = `${tool}(/${abs}${dir ? '/**' : ''})`;
   return path.isAbsolute(abs) && !RULE_UNSAFE_RE.test(abs) && isToolId(rule) ? rule : null;
 }
+
+/** deny de escritura de un directorio de solo lectura del run (t#597: un repo adicional en lectura): Edit, Write y
+ *  NotebookEdit sobre su ruta y su realpath. lanza si una no cabe en una regla de claude: sin el deny no se lanza el run. */
+export function readOnlyDirDeny(dir: string): string[] {
+  const paths = Array.from(new Set([path.resolve(dir), fs.realpathSync.native(dir)]));
+  return paths.flatMap((p) =>
+    WRITE_TOOLS.map((tool) => {
+      const rule = pathRule(tool, p, true);
+      if (rule === null) throw new Error(`el repo adicional en ${p} no cabe en una regla de permisos de claude (comas, paréntesis o comodines): no se puede dejar en solo lectura`);
+      return rule;
+    }),
+  );
+}
+
+/** regla `Read(//ruta)` (con `/**` si es un directorio) de una ruta absoluta, o null si no cabe en una regla de claude. */
+export const readDenyRule = (abs: string, dir: boolean): string | null => pathRule('Read', abs, dir);
 
 /** deny de Read del directorio de mcp-configs (su ruta y su realpath, el de js y el nativo). lanza si no cabe en una regla: sin él no se lanza ningún run. */
 export function runConfigDeny(dir: string): string[] {

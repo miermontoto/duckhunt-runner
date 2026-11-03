@@ -71,5 +71,9 @@ export const RUNNER_CAPABILITY = {
   // >= 0.17.0, con rewind y turn_changes: devuelve el árbol y el HEAD con los que empezó un segmento de edición con repo
   // y restaura uno en el worktree antes del turno cuando el claim trae `restore`.
   rewindFiles: 'rewind_files',
+  // t#597 (claim.ts::LegacyClaimExtraRepo): materializa los repos adicionales de una conversación (`run.extraRepos`), cada
+  // uno en su worktree conv-<id>, los pasa al cli con --add-dir y niega Edit/Write en los de acceso read. sin ella el
+  // enrutado no le entrega un run con repos adicionales (routingRefusal).
+  multiRepo: 'multi_repo',
 } as const;
 export type RunnerCapability = (typeof RUNNER_CAPABILITY)[keyof typeof RUNNER_CAPABILITY];

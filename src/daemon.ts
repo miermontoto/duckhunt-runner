@@ -159,8 +159,8 @@ import { reportFor, type Attempt, type KillReason, type StatusReport } from './s
 import { snapshotTree, turnChanges } from './turn-changes.js';
 import { headOf, restoreTree } from './rewind-files.js';
 import { AuditLog, AUDIT_OUTCOME, claimedRecord, closedRecord, DAY_MS, nextMidnight, outcomeCode, pruneAudit, rejectedRecord, retentionDays, toolsetSummary, type AttemptFacts, type AuditSubject, type ClaimedRecord } from './audit.js';
-import { readShellGuard, readShellLog, readShellNote } from './read-shell-guard.js';
-import { clearLegacyTmpConfigs, clearRunMcpConfigs, permissionMcpServers, runConfigDeny, writeRunMcpConfig } from './run-mcp-config.js';
+import { mergeShellVerdicts, readShellGuard, readShellLog, readShellNote } from './read-shell-guard.js';
+import { clearLegacyTmpConfigs, clearRunMcpConfigs, permissionMcpServers, readOnlyDirDeny, runConfigDeny, writeRunMcpConfig } from './run-mcp-config.js';
 import { CONVERSATION_GC_INTERVAL_MS, listWorktreeCandidates, removeWorktrees, selectForRemoval, type WorktreeCandidate } from './resources/repo/gc.js';
 import { KeyedMutex } from './keyed-mutex.js';
 import { describeFinding, REPO_HEALTH_INTERVAL_MS, repoChoices, repoFindings, repoIssues, scanRepos, type RepoChoice, type RepoIssue } from './resources/repo/health.js';
@@ -1229,6 +1229,8 @@ export class RunnerDaemon {
       feed?.push(systemEvent(text, ctx));
     };
     note(res.note);
+    // dónde está cada repo adicional (t#597): su propia línea, la nota del run es la del principal.
+    res.extraNotes.forEach((n) => note(`+ ${n}`));
     [...claim.warnings, ...res.warnings].forEach(note);
     // con el interruptor del flip el daemon no anuncia sesiones de navegador: un grant que llegara se queda sin usar.
     if (!this.toolsetRender && claim.toolsetShadow?.toolset.grants.some((g) => g.type === RESOURCE_TYPE.browser)) {
@@ -1403,11 +1405,14 @@ export class RunnerDaemon {
         : [];
     // shell de lectura solo en un checkout del que una lectura recursiva no pueda salir (el scratch no
     // es un checkout: no se revisa). una vez por segmento: el reintento desde cero usa el mismo cwd.
-    const shell = await readShellGuard(res.cwd.checkout ? res.cwd.dir : null, claim.tools, deny, res.env);
+    // con repos adicionales (t#597) se revisa también cada uno: una lectura recursiva tampoco puede salir de ellos.
+    const guarded = [res.cwd.checkout ? res.cwd.dir : null, ...res.addDirs.filter((a) => a.checkout).map((a) => a.dir)];
+    const shell = mergeShellVerdicts(await Promise.all(guarded.map((dir) => readShellGuard(dir, claim.tools, deny, res.env))));
     if (shell.dropShell) {
       console.warn(`${this.tagOf(sup)} run ${run.id}: shell de lectura fuera en este segmento: ${readShellLog(shell)}`);
       note(readShellNote(shell)!);
     }
+    const readOnlyDeny = res.addDirs.filter((a) => a.readOnly).flatMap((a) => readOnlyDirDeny(a.dir));
     const args = (prompt: string, resumeSessionId: string | null): string[] =>
       buildClaudeArgs({
         claim,
@@ -1428,6 +1433,9 @@ export class RunnerDaemon {
         // volver atrás (t#564): solo con --resume; el reintento desde cero (resumeSessionId null) no lo lleva.
         resumeAt: run.resumeAt,
         rewind: supportsRewind(this.claude.version),
+        // los repos adicionales (t#597) y el deny de los de solo lectura.
+        addDirs: res.addDirs.map((a) => a.dir),
+        readOnlyDirsDeny: readOnlyDeny,
       });
     // reanudar o no lo decide el server: manda sessionId solo cuando hay sesión que retomar.
     const resume = run.sessionId;

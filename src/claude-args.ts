@@ -29,6 +29,10 @@
 // $CLAUDE_CONFIG_DIR, AWS_*_FILE y los realpath de la lista genérica del server). y una plantilla
 // (run.seed = template, seed_budget) vuelve a llevar --max-budget-usd aunque viaje como prompt run, con la
 // misma regla de siempre (solo con api key o un presupuesto de la config); el de turnos, nunca.
+// repos adicionales (t#597, capability multi_repo): sus worktrees van en un solo --add-dir tras el mcp-config (el flag es
+// variádico: el siguiente `--` lo cierra), y los de solo lectura llevan al deny Edit, Write y NotebookEdit sobre su ruta
+// absoluta (readOnlyDirsDeny; con Bash entero no es una jaula: de mejor esfuerzo, como dice el prompt). sin --add-dir
+// en el cli, un run con repos adicionales no se lanza (el daemon no anuncia multi_repo sin él).
 // --model (0.12.0): `model` ya llega resuelto por el daemon (el run.model del claim, validado por
 // parseClaim; si no, defaults.model de la config) y va en todo segmento, también con --resume (cambia el
 // modelo de la sesión desde ese turno). sin ninguno no se pasa y manda el default del cli.
@@ -85,6 +89,9 @@ export interface ClaudeArgsInput {
   // (claude.ts::supportsRewind).
   resumeAt?: string | null;
   rewind?: boolean;
+  // los directorios de los repos adicionales (t#597) y el deny de los de solo lectura (readOnlyDirsDeny).
+  addDirs?: readonly string[];
+  readOnlyDirsDeny?: readonly string[];
 }
 
 /** flags sin los que el cli no puede cumplir un prompt run (el daemon solo anuncia `prompt` si los tiene todos). */
@@ -110,6 +117,10 @@ export function buildClaudeArgs(i: ClaudeArgsInput): string[] {
   if (forkAt !== null && !i.rewind) {
     throw new Error('el claude instalado no soporta --resume-session-at: actualiza claude code (sin él la conversación no puede volver atrás)');
   }
+  const addDirs = i.addDirs ?? [];
+  if (addDirs.length > 0 && !has('--add-dir')) {
+    throw new Error('el claude instalado no soporta --add-dir: actualiza claude code (sin él la conversación no ve sus repos adicionales)');
+  }
   if (i.runConfigDeny.length === 0 || !has('--disallowedTools')) {
     throw new Error('sin --disallowedTools y el deny del directorio de configs de run no se lanza nada: los mcp-config de los runs quedarían al alcance de Read');
   }
@@ -128,6 +139,7 @@ export function buildClaudeArgs(i: ClaudeArgsInput): string[] {
       ...(readPrompt || !isPrompt ? [...(i.mirroredDeny ?? []), ...(i.secretPathsDeny ?? [])] : []),
       ...(skip ? MEMORY_WRITE_TOOLS : []),
       ...(i.withoutShell ? [BASH_TOOL] : []),
+      ...(i.readOnlyDirsDeny ?? []),
       ...i.runConfigDeny,
     ]),
   );
@@ -138,6 +150,7 @@ export function buildClaudeArgs(i: ClaudeArgsInput): string[] {
     ...(has('--verbose') ? ['--verbose'] : []),
     '--mcp-config',
     i.mcpConfigFile,
+    ...(addDirs.length > 0 ? ['--add-dir', ...addDirs] : []),
     ...(has('--strict-mcp-config') ? ['--strict-mcp-config'] : []),
     ...(readPrompt ? ['--setting-sources', 'user'] : []),
     ...(allowed.length > 0 ? ['--allowedTools', allowed.join(',')] : []),

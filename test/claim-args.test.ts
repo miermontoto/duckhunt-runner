@@ -537,3 +537,45 @@ test('prompts de reglas (t#465, lote 9): el kit desatendido del server llega ent
     if (pushDeny.every((t) => serverDeny.includes(t))) assert.ok(pushDeny.every((t) => disallowed.includes(t)), `${name}: push y remotos negados`);
   });
 });
+
+// varios repos (t#597): parseClaim cierra el acceso hacia abajo y buildClaudeArgs los pasa con un solo --add-dir.
+test('varios repos: parseClaim valida run.extraRepos y cierra el acceso hacia abajo', () => {
+  const extras = (extraRepos: unknown, run: Record<string, unknown> = {}) => parseClaim(rawClaim({ extraRepos, ...run }));
+  assert.deepEqual(extras(undefined).run.extraRepos, [], 'sin la clave, ninguno');
+  const edit = extras([
+    { repo: 'org/web', branch: 'feat/x', access: 'full' },
+    { repo: 'org/docs', branch: null, access: 'interact' },
+    { repo: 'ORG/WEB', branch: null, access: 'full' },
+  ]);
+  assert.deepEqual(edit.run.extraRepos, [
+    { repo: 'org/web', branch: 'feat/x', access: 'full' },
+    { repo: 'org/docs', branch: null, access: 'read' },
+  ], 'un acceso que no es full es read; los repetidos fuera');
+  assert.equal(edit.warnings.filter((w) => w.includes('repetido')).length, 1);
+  assert.deepEqual(extras([{ repo: 'Org/App', branch: null, access: 'full' }]).run.extraRepos, [], 'el principal no se repite como adicional');
+  const read = parseClaim(
+    rawClaim({ extraRepos: [{ repo: 'org/web', branch: null, access: 'full' }], profile: 'read' }, { tools: { allowed: ['Read', 'Grep', 'Glob'], disallowed: ['Bash', 'Edit', 'Write'] } }),
+  );
+  assert.deepEqual(read.run.extraRepos, [{ repo: 'org/web', branch: null, access: 'read' }], 'en lectura, todo read');
+  const badBranch = extras([{ repo: 'org/web', branch: 'no vale', access: 'full' }]);
+  assert.equal(badBranch.run.extraRepos[0]?.branch, null);
+  assert.ok(badBranch.warnings.some((w) => w.includes('de org/web ignorada')));
+  assert.throws(() => extras(['a/1', 'a/2', 'a/3', 'a/4'].map((repo) => ({ repo, branch: null, access: 'read' }))), /más de 3 repos adicionales/);
+  assert.throws(() => extras([{ repo: 'org/web', branch: null, access: 'read' }], { repo: null }), /sin repo principal/);
+  assert.throws(() => extras([{ repo: 'no-es-una-clave', branch: null, access: 'read' }]), /repo adicional/);
+  assert.throws(() => extras({ repo: 'org/web' }), /no es una lista/);
+});
+
+test('varios repos: un solo --add-dir tras el mcp-config y el deny de los de solo lectura; sin el flag no se lanza', () => {
+  const raw = rawClaim({ extraRepos: [{ repo: 'org/web', branch: null, access: 'full' }] });
+  const deny = ['Edit(//w/docs/**)', 'Write(//w/docs/**)'];
+  const args = argsFor(raw, { addDirs: ['/w/web', '/w/docs'], readOnlyDirsDeny: deny });
+  const at = args.indexOf('--add-dir');
+  assert.equal(at, args.indexOf('--mcp-config') + 2);
+  assert.deepEqual(args.slice(at + 1, at + 3), ['/w/web', '/w/docs']);
+  assert.ok(args[at + 3]!.startsWith('--'));
+  deny.forEach((rule) => assert.ok(flagValue(args, '--disallowedTools').includes(rule)));
+  assert.ok(!argsFor(raw).includes('--add-dir'), 'sin directorios no hay flag');
+  const without = new Set(OPTIONAL_FLAGS.filter((f) => f !== '--add-dir'));
+  assert.throws(() => argsFor(raw, { addDirs: ['/w/web'], supported: without }), /no soporta --add-dir/);
+});

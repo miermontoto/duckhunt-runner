@@ -14,7 +14,7 @@ const MIN_PROTOCOL = '0.5.0';
 const FIXTURES = new URL('../../test/fixtures/', import.meta.url);
 const VENDOR = new URL('../../src/vendor/runner-protocol/', import.meta.url);
 // los que cubre el manifiesto del paquete (su src/fixtures.ts::FIXTURE_SUBDIRS).
-const FIXTURE_SUBDIRS: readonly string[] = ['claim-kits', 'claims', 'toolset-v1', 'toolset-v1-aws-default', 'v0', 'claims-browser'];
+const FIXTURE_SUBDIRS: readonly string[] = ['claim-kits', 'claims', 'toolset-v1', 'toolset-v1-aws-default', 'v0', 'claims-browser', 'claims-multi-repo'];
 const RECORD_FILE = 'vendor.json';
 const MODULE_EXT = '.ts';
 

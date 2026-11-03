@@ -72,8 +72,10 @@ import {
   RUN_CHANGES_FILE_PATCH_MAX_CHARS,
   RUN_CHANGES_FILES_MAX,
   RUN_CHANGES_PATCH_MAX_CHARS,
+  RUN_EXTRA_REPOS_MAX,
   RUNNER_CAPABILITY,
   GIT_OBJECT_ID_RE,
+  GRANT_ACCESS,
   RUN_MESSAGE_UUID_RE,
   TOOLSET_V1,
   type AgentAutonomy,
@@ -81,11 +83,13 @@ import {
   type AgentRunIsolation,
   type AgentRunSeed,
   type LegacyClaimChanges,
+  type LegacyClaimExtraRepo,
   type LegacyClaimPermissions,
   type LegacyClaimRestore,
   type RunnerCapability,
 } from './vendor/runner-protocol/index.js';
 import { parseToolsetV1 } from './toolset/parse.js';
+import { sameRepoKey } from './repo-key.js';
 import type { ShadowSource } from './toolset/shadow.js';
 import type { ResourceRequest } from './resources/types.js';
 
@@ -251,7 +255,14 @@ export interface ClaimedRun {
   autonomy: AgentAutonomy | null;
   // uuid del mensaje en el que retomar la sesión en una nueva (0.17.0, t#564; null = reanudar entera o no reanudar).
   resumeAt: string | null;
+  // repos adicionales de la conversación (t#597, extraReposOf): otros directorios de trabajo de la sesión (--add-dir),
+  // cada uno en su worktree conv-<id>. [] = solo el principal.
+  extraRepos: ExtraRepo[];
 }
+
+/** un repo adicional del run (t#597): su clave del mapa, su rama (null = la por defecto del remoto) y su acceso (read = Edit
+ *  y Write negadas en su directorio). */
+export type ExtraRepo = LegacyClaimExtraRepo;
 
 export interface EventsConfig {
   enabled: boolean;
@@ -508,6 +519,7 @@ export function parseClaimBody(raw: unknown, id: string, machine: ClaimMachine =
   const permissions = permissionsOf(raw.permissions, autonomy, { serverName, url }, segment);
   const isolation = kind === RUN_KIND.prompt && r.isolation === RUN_ISOLATION.checkout ? RUN_ISOLATION.checkout : RUN_ISOLATION.worktree;
   const resumeAt = resumeAtOf(r.resumeAt, sessionId);
+  const extraRepos = extraReposOf(r.extraRepos, { kind, profile, repo }, warnings);
   const restore = restoreOf(raw.restore, { kind, profile, isolation, repo });
 
   return {
@@ -530,6 +542,7 @@ export function parseClaimBody(raw: unknown, id: string, machine: ClaimMachine =
       model,
       autonomy,
       resumeAt,
+      extraRepos,
     },
     prompt,
     fallbackPrompt: str(raw.fallbackPrompt),
@@ -553,6 +566,38 @@ export function parseClaimBody(raw: unknown, id: string, machine: ClaimMachine =
         ? null
         : shadowSourceOf(raw.toolset, { allowed: serverAllowed, disallowed: serverDisallowed, permissionMode }, id),
   };
+}
+
+// acceso de un repo adicional (el GRANT_ACCESS del protocolo que admite LegacyClaimExtraRepo).
+const ACCESS_FULL = GRANT_ACCESS.full;
+const ACCESS_READ = GRANT_ACCESS.read;
+
+// repos adicionales de un prompt run con repo (t#597): cada uno con una clave del mapa y una rama utilizable (si no, la
+// por defecto, con aviso). el acceso se cierra hacia abajo: solo `full` en un run de edición abre la escritura; cualquier
+// otro valor (o un run de lectura) es read. más de RUN_EXTRA_REPOS_MAX, uno sin forma o sin repo principal tumban el
+// claim; el principal o uno repetido se ignoran con aviso.
+function extraReposOf(v: unknown, run: { kind: string; profile: PromptProfile | null; repo: string | null }, warnings: string[]): ExtraRepo[] {
+  if (v === undefined || v === null) return [];
+  if (!Array.isArray(v)) throw new Error('claim inválido: run.extraRepos no es una lista');
+  if (v.length === 0) return [];
+  if (v.length > RUN_EXTRA_REPOS_MAX) throw new Error(`claim inválido: más de ${RUN_EXTRA_REPOS_MAX} repos adicionales`);
+  const primary = run.repo;
+  if (run.kind !== RUN_KIND.prompt || primary === null) throw new Error('claim inválido: repos adicionales sin repo principal');
+  return v.reduce<ExtraRepo[]>((out, item) => {
+    const repo = isObj(item) ? str(item.repo) : null;
+    if (!isObj(item) || repo === null || !REPO_KEY_RE.test(repo)) throw new Error(`claim inválido: repo adicional ${shownValue(isObj(item) ? item.repo : item)}`);
+    if (sameRepoKey(repo, primary) || out.some((o) => sameRepoKey(o.repo, repo))) {
+      warnings.push(`repo adicional ${repo} repetido: se ignora`);
+      return out;
+    }
+    const rawBranch = str(item.branch);
+    const branch = rawBranch !== null && isValidBranchName(rawBranch) ? rawBranch : null;
+    if (rawBranch !== null && branch === null) {
+      warnings.push(`rama ${JSON.stringify(rawBranch.slice(0, WARNING_VALUE_CHARS))} de ${repo} ignorada (nombre no utilizable): worktree sobre la rama por defecto`);
+    }
+    const access = run.profile === PROMPT_PROFILE.edit && item.access === ACCESS_FULL ? ACCESS_FULL : ACCESS_READ;
+    return [...out, { repo, branch, access }];
+  }, []);
 }
 
 // el permission mode de un run dentro del techo local: con autonomía, exactamente el de su nivel (bypass, solo si el cli

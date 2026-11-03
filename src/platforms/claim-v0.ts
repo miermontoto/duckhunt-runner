@@ -20,6 +20,7 @@
 import { parseClaimBody, PROMPT_PROFILE, RUN_ISOLATION, RUN_KIND, RUN_SEED, type ClaimResponse, type McpServer, type PromptProfile } from '../claim.js';
 import { AWS_PARAM, AWS_TYPE } from '../resources/aws.js';
 import { REPO_PARAM, REPO_TYPE, REPO_WORKTREE } from '../resources/repo/provider.js';
+import { sameRepoKey } from '../repo-key.js';
 import type { ResourceRequest } from '../resources/types.js';
 import { intersectToolset } from '../toolset/intersect.js';
 import { parseToolsetV1 } from '../toolset/parse.js';
@@ -120,14 +121,19 @@ function mcpServersOf(raw: unknown, platformBaseUrl: string): McpServer[] {
 }
 
 /** cada grant contra la máquina: un tipo que se sirve, con acceso en el techo y una clave expuesta a esta plataforma.
- *  lanza ClaimRejectedError. también el flip de toolset_v1 en el cable legacy (toolset/legacy-render.ts). */
-export function checkGrants(t: ToolsetV1, e: Pick<V0Enforcement, 'ceiling' | 'expose' | 'resourceTypes'>): void {
+ *  lanza ClaimRejectedError. también el flip de toolset_v1 en el cable legacy (toolset/legacy-render.ts), donde una
+ *  conversación con repos adicionales (t#597) trae un grant de repo por cada uno tras el del principal: esos, y solo
+ *  esos (`extraRepos`, ya validados por parseClaim), no cuentan como repetidos. el cable v0 no los lleva. */
+export function checkGrants(t: ToolsetV1, e: Pick<V0Enforcement, 'ceiling' | 'expose' | 'resourceTypes'>, extraRepos: readonly string[] = []): void {
   t.grants.forEach((g) => {
     if (!e.resourceTypes.includes(g.type)) reject(CLAIM_REJECT.unknownType, `grant de ${g.type}: este runner no sirve ese tipo`);
     if (!Object.hasOwn(e.ceiling.access, g.type)) reject(CLAIM_REJECT.notAllowed, `grant de ${g.type}: el techo de la plataforma no le da acceso`);
     if (!isExposed(e.expose, g.type, g.key)) reject(CLAIM_REJECT.notExposed, `grant de ${g.type} ${g.key}: no está expuesto a esta plataforma`);
   });
-  const repeated = [...SINGLE_TYPES].filter((type) => t.grants.filter((g) => g.type === type).length > 1);
+  const repoGrants = t.grants.filter((g) => g.type === REPO_TYPE);
+  const distinct = repoGrants.every((g, i) => repoGrants.findIndex((o) => sameRepoKey(o.key, g.key)) === i);
+  const extrasOnly = distinct && repoGrants.slice(1).every((g) => extraRepos.some((key) => sameRepoKey(key, g.key)));
+  const repeated = [...SINGLE_TYPES].filter((type) => (type === REPO_TYPE ? !extrasOnly : t.grants.filter((g) => g.type === type).length > 1));
   if (repeated.length > 0) reject(CLAIM_REJECT.invalid, `más de un grant de ${repeated.join(', ')}`);
 }
 
