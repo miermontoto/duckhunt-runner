@@ -13,8 +13,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "6f9bfa969fcf4b47",
-            "count": 103,
+            "allowed": "bf4087eb590ee9b8",
+            "count": 105,
             "notFromClaim": [],
             "dropped": []
           },
@@ -99,8 +99,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "6f9bfa969fcf4b47",
-            "count": 103,
+            "allowed": "bf4087eb590ee9b8",
+            "count": 105,
             "notFromClaim": [],
             "dropped": []
           },
@@ -187,8 +187,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -281,8 +281,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "06e27d7bbaa4f2b6",
-            "count": 390,
+            "allowed": "60c6aa9a211605bf",
+            "count": 392,
             "notFromClaim": [],
             "dropped": []
           },
@@ -379,8 +379,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "138b1c6d2dff818d",
-            "count": 21,
+            "allowed": "63f5528b070f9404",
+            "count": 23,
             "notFromClaim": [],
             "dropped": []
           },
@@ -473,8 +473,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "e2129587e07af83f",
-            "count": 20,
+            "allowed": "f0a3d4509a447446",
+            "count": 22,
             "notFromClaim": [],
             "dropped": []
           },
@@ -567,8 +567,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "65f070d0c60db999",
-            "count": 316,
+            "allowed": "a5f1718486b2d46a",
+            "count": 318,
             "notFromClaim": [],
             "dropped": []
           },
@@ -663,8 +663,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "e2129587e07af83f",
-            "count": 20,
+            "allowed": "f0a3d4509a447446",
+            "count": 22,
             "notFromClaim": [],
             "dropped": []
           },
@@ -757,8 +757,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "e2129587e07af83f",
-            "count": 20,
+            "allowed": "f0a3d4509a447446",
+            "count": 22,
             "notFromClaim": [],
             "dropped": []
           },
@@ -851,8 +851,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "65f070d0c60db999",
-            "count": 316,
+            "allowed": "a5f1718486b2d46a",
+            "count": 318,
             "notFromClaim": [],
             "dropped": []
           },
@@ -943,8 +943,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "1ec13a2f969ece2a",
-            "count": 399,
+            "allowed": "4ca6ff1961d6dd3f",
+            "count": 401,
             "notFromClaim": [],
             "dropped": []
           },
@@ -1039,8 +1039,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "aaf907dee26be728",
-            "count": 102,
+            "allowed": "8032d35dfd5968ee",
+            "count": 104,
             "notFromClaim": [],
             "dropped": []
           },
@@ -1128,8 +1128,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "6f9bfa969fcf4b47",
-            "count": 103,
+            "allowed": "bf4087eb590ee9b8",
+            "count": 105,
             "notFromClaim": [],
             "dropped": []
           },
@@ -1214,8 +1214,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "6f9bfa969fcf4b47",
-            "count": 103,
+            "allowed": "bf4087eb590ee9b8",
+            "count": 105,
             "notFromClaim": [],
             "dropped": []
           },
@@ -1300,8 +1300,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "467315b0a91fbcbb",
-            "count": 100,
+            "allowed": "15c39a7bcb9d682f",
+            "count": 102,
             "notFromClaim": [],
             "dropped": []
           },
@@ -1389,8 +1389,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "42bea05112741aad",
-            "count": 98,
+            "allowed": "35e3878d451076c3",
+            "count": 100,
             "notFromClaim": [],
             "dropped": []
           },
@@ -1480,8 +1480,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -1574,8 +1574,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "65f070d0c60db999",
-            "count": 316,
+            "allowed": "a5f1718486b2d46a",
+            "count": 318,
             "notFromClaim": [],
             "dropped": []
           },
@@ -1670,8 +1670,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -1764,8 +1764,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "65f070d0c60db999",
-            "count": 316,
+            "allowed": "a5f1718486b2d46a",
+            "count": 318,
             "notFromClaim": [],
             "dropped": []
           },
@@ -1860,8 +1860,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -1954,8 +1954,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -2050,8 +2050,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "e2129587e07af83f",
-            "count": 20,
+            "allowed": "f0a3d4509a447446",
+            "count": 22,
             "notFromClaim": [],
             "dropped": []
           },
@@ -2142,8 +2142,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -2232,8 +2232,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "6f9bfa969fcf4b47",
-            "count": 103,
+            "allowed": "bf4087eb590ee9b8",
+            "count": 105,
             "notFromClaim": [],
             "dropped": []
           },
@@ -2316,8 +2316,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "6f9bfa969fcf4b47",
-            "count": 103,
+            "allowed": "bf4087eb590ee9b8",
+            "count": 105,
             "notFromClaim": [],
             "dropped": []
           },
@@ -2404,8 +2404,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -2498,8 +2498,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "6f9bfa969fcf4b47",
-            "count": 103,
+            "allowed": "bf4087eb590ee9b8",
+            "count": 105,
             "notFromClaim": [],
             "dropped": []
           },
@@ -2586,8 +2586,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "6f9bfa969fcf4b47",
-            "count": 103,
+            "allowed": "bf4087eb590ee9b8",
+            "count": 105,
             "notFromClaim": [],
             "dropped": []
           },
@@ -2655,8 +2655,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "6f9bfa969fcf4b47",
-            "count": 103,
+            "allowed": "bf4087eb590ee9b8",
+            "count": 105,
             "notFromClaim": [],
             "dropped": []
           },
@@ -2741,8 +2741,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "6f9bfa969fcf4b47",
-            "count": 103,
+            "allowed": "bf4087eb590ee9b8",
+            "count": 105,
             "notFromClaim": [],
             "dropped": []
           },
@@ -2825,8 +2825,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -2919,8 +2919,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -3011,8 +3011,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "6f9bfa969fcf4b47",
-            "count": 103,
+            "allowed": "bf4087eb590ee9b8",
+            "count": 105,
             "notFromClaim": [],
             "dropped": []
           },
@@ -3099,8 +3099,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -3193,8 +3193,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -3287,8 +3287,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "6f9bfa969fcf4b47",
-            "count": 103,
+            "allowed": "bf4087eb590ee9b8",
+            "count": 105,
             "notFromClaim": [],
             "dropped": []
           },
@@ -3373,8 +3373,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "6f9bfa969fcf4b47",
-            "count": 103,
+            "allowed": "bf4087eb590ee9b8",
+            "count": 105,
             "notFromClaim": [],
             "dropped": []
           },
@@ -3459,8 +3459,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "ec7bdf3893bfe192",
-            "count": 112,
+            "allowed": "989eb8bea64f191e",
+            "count": 114,
             "notFromClaim": [],
             "dropped": []
           },
@@ -3549,8 +3549,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -3645,8 +3645,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -3741,8 +3741,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -3837,8 +3837,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -3929,8 +3929,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -4023,8 +4023,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -4117,8 +4117,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -4211,8 +4211,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -4305,8 +4305,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -4382,8 +4382,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -4476,8 +4476,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -4572,8 +4572,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "512ae8c49d0906df",
-            "count": 96,
+            "allowed": "6f54c34779112d8a",
+            "count": 98,
             "notFromClaim": [],
             "dropped": []
           },
@@ -4649,8 +4649,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "512ae8c49d0906df",
-            "count": 96,
+            "allowed": "6f54c34779112d8a",
+            "count": 98,
             "notFromClaim": [],
             "dropped": []
           },
@@ -4743,8 +4743,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -4820,8 +4820,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -4914,8 +4914,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "512ae8c49d0906df",
-            "count": 96,
+            "allowed": "6f54c34779112d8a",
+            "count": 98,
             "notFromClaim": [],
             "dropped": []
           },
@@ -5008,8 +5008,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -5098,8 +5098,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -5192,8 +5192,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -5286,8 +5286,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -5380,8 +5380,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -5476,8 +5476,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -5570,8 +5570,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "2d8389386cc6e05c",
-            "count": 401,
+            "allowed": "9d3d57b3833c05b8",
+            "count": 403,
             "notFromClaim": [],
             "dropped": []
           },
@@ -5666,8 +5666,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -5761,8 +5761,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -5853,8 +5853,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "6f9bfa969fcf4b47",
-            "count": 103,
+            "allowed": "bf4087eb590ee9b8",
+            "count": 105,
             "notFromClaim": [],
             "dropped": []
           },
@@ -5941,8 +5941,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "db95a6d2c60d1e6f",
-            "count": 110,
+            "allowed": "22cbb2e48bcc46e1",
+            "count": 112,
             "notFromClaim": [],
             "dropped": []
           },
@@ -6029,8 +6029,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "5608d225ebdb7e8e",
-            "count": 78,
+            "allowed": "b23c0ab97d96b6e3",
+            "count": 79,
             "notFromClaim": [],
             "dropped": []
           },
@@ -6117,8 +6117,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "8c71930d2e9d2bc8",
-            "count": 372,
+            "allowed": "cdfd69202d1606c7",
+            "count": 373,
             "notFromClaim": [],
             "dropped": []
           },
@@ -6207,8 +6207,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "1ec13a2f969ece2a",
-            "count": 399,
+            "allowed": "4ca6ff1961d6dd3f",
+            "count": 401,
             "notFromClaim": [],
             "dropped": []
           },
@@ -6303,8 +6303,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "8c71930d2e9d2bc8",
-            "count": 372,
+            "allowed": "cdfd69202d1606c7",
+            "count": 373,
             "notFromClaim": [],
             "dropped": []
           },
@@ -6397,8 +6397,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "8c71930d2e9d2bc8",
-            "count": 372,
+            "allowed": "cdfd69202d1606c7",
+            "count": 373,
             "notFromClaim": [],
             "dropped": []
           },
@@ -6485,8 +6485,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "5608d225ebdb7e8e",
-            "count": 78,
+            "allowed": "b23c0ab97d96b6e3",
+            "count": 79,
             "notFromClaim": [],
             "dropped": []
           },
@@ -6573,8 +6573,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "06e27d7bbaa4f2b6",
-            "count": 390,
+            "allowed": "60c6aa9a211605bf",
+            "count": 392,
             "notFromClaim": [],
             "dropped": []
           },
@@ -6671,8 +6671,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "06e27d7bbaa4f2b6",
-            "count": 390,
+            "allowed": "60c6aa9a211605bf",
+            "count": 392,
             "notFromClaim": [],
             "dropped": []
           },
@@ -6769,8 +6769,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "06e27d7bbaa4f2b6",
-            "count": 390,
+            "allowed": "60c6aa9a211605bf",
+            "count": 392,
             "notFromClaim": [],
             "dropped": []
           },
@@ -6867,8 +6867,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "06e27d7bbaa4f2b6",
-            "count": 390,
+            "allowed": "60c6aa9a211605bf",
+            "count": 392,
             "notFromClaim": [],
             "dropped": []
           },
@@ -6965,8 +6965,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "f90615737adf58b9",
-            "count": 95,
+            "allowed": "79fd37b22e2a2129",
+            "count": 97,
             "notFromClaim": [],
             "dropped": []
           },
@@ -7061,8 +7061,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "138b1c6d2dff818d",
-            "count": 21,
+            "allowed": "63f5528b070f9404",
+            "count": 23,
             "notFromClaim": [],
             "dropped": []
           },
@@ -7155,8 +7155,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "138b1c6d2dff818d",
-            "count": 21,
+            "allowed": "63f5528b070f9404",
+            "count": 23,
             "notFromClaim": [],
             "dropped": []
           },
@@ -7249,8 +7249,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "06e27d7bbaa4f2b6",
-            "count": 390,
+            "allowed": "60c6aa9a211605bf",
+            "count": 392,
             "notFromClaim": [],
             "dropped": []
           },
@@ -7345,8 +7345,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "65f070d0c60db999",
-            "count": 316,
+            "allowed": "a5f1718486b2d46a",
+            "count": 318,
             "notFromClaim": [],
             "dropped": []
           },
@@ -7424,8 +7424,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "65f070d0c60db999",
-            "count": 316,
+            "allowed": "a5f1718486b2d46a",
+            "count": 318,
             "notFromClaim": [],
             "dropped": []
           },
@@ -7520,8 +7520,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "e2129587e07af83f",
-            "count": 20,
+            "allowed": "f0a3d4509a447446",
+            "count": 22,
             "notFromClaim": [],
             "dropped": []
           },
@@ -7614,8 +7614,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "e2129587e07af83f",
-            "count": 20,
+            "allowed": "f0a3d4509a447446",
+            "count": 22,
             "notFromClaim": [],
             "dropped": []
           },
@@ -7708,8 +7708,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "65f070d0c60db999",
-            "count": 316,
+            "allowed": "a5f1718486b2d46a",
+            "count": 318,
             "notFromClaim": [],
             "dropped": []
           },
@@ -7804,8 +7804,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "e2129587e07af83f",
-            "count": 20,
+            "allowed": "f0a3d4509a447446",
+            "count": 22,
             "notFromClaim": [],
             "dropped": []
           },
@@ -7881,8 +7881,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "e2129587e07af83f",
-            "count": 20,
+            "allowed": "f0a3d4509a447446",
+            "count": 22,
             "notFromClaim": [],
             "dropped": []
           },
@@ -7975,8 +7975,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "65f070d0c60db999",
-            "count": 316,
+            "allowed": "a5f1718486b2d46a",
+            "count": 318,
             "notFromClaim": [],
             "dropped": []
           },
@@ -8071,8 +8071,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "e2129587e07af83f",
-            "count": 20,
+            "allowed": "f0a3d4509a447446",
+            "count": 22,
             "notFromClaim": [],
             "dropped": []
           },
@@ -8165,8 +8165,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "65f070d0c60db999",
-            "count": 316,
+            "allowed": "a5f1718486b2d46a",
+            "count": 318,
             "notFromClaim": [],
             "dropped": []
           },
@@ -8257,8 +8257,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "65f070d0c60db999",
-            "count": 316,
+            "allowed": "a5f1718486b2d46a",
+            "count": 318,
             "notFromClaim": [],
             "dropped": []
           },
@@ -8353,8 +8353,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "ce0bda42753873e7",
-            "count": 315,
+            "allowed": "a0f5ad0d6b750bfb",
+            "count": 317,
             "notFromClaim": [],
             "dropped": []
           },
@@ -8449,8 +8449,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "65f070d0c60db999",
-            "count": 316,
+            "allowed": "a5f1718486b2d46a",
+            "count": 318,
             "notFromClaim": [],
             "dropped": []
           },
@@ -8545,8 +8545,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "06e27d7bbaa4f2b6",
-            "count": 390,
+            "allowed": "60c6aa9a211605bf",
+            "count": 392,
             "notFromClaim": [],
             "dropped": []
           },
@@ -8641,8 +8641,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "65f070d0c60db999",
-            "count": 316,
+            "allowed": "a5f1718486b2d46a",
+            "count": 318,
             "notFromClaim": [],
             "dropped": []
           },
@@ -8737,8 +8737,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "65f070d0c60db999",
-            "count": 316,
+            "allowed": "a5f1718486b2d46a",
+            "count": 318,
             "notFromClaim": [],
             "dropped": []
           },
@@ -8833,8 +8833,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "65f070d0c60db999",
-            "count": 316,
+            "allowed": "a5f1718486b2d46a",
+            "count": 318,
             "notFromClaim": [],
             "dropped": []
           },
@@ -8930,8 +8930,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "65f070d0c60db999",
-            "count": 316,
+            "allowed": "a5f1718486b2d46a",
+            "count": 318,
             "notFromClaim": [],
             "dropped": []
           },
@@ -9028,8 +9028,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "65f070d0c60db999",
-            "count": 316,
+            "allowed": "a5f1718486b2d46a",
+            "count": 318,
             "notFromClaim": [],
             "dropped": []
           },
@@ -9124,8 +9124,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "e2129587e07af83f",
-            "count": 20,
+            "allowed": "f0a3d4509a447446",
+            "count": 22,
             "notFromClaim": [],
             "dropped": []
           },
@@ -9218,8 +9218,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "e2129587e07af83f",
-            "count": 20,
+            "allowed": "f0a3d4509a447446",
+            "count": 22,
             "notFromClaim": [],
             "dropped": []
           },
@@ -9312,8 +9312,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "65f070d0c60db999",
-            "count": 316,
+            "allowed": "a5f1718486b2d46a",
+            "count": 318,
             "notFromClaim": [],
             "dropped": []
           },
@@ -9408,8 +9408,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "1ec13a2f969ece2a",
-            "count": 399,
+            "allowed": "4ca6ff1961d6dd3f",
+            "count": 401,
             "notFromClaim": [],
             "dropped": []
           },
@@ -9506,8 +9506,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "848d4bbe13ce6142",
-            "count": 103,
+            "allowed": "f8b010c7c7abe094",
+            "count": 105,
             "notFromClaim": [],
             "dropped": []
           },
@@ -9602,8 +9602,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "1ec13a2f969ece2a",
-            "count": 399,
+            "allowed": "4ca6ff1961d6dd3f",
+            "count": 401,
             "notFromClaim": [],
             "dropped": []
           },
@@ -9698,8 +9698,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "6f9bfa969fcf4b47",
-            "count": 103,
+            "allowed": "bf4087eb590ee9b8",
+            "count": 105,
             "notFromClaim": [],
             "dropped": []
           },
@@ -9790,8 +9790,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "6f9bfa969fcf4b47",
-            "count": 103,
+            "allowed": "bf4087eb590ee9b8",
+            "count": 105,
             "notFromClaim": [],
             "dropped": []
           },
@@ -9884,8 +9884,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "6f9bfa969fcf4b47",
-            "count": 103,
+            "allowed": "bf4087eb590ee9b8",
+            "count": 105,
             "notFromClaim": [],
             "dropped": []
           },
@@ -9979,8 +9979,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "65f070d0c60db999",
-            "count": 316,
+            "allowed": "a5f1718486b2d46a",
+            "count": 318,
             "notFromClaim": [],
             "dropped": []
           },
@@ -10084,8 +10084,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "65f070d0c60db999",
-            "count": 316,
+            "allowed": "a5f1718486b2d46a",
+            "count": 318,
             "notFromClaim": [],
             "dropped": []
           },
@@ -10179,8 +10179,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "65f070d0c60db999",
-            "count": 316,
+            "allowed": "a5f1718486b2d46a",
+            "count": 318,
             "notFromClaim": [],
             "dropped": []
           },
@@ -10275,8 +10275,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -10385,8 +10385,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "6f9bfa969fcf4b47",
-            "count": 103,
+            "allowed": "bf4087eb590ee9b8",
+            "count": 105,
             "notFromClaim": [],
             "dropped": []
           },
@@ -10430,8 +10430,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "6f9bfa969fcf4b47",
-            "count": 103,
+            "allowed": "bf4087eb590ee9b8",
+            "count": 105,
             "notFromClaim": [],
             "dropped": []
           },
@@ -10538,8 +10538,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -10593,8 +10593,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -10691,8 +10691,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "6f9bfa969fcf4b47",
-            "count": 103,
+            "allowed": "bf4087eb590ee9b8",
+            "count": 105,
             "notFromClaim": [],
             "dropped": []
           },
@@ -10736,8 +10736,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "6f9bfa969fcf4b47",
-            "count": 103,
+            "allowed": "bf4087eb590ee9b8",
+            "count": 105,
             "notFromClaim": [],
             "dropped": []
           },
@@ -10853,8 +10853,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "512ae8c49d0906df",
-            "count": 96,
+            "allowed": "6f54c34779112d8a",
+            "count": 98,
             "notFromClaim": [],
             "dropped": [
               "Bash(aws acm describe-*)",
@@ -11250,8 +11250,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "65f070d0c60db999",
-            "count": 316,
+            "allowed": "a5f1718486b2d46a",
+            "count": 318,
             "notFromClaim": [],
             "dropped": []
           },
@@ -11348,8 +11348,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "6f9bfa969fcf4b47",
-            "count": 103,
+            "allowed": "bf4087eb590ee9b8",
+            "count": 105,
             "notFromClaim": [],
             "dropped": []
           },
@@ -11430,8 +11430,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "6f9bfa969fcf4b47",
-            "count": 103,
+            "allowed": "bf4087eb590ee9b8",
+            "count": 105,
             "notFromClaim": [],
             "dropped": []
           },
@@ -11523,8 +11523,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },
@@ -11581,8 +11581,8 @@
           "user",
           "--allowedTools",
           {
-            "allowed": "668134a3cec13cb9",
-            "count": 392,
+            "allowed": "67e544f64e3c9448",
+            "count": 394,
             "notFromClaim": [],
             "dropped": []
           },

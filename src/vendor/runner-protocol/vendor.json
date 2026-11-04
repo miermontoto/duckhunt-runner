@@ -1,7 +1,7 @@
 {
-  "version": "0.15.0",
-  "contentHash": "bf0d47033a297010f737e6ec39bc518700737b8e733c47d7955513ea5b7c9114",
-  "commit": "aca02379982070345ea938e8905bcd2c9dcccfa8",
+  "version": "0.17.0",
+  "contentHash": "f0b9cfd974f3c50eb4c76f5f5047eed553e6b1a1554757b2cb5a403a544a9b30",
+  "commit": "2361ccb9ab9d752c871e8780501dd6854976d083",
   "files": {
     "index.ts": "140dd3631239a795dca7d286391991031febe25908017e913160e46b728b27a4",
     "autonomy.ts": "ebbdba257c6f3f1ffa2a86e3d08b5bd89d0fd618ecbf88910c1f46ef11ec2d65",
