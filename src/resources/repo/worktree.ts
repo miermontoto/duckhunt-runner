@@ -22,8 +22,9 @@
 // submódulos (t#617): el repo de un submódulo de un worktree vive bajo SU directorio de admin
 // (.git/worktrees/<wt>/modules/) y se va con él. git se niega a borrar sin --force un worktree que los tiene
 // (los da siempre por sucios, aunque estén limpios), así que su trabajo lo cuenta worktreeWork: lo sin commitear
-// de cada submódulo poblado y los commits que solo guardan sus repos (los de una rama local del submódulo, que el
-// status del padre no ve, y los de uno de-inicializado, cuyo repo sigue ahí) cuentan como trabajo del worktree, y
+// de cada submódulo poblado y los commits que solo guardan sus repos (los de una rama local, un tag local o el stash
+// del submódulo, que el status del padre no ve, y los de uno de-inicializado, cuyo repo sigue ahí) cuentan como
+// trabajo del worktree, y
 // solo uno limpio por esa cuenta se borra forzado (removeCleanWorktree). sin submódulos, sin --force: git hace de red.
 
 import { execFile } from 'node:child_process';
@@ -49,8 +50,10 @@ const WORK_STATUS = ['status', '--porcelain', '--ignore-submodules=dirty', '--un
 // commits alcanzables solo desde el HEAD detached de un worktree: al borrarlo se perderían (sus ramas locales son del
 // checkout y sobreviven).
 const WORKTREE_ONLY_COMMITS = ['rev-list', '--count', 'HEAD', '--not', '--branches', '--remotes', '--tags'];
-// commits de un repo de submódulo que ningún remoto ni tag contiene: sus ramas locales se van con el worktree.
-const SUBMODULE_ONLY_COMMITS = ['rev-list', '--count', 'HEAD', '--branches', '--not', '--remotes', '--tags'];
+// commits de un repo de submódulo que ningún remoto contiene, desde cualquiera de sus refs (HEAD, ramas, tags, stash):
+// el repo entero se va con el worktree, sus tags y su stash también. un tag del remoto sobre un commit que ninguna rama
+// remota contiene cuenta igual: sin red no se distingue de uno local y conservar es el lado seguro.
+const SUBMODULE_ONLY_COMMITS = ['rev-list', '--count', '--all', '--not', '--remotes'];
 // cada submódulo poblado (anidados también): su ruta desde la raíz del worktree, separada por NUL.
 const POPULATED_SUBMODULES = ['submodule', 'foreach', '--quiet', '--recursive', 'printf "%s\\0" "$displaypath"'];
 // el fichero que distingue un git dir de un directorio intermedio (el de un submódulo con barras en su nombre).
@@ -279,7 +282,7 @@ export async function removeRunWorktree(repoPath: string, dir: string, env: Node
 }
 
 /** lo que un worktree guarda y se perdería al borrarlo: ficheros sin commitear y commits que ninguna rama, remoto ni
- *  tag contiene; los de sus submódulos incluidos (ver cabecera). */
+ *  tag contiene; los de sus submódulos incluidos, donde solo salva un remoto (ver cabecera). */
 export interface WorktreeWork {
   dirtyFiles: number;
   unpushedCommits: number;

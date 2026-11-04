@@ -174,11 +174,13 @@ test('conv-<id> borrado a mano sin git worktree remove: el siguiente segmento lo
   assert.equal(git(again.workdir, 'rev-parse', 'HEAD'), mainSha);
 });
 
-test('gc con submódulos: limpio se borra (forzado); lo sin commitear o los commits que solo guarda el submódulo lo conservan', async () => {
+test('gc con submódulos: limpio se borra (forzado); lo sin commitear o los commits que solo guarda el submódulo (rama, tag o stash) lo conservan', async () => {
   const subOrigin = path.join(root, 'sub-origin');
   fs.mkdirSync(subOrigin);
   git(subOrigin, 'init', '-q', '-b', 'main');
   git(subOrigin, 'commit', '-q', '--allow-empty', '-m', 'sub');
+  // un tag del remoto sobre un commit de su rama: lo guarda el remoto, no cuenta.
+  git(subOrigin, 'tag', 'v1');
   const superOrigin = path.join(root, 'super-origin');
   fs.mkdirSync(superOrigin);
   git(superOrigin, 'init', '-q', '-b', 'main');
@@ -221,14 +223,23 @@ test('gc con submódulos: limpio se borra (forzado); lo sin commitear o los comm
   git(ignored, 'config', '-f', '.gitmodules', 'submodule.lib.ignore', 'all');
   git(ignored, 'commit', '-q', '-am', 'ignora el submódulo');
   fs.writeFileSync(path.join(ignored, 'lib', 'a-medias.txt'), 'x');
+  // un stash del submódulo y un commit que solo guarda un tag local suyo: se irían con su repo.
+  const stashed = await conv('46');
+  fs.writeFileSync(path.join(stashed, 'lib', 'a-medias.txt'), 'x');
+  git(path.join(stashed, 'lib'), 'stash', 'push', '-q', '--include-untracked');
+  const tagged = await conv('47');
+  git(path.join(tagged, 'lib'), 'commit', '-q', '--allow-empty', '-m', 'solo en un tag local');
+  git(path.join(tagged, 'lib'), 'tag', 'mi-tag');
+  git(path.join(tagged, 'lib'), 'checkout', '-q', '--detach', 'HEAD~1');
+  [stashed, tagged].forEach((dir) => assert.equal(git(dir, 'status', '--porcelain'), '', `${path.basename(dir)}: el status del padre no lo ve`));
 
   const targets = selectForRemoval(listWorktreeCandidates([superClone], LEGACY_PLATFORM_ID), new Set(), Date.now());
-  assert.deepEqual(targets.map((c) => c.runId).sort(), ['40', '41', '42', '43', '44', '45']);
+  assert.deepEqual(targets.map((c) => c.runId).sort(), ['40', '41', '42', '43', '44', '45', '46', '47']);
   const { removed, kept } = await removeWorktrees(targets, env);
   assert.equal(removed, 2);
   assert.ok(!fs.existsSync(clean), 'limpio con un submódulo poblado: borrado');
   assert.ok(!fs.existsSync(parkedClean), 'limpio con un submódulo de-inicializado: borrado');
-  [untracked, branched, parked, ignored].forEach((dir) => assert.ok(fs.existsSync(dir), `${path.basename(dir)} se conserva`));
+  [untracked, branched, parked, ignored, stashed, tagged].forEach((dir) => assert.ok(fs.existsSync(dir), `${path.basename(dir)} se conserva`));
   // worktree_report: recuentos, sin paths ni el número de submódulos.
   assert.deepEqual(
     [...kept].sort((a, b) => a.runId.localeCompare(b.runId)),
@@ -238,9 +249,12 @@ test('gc con submódulos: limpio se borra (forzado); lo sin commitear o los comm
       { runId: '43', dirtyFiles: 0, unpushedCommits: 1 },
       // su commit de .gitmodules también cuenta; el fichero del submódulo, aunque ese .gitmodules lo ignore.
       { runId: '45', dirtyFiles: 1, unpushedCommits: 1 },
+      // el stash son sus commits (el de los cambios, el del índice y el de lo no versionado).
+      { runId: '46', dirtyFiles: 0, unpushedCommits: 3 },
+      { runId: '47', dirtyFiles: 0, unpushedCommits: 1 },
     ],
   );
-  assert.equal(git(superClone, 'worktree', 'list', '--porcelain').split('\n').filter((l) => l.startsWith('worktree ')).length, 5, 'el checkout y los 4 conservados');
+  assert.equal(git(superClone, 'worktree', 'list', '--porcelain').split('\n').filter((l) => l.startsWith('worktree ')).length, 7, 'el checkout y los 6 conservados');
 });
 
 test('sin submódulos el borrado sigue sin --force: git hace de red aunque la cuenta diga limpio', async () => {
