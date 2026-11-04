@@ -4,12 +4,15 @@
 // (POST /api/runner/conversations) y borra las cerradas o sin uso desde hace más de
 // CONVERSATION_IDLE_TTL_MS. los run-<id> que quedaron de runs fallidos (autopsia) caen por el mismo
 // ttl. regla dura: un worktree con cambios sin commitear o con commits que ninguna rama ni remoto
-// contiene NO se borra nunca; se conserva y se avisa en el log. con runs en paralelo el gc corre
-// mientras otros slots trabajan: nunca toca el worktree de un run en vuelo (lo reclamó este daemon
-// y el server aún podría darlo por cerrado) y cada borrado va bajo el lock git de su checkout.
+// contiene NO se borra nunca; se conserva y se avisa en el log. lo de sus submódulos cuenta igual
+// (t#617, worktree.ts): uno con submódulos y limpio se borra con --force, porque git se niega siempre
+// a hacerlo sin él y se quedaban para siempre. con runs en paralelo el gc corre mientras otros slots
+// trabajan: nunca toca el worktree de un run en vuelo (lo reclamó este daemon y el server aún podría
+// darlo por cerrado) y cada borrado va bajo el lock git de su checkout.
 // worktree_report (0.11.0, t#465 P12): de cada conversación que se conserva por guardar trabajo sale un
-// recuento (KeptWorktree: ficheros sin commitear y commits sin subir, nunca paths) que el daemon anuncia
-// en cada claim hasta la siguiente recogida; el hilo de esa conversación lo enseña con «pedir commit».
+// recuento (KeptWorktree: ficheros sin commitear y commits sin subir, los de sus submódulos incluidos;
+// nunca paths) que el daemon anuncia en cada claim hasta la siguiente recogida; el hilo de esa
+// conversación lo enseña con «pedir commit».
 // ids opacos (t#495, M1): el sufijo de conv-<id>/run-<id> es el id del run tal cual (run-id.ts::RUN_ID_RE);
 // los conv-<n> de siempre siguen casando. qué ids se le preguntan al server lo decide el daemon (el cable
 // legacy solo lleva numéricos).
@@ -96,11 +99,13 @@ export async function removeWorktrees(targets: WorktreeCandidate[], env: NodeJS.
       const work = await worktreeWork(c.dir, env);
       const keep = describeWork(work);
       if (keep) {
-        console.warn(`[runner] worktree ${c.dir} conservado: ${keep} (bórralo a mano con \`git worktree remove\` cuando ya no lo necesites)`);
-        if (c.kind === 'conversation') out.kept.push({ runId: c.runId, ...work });
+        // con submódulos git exige --force también a mano.
+        const remove = work.submodules ? 'git worktree remove --force' : 'git worktree remove';
+        console.warn(`[runner] worktree ${c.dir} conservado: ${keep} (bórralo a mano con \`${remove}\` cuando ya no lo necesites)`);
+        if (c.kind === 'conversation') out.kept.push({ runId: c.runId, dirtyFiles: work.dirtyFiles, unpushedCommits: work.unpushedCommits });
         continue;
       }
-      await removeCleanWorktree(c.repoPath, c.dir, env);
+      await removeCleanWorktree(c.repoPath, c.dir, env, work);
       out.removed++;
     } catch (err) {
       console.error(`[runner] no se pudo recoger el worktree ${name}: ${(err as Error).message}`);
