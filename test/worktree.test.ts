@@ -14,9 +14,11 @@ import { isUsableBranch, prepareCheckout, prepareConversationWorktree, prepareRu
 
 const DAY_MS = 24 * 60 * 60_000;
 // identidad y firma fuera: el test no depende de la config git de la máquina. los submódulos de los tests son
-// rutas locales (protocolo file, que git solo deja clonar a un submódulo con permiso).
+// rutas locales (protocolo file, que git solo deja clonar a un submódulo con permiso). locale C: los mensajes de git
+// que se comprueban salen en inglés aunque la máquina lo tenga traducido (con C, gettext ignora LANGUAGE).
 const env: NodeJS.ProcessEnv = {
   ...scrubEnv(process.env),
+  LC_ALL: 'C',
   GIT_AUTHOR_NAME: 't',
   GIT_AUTHOR_EMAIL: 't@t',
   GIT_COMMITTER_NAME: 't',
