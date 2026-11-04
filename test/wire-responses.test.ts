@@ -3,7 +3,7 @@
 // un reintento, 204, 200 sin trabajo, http de error, red caída, json ilegible, un claim que no parsea con su
 // status failed, la cabecera de comandos de repos), el latido (404, cancel, otro estado, 5xx, credencial muerta),
 // el status (409 benigno, 4xx sin reintento, 5xx con backoff, credencial muerta) y /conversations caído. el motivo
-// de un http de error sí cambió (t#617): una línea con el mensaje del server, nunca el cuerpo (failure-reason.ts).
+// de un http de error sí cambió (t#617): una línea con el mensaje del server, nunca una página html (failure-reason.ts).
 
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -153,7 +153,7 @@ test('claim: 204 con motivo y 200 sin trabajo guardan lo que dijo el server; un 
     throw new Error('ECONNREFUSED');
   }) as typeof fetch;
   assert.equal(await d.claim(), null);
-  assert.deepEqual(said(error), ['[runner] claim falló: http 500 (text/plain;charset=UTF-8, 4 B)', '[runner] claim inaccesible: ECONNREFUSED']);
+  assert.deepEqual(said(error), ['[runner] claim falló: http 500: boom', '[runner] claim inaccesible: ECONNREFUSED']);
   assert.equal(server.calls.length, 3);
 });
 
@@ -264,7 +264,7 @@ test('status: 409 es benigno, un 4xx no se reintenta, un 5xx sí con backoff y l
     '/runs/3/status Bearer a1 {"status":"failed","error":"x","segment":4}',
     '/runs/3/status Bearer a1 {"status":"failed","error":"x","segment":4}',
   ]);
-  assert.deepEqual(said(error), ['[runner] status post rechazado: http 422 (text/plain;charset=UTF-8, 3 B)', '[runner] status post: http 503 (intento 1/5)']);
+  assert.deepEqual(said(error), ['[runner] status post rechazado: http 422: mal', '[runner] status post: http 503 (intento 1/5)']);
 
   const dead = fake(() => Response.json({ ok: true }));
   dead.reject = true;

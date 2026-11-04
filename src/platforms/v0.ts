@@ -10,8 +10,8 @@
 //   definitivos; 429 y 5xx se reintentan con el backoff del legacy.
 // - lo de duckhunt (conversaciones abiertas, comandos del mapa de repos, candidatos y trabajo conservado en el
 //   claim) solo si el discovery anuncia su extensión `x-duckhunt`.
-// - un http de error se loguea con el código y el mensaje de su sobre (failure-reason.ts); sin sobre, el status con su
-//   content-type y su tamaño, nunca el cuerpo.
+// - un http de error se loguea con su status y el código y el mensaje de su sobre (failure-reason.ts); sin sobre, un
+//   texto corto o el status con su content-type y su tamaño, nunca una página html.
 
 import type { RunnerCredential } from '../config.js';
 import type { SeqEvent } from '../event-uploader.js';

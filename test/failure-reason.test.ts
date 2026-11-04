@@ -1,5 +1,6 @@
-// el motivo de un http de error en una línea (t#617): el `{ error }` de duckhunt, el sobre de v0, y con cualquier otra
-// cosa (la página html del proxy durante un deploy, texto, vacío) el status, el content-type y el tamaño, sin el cuerpo.
+// el motivo de un http de error en una línea y siempre con su status (t#617): el `{ error }` de duckhunt, el sobre de v0
+// o un texto corto; con una página html (la del proxy durante un deploy), vacío o un json sin motivo, el content-type y
+// el tamaño, sin el cuerpo.
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -19,15 +20,27 @@ test('el error de duckhunt: http <status>: <mensaje>, en una línea', async () =
   assert.equal(await failureReason(Response.json({ error: 'línea uno\n\n   línea\tdos ', traceId: 'abc' }, { status: 500 })), 'http 500: línea uno línea dos');
 });
 
-test('el sobre de v0: <code>: <message>, como siempre', async () => {
+test('el sobre de v0: http <status>: <code>: <message>, con las piezas que traiga', async () => {
   const res = Response.json({ error: { code: 'resource_not_exposed', message: 'grant de repo acme/api: no está expuesto' } }, { status: 409 });
-  assert.equal(await failureReason(res), 'resource_not_exposed: grant de repo acme/api: no está expuesto');
-  assert.equal(await failureReason(Response.json({ error: {} }, { status: 400 })), 'undefined: undefined');
+  assert.equal(await failureReason(res), 'http 409: resource_not_exposed: grant de repo acme/api: no está expuesto');
+  assert.equal(await failureReason(Response.json({ error: { code: 'rate_limited' } }, { status: 429 })), 'http 429: rate_limited');
+  assert.equal(await failureReason(Response.json({ error: { message: 'sin code', code: null } }, { status: 400 })), 'http 400: sin code');
+  // un sobre vacío no inventa un motivo: el status con su content-type y su tamaño.
+  assert.equal(await failureReason(Response.json({ error: {} }, { status: 400 })), 'http 400 (application/json, 12 B)');
 });
 
-test('sin cuerpo, texto o un json sin error: el status con su content-type y su tamaño', async () => {
+test('un texto corto (el de un cdn que limita): su motivo, en una línea', async () => {
+  assert.equal(await failureReason(new Response('error code: 1015', { status: 429 })), 'http 429: error code: 1015');
+  assert.equal(await failureReason(new Response('boom\n  otra línea\n', { status: 500 })), 'http 500: boom otra línea');
+});
+
+test('sin cuerpo, marcado o un json sin error: el status con su content-type y su tamaño', async () => {
   assert.equal(await failureReason(new Response(null, { status: 502 })), 'http 502 (sin content-type, 0 B)');
-  assert.equal(await failureReason(new Response('boom', { status: 500 })), 'http 500 (text/plain;charset=UTF-8, 4 B)');
+  // una página html que no declara su content-type sigue sin volcarse.
+  const page = '<html><body>bad gateway</body></html>';
+  assert.equal(await failureReason(new Response(page, { status: 502 })), `http 502 (text/plain;charset=UTF-8, ${page.length} B)`);
+  const xml = '<?xml version="1.0"?><Error><Code>AccessDenied</Code></Error>';
+  assert.equal(await failureReason(new Response(xml, { status: 403, headers: { 'content-type': 'application/xml' } })), `http 403 (application/xml, ${xml.length} B)`);
   assert.equal(await failureReason(Response.json({ ok: false }, { status: 503 })), 'http 503 (application/json, 12 B)');
   assert.equal(await failureReason(Response.json(['x'], { status: 503 })), 'http 503 (application/json, 5 B)');
 });
