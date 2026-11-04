@@ -10,6 +10,8 @@
 //   definitivos; 429 y 5xx se reintentan con el backoff del legacy.
 // - lo de duckhunt (conversaciones abiertas, comandos del mapa de repos, candidatos y trabajo conservado en el
 //   claim) solo si el discovery anuncia su extensión `x-duckhunt`.
+// - un http de error se loguea con el código y el mensaje de su sobre (failure-reason.ts); sin sobre, el status con su
+//   content-type y su tamaño, nunca el cuerpo.
 
 import type { RunnerCredential } from '../config.js';
 import type { SeqEvent } from '../event-uploader.js';
@@ -35,6 +37,7 @@ import {
 import { claimOfV0, v0RunIdOf } from './claim-v0.js';
 import { credentialStore } from './credentials.js';
 import { fetchDiscovery, type V0Discovery } from './discovery.js';
+import { failureReason } from './failure-reason.js';
 import { isTransient, sleep, STATUS_POST_ATTEMPTS, STATUS_POST_BACKOFF_MS } from './duckhunt42.js';
 import { HttpTransport } from './http-transport.js';
 import {
@@ -89,12 +92,6 @@ function runnerBlockOf(raw: unknown): RunnerBlock | null {
     maxSlots: typeof maxSlots === 'number' ? maxSlots : null,
   };
 }
-
-// el error del sobre de v0 de una respuesta, para el log.
-const errorOf = async (res: Response): Promise<string> => {
-  const body = (await res.json().catch(() => null)) as { error?: { code?: unknown; message?: unknown } } | null;
-  return body?.error ? `${String(body.error.code)}: ${String(body.error.message)}` : `http ${res.status}`;
-};
 
 export class V0Platform implements Platform {
   readonly protocol = PROTOCOL.v0;
@@ -177,7 +174,7 @@ export class V0Platform implements Platform {
     if (res.ok && replacesClientId) this.transport.accepted(clientId, replacesClientId);
     const commandsPending = this.extPath(doc, EXT.repoCommands) !== null && Number(res.headers.get(REPO_COMMANDS_HEADER)) > 0;
     if (res.status !== HTTP_OK) {
-      console.error(`[runner] plataforma ${this.id}: claim falló: ${await errorOf(res)}`);
+      console.error(`[runner] plataforma ${this.id}: claim falló: ${await failureReason(res)}`);
       return { kind: CLAIM_RESULT.unavailable, commandsPending };
     }
     const raw: unknown = await res.json().catch(() => null);
@@ -258,7 +255,7 @@ export class V0Platform implements Platform {
       if (rejected) return;
       if (res?.ok) return;
       if (res && !isTransient(res.status)) {
-        console.error(`[runner] result del run ${runId} rechazado: ${await errorOf(res)}`);
+        console.error(`[runner] result del run ${runId} rechazado: ${await failureReason(res)}`);
         return;
       }
       if (res) console.error(`[runner] result: http ${res.status} (intento ${attempt}/${STATUS_POST_ATTEMPTS})`);
@@ -312,7 +309,7 @@ export class V0Platform implements Platform {
     }
     if (res.status === HTTP_NOT_FOUND) return { kind: 'unsupported' };
     if (res.status === HTTP_UNAUTHORIZED) return { kind: 'gone' };
-    if (!res.ok) throw new Error(`la plataforma respondió ${await errorOf(res)}`);
+    if (!res.ok) throw new Error(`la plataforma respondió ${await failureReason(res)}`);
     const body = (await res.json().catch(() => ({}))) as { canceled?: unknown };
     return { kind: 'unpaired', canceled: Array.isArray(body.canceled) ? body.canceled.length : 0 };
   }

@@ -2,7 +2,8 @@
 // de plataformas, para que moverlo a platforms/ no cambie ni una llamada ni un log. el claim (401 con un refresh y
 // un reintento, 204, 200 sin trabajo, http de error, red caída, json ilegible, un claim que no parsea con su
 // status failed, la cabecera de comandos de repos), el latido (404, cancel, otro estado, 5xx, credencial muerta),
-// el status (409 benigno, 4xx sin reintento, 5xx con backoff, credencial muerta) y /conversations caído.
+// el status (409 benigno, 4xx sin reintento, 5xx con backoff, credencial muerta) y /conversations caído. el motivo
+// de un http de error sí cambió (t#617): una línea con el mensaje del server, nunca el cuerpo (failure-reason.ts).
 
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -15,6 +16,7 @@ import { RunLease } from '../src/run-lease.js';
 import { readServerState } from '../src/server-state.js';
 import { LEGACY_PLATFORM_ID } from '../src/paths.js';
 import type { StatusReport } from '../src/status-report.js';
+import type { RunChangesReport } from '../src/vendor/runner-protocol/index.js';
 import { internals, legacyOf } from './daemon-harness.js';
 
 const BASE = 'https://duckhunt.test';
@@ -67,6 +69,7 @@ interface Wire {
   claim(): Promise<unknown>;
   startHeartbeat(lease: RunLease, heartbeatMs: number, seg: { segment?: number }): NodeJS.Timeout;
   postStatus(runId: string, report: StatusReport): Promise<void>;
+  changes(runId: string, report: RunChangesReport): Promise<void>;
   openConversations(ids: string[]): Promise<Set<string>>;
   stopping: boolean;
   exitCode: number;
@@ -81,6 +84,7 @@ async function wire(leases: RunLease[] = []): Promise<Wire> {
     claim: () => sup.claim(),
     startHeartbeat: (lease, ms, seg) => d.startHeartbeat(sup, lease, ms, seg),
     postStatus: (runId, report) => sup.platform.result(runId, report),
+    changes: (runId, report) => sup.platform.changes!(runId, report, {}),
     openConversations: (ids) => sup.platform.openConversations(ids),
     get stopping() {
       return d.stopping;
@@ -149,7 +153,7 @@ test('claim: 204 con motivo y 200 sin trabajo guardan lo que dijo el server; un 
     throw new Error('ECONNREFUSED');
   }) as typeof fetch;
   assert.equal(await d.claim(), null);
-  assert.deepEqual(said(error), ['[runner] claim falló: http 500 boom', '[runner] claim inaccesible: ECONNREFUSED']);
+  assert.deepEqual(said(error), ['[runner] claim falló: http 500 (text/plain;charset=UTF-8, 4 B)', '[runner] claim inaccesible: ECONNREFUSED']);
   assert.equal(server.calls.length, 3);
 });
 
@@ -260,7 +264,7 @@ test('status: 409 es benigno, un 4xx no se reintenta, un 5xx sí con backoff y l
     '/runs/3/status Bearer a1 {"status":"failed","error":"x","segment":4}',
     '/runs/3/status Bearer a1 {"status":"failed","error":"x","segment":4}',
   ]);
-  assert.deepEqual(said(error), ['[runner] status post rechazado: http 422 mal', '[runner] status post: http 503 (intento 1/5)']);
+  assert.deepEqual(said(error), ['[runner] status post rechazado: http 422 (text/plain;charset=UTF-8, 3 B)', '[runner] status post: http 503 (intento 1/5)']);
 
   const dead = fake(() => Response.json({ ok: true }));
   dead.reject = true;
@@ -268,6 +272,25 @@ test('status: 409 es benigno, un 4xx no se reintenta, un 5xx sí con backoff y l
   await d2.postStatus('6', { status: 'done' });
   assert.equal(dead.calls.length, 0);
   assert.match(said(error).at(-1)!, /^\[runner\] status post falló \(intento 1\/5\): la credencial de esta máquina ya no vale/);
+});
+
+test('el claim y el diff del turno rechazados: el motivo del server en una línea, nunca la página html del proxy', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  const error = t.mock.method(console, 'error', () => {});
+  // lo que contesta el proxy mientras el server se despliega.
+  const page = `<!DOCTYPE html>\n<html>\n${'<p>bad gateway</p>\n'.repeat(120)}</html>\n`;
+  const answers: Record<string, (() => Response)[]> = {
+    '/claim': [() => new Response(page, { status: 502, headers: { 'content-type': 'text/html; charset=UTF-8' } })],
+    '/runs/7/changes': [() => Response.json({ error: 'String must contain at most 512000 character(s)' }, { status: 400 })],
+  };
+  fake((pathname) => answers[pathname]!.shift()!());
+  const d = await wire();
+  assert.equal(await d.claim(), null);
+  await d.changes('7', { files: [], filesTotal: 0, patch: '' });
+  assert.deepEqual(said(error), [
+    `[runner] claim falló: http 502 (text/html; charset=UTF-8, ${Buffer.byteLength(page)} B)`,
+    '[runner] diff del turno del run 7 rechazado: http 400: String must contain at most 512000 character(s)',
+  ]);
 });
 
 test('/conversations caído o con un cuerpo raro: esas conversaciones cuentan como abiertas', async (t) => {
