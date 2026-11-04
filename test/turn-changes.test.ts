@@ -1,6 +1,7 @@
 // diff de cada turno (t#514) contra repos git reales en un tmpdir: la foto no toca el índice del usuario y respeta
 // .gitignore, el diff cuenta lo creado con la shell, renombrados y binarios, y los topes dejan ficheros sin cuerpo
-// sin romper el patch. más el parseo del bloque `changes` del claim y la capability anunciada.
+// (o fuera) sin romper el patch ni pasar de patchMaxChars, también con varios repos adicionales. más el parseo del
+// bloque `changes` del claim y la capability anunciada.
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -10,10 +11,17 @@ import path from 'node:path';
 import { after, test } from 'node:test';
 import { announcedCapabilities } from '../src/announced-capabilities.js';
 import { parseClaim } from '../src/claim.js';
+import { withExtraChanges } from '../src/daemon.js';
 import { scrubEnv } from '../src/scrub-env.js';
 import { maskDiffChunk, maskDiffSecrets, maskSecrets, SECRET_MASK } from '../src/secret-mask.js';
 import { budgetPatch, parseNameStatus, parseNumstat, snapshotTree, turnChanges } from '../src/turn-changes.js';
-import { RUN_CHANGES_FILE_PATCH_MAX_CHARS, RUN_CHANGES_FILES_MAX, RUN_CHANGES_PATCH_MAX_CHARS, RUNNER_CAPABILITY } from '../src/vendor/runner-protocol/index.js';
+import {
+  RUN_CHANGES_FILE_PATCH_MAX_CHARS,
+  RUN_CHANGES_FILES_MAX,
+  RUN_CHANGES_PATCH_HARD_MAX_CHARS,
+  RUN_CHANGES_PATCH_MAX_CHARS,
+  RUNNER_CAPABILITY,
+} from '../src/vendor/runner-protocol/index.js';
 
 // identidad y firma fuera: el test no depende de la config git de la máquina.
 const env: NodeJS.ProcessEnv = {
@@ -104,12 +112,77 @@ test('topes: un fichero enorme o fuera del presupuesto viaja con su cabecera sol
   assert.match(report.patch, /\+const a = 3;/);
 });
 
+// los trozos de un patch: uno por `diff --git` (ningún cuerpo de estos tests tiene una línea que empiece así).
+const piecesOf = (patch: string): string[] => (patch === '' ? [] : patch.split(/(?=^diff --git )/m));
+const headerLine = (name: string): string => `diff --git a/${name} b/${name}\n`;
+
 test('budgetPatch: cada fichero entero o su cabecera, el presupuesto se agota en orden', () => {
   const file = (name: string, body: string): string => `diff --git a/${name} b/${name}\n--- a/${name}\n+++ b/${name}\n@@ -1 +1 @@\n${body}\n`;
   const patch = file('a', '+uno') + file('b', '+dos') + file('c', '+tres');
   assert.equal(budgetPatch(patch, { filePatchMaxChars: 1000, patchMaxChars: 1000 }), patch);
-  const tight = budgetPatch(patch, { filePatchMaxChars: 1000, patchMaxChars: file('a', '+uno').length + 30 });
+  const tight = budgetPatch(patch, { filePatchMaxChars: 1000, patchMaxChars: file('a', '+uno').length + 40 });
   assert.equal(tight, `${file('a', '+uno')}diff --git a/b b/b\ndiff --git a/c b/c\n`);
+  // la cabecera también cuenta: la de c ya no cabe y se queda fuera.
+  const tighter = budgetPatch(patch, { filePatchMaxChars: 1000, patchMaxChars: file('a', '+uno').length + 30 });
+  assert.equal(tighter, `${file('a', '+uno')}diff --git a/b b/b\n`);
+});
+
+test('budgetPatch: miles de ficheros con rutas largas (un cambio de rama) nunca pasan de patchMaxChars; cada trozo, un fichero entero o su cabecera', () => {
+  const FILES = 3000;
+  const name = (i: number): string => `src/${'carpeta-con-un-nombre-largo/'.repeat(12)}fichero-${i}.ts`;
+  const file = (i: number): string => {
+    const lines = (i % 7) * 40;
+    return `${headerLine(name(i))}--- a/${name(i)}\n+++ b/${name(i)}\n@@ -1 +1,${lines} @@\n${'+const linea = 1;\n'.repeat(lines)}`;
+  };
+  const whole = Array.from({ length: FILES }, (_, i) => file(i));
+  assert.ok(whole.map((_, i) => headerLine(name(i))).join('').length > RUN_CHANGES_PATCH_HARD_MAX_CHARS, 'solo las cabeceras pasan del tope duro del server');
+  const out = budgetPatch(whole.join(''), LIMITS);
+  assert.ok(out.length <= RUN_CHANGES_PATCH_MAX_CHARS, `${out.length} > ${RUN_CHANGES_PATCH_MAX_CHARS}`);
+  const indexes = piecesOf(out).map((piece) => {
+    const i = Number(/fichero-(\d+)\.ts b\//.exec(piece)?.[1]);
+    assert.ok(piece === whole[i] || piece === headerLine(name(i)), `el trozo ${i} no es un fichero entero ni su cabecera`);
+    return i;
+  });
+  assert.ok(indexes.length > 0);
+  assert.ok(indexes.every((i, k) => k === 0 || i > indexes[k - 1]!), 'en el orden del diff');
+  assert.ok(indexes.some((i) => out.includes(whole[i]!)) && indexes.length < FILES, 'unos enteros y el resto fuera');
+});
+
+test('budgetPatch: lo que no cabe se queda fuera y un fichero posterior más corto aún entra', () => {
+  const file = (name: string, body: string): string => `${headerLine(name)}--- a/${name}\n+++ b/${name}\n@@ -1 +1 @@\n${body}\n`;
+  const long = `docs/${'x'.repeat(300)}.md`;
+  const [a, big, longOne, d] = [file('a.ts', '+uno'), file('big.ts', `+${'y'.repeat(500)}`), file(long, '+dos'), file('d.ts', '+tres')];
+  const max = a!.length + headerLine('big.ts').length + d!.length;
+  // big entra con su cabecera sola, la cabecera larga ya no cabe y d entra entero con lo que queda.
+  const out = budgetPatch(a! + big! + longOne! + d!, { filePatchMaxChars: 1000, patchMaxChars: max });
+  assert.equal(out, a! + headerLine('big.ts') + d!);
+  assert.ok(out.length <= max);
+  assert.equal(budgetPatch(a!, { filePatchMaxChars: 1000, patchMaxChars: headerLine('a.ts').length - 1 }), '', 'ni la cabecera cabe');
+});
+
+test('repos adicionales: el informe del principal más varios adicionales no pasa de filesMax ni de patchMaxChars', async () => {
+  const FILES_PER_REPO = 30;
+  const dirs = [repo(), repo(), repo(), repo()];
+  const froms = await Promise.all(dirs.map((d) => snapshotTree(d, env)));
+  dirs.forEach((d) =>
+    Array.from({ length: FILES_PER_REPO }, (_, i) => fs.writeFileSync(path.join(d, `fichero-${String(i).padStart(2, '0')}.ts`), `export const n = ${i};\n`.repeat(5))),
+  );
+  const limits = { filesMax: 70, filePatchMaxChars: 1000, patchMaxChars: 4000 };
+  const [main, ...extras] = dirs;
+  const primary = await turnChanges(main!, env, froms[0]!, limits);
+  const report = await withExtraChanges(primary, extras.map((dir, i) => ({ repo: `acme/lib-${i}`, dir, tree: froms[i + 1]! })), limits, env);
+  assert.ok(report);
+  assert.equal(report.files.length, limits.filesMax);
+  assert.ok(report.patch.length <= limits.patchMaxChars, `${report.patch.length} > ${limits.patchMaxChars}`);
+  const byRepo = report.files.reduce<Record<string, number>>((acc, f) => ({ ...acc, [f.repo ?? '']: (acc[f.repo ?? ''] ?? 0) + 1 }), {});
+  assert.deepEqual(byRepo, { '': FILES_PER_REPO, 'acme/lib-0': FILES_PER_REPO, 'acme/lib-1': limits.filesMax - 2 * FILES_PER_REPO });
+  // cada trozo, un fichero entero (sus 5 líneas) o su cabecera sola; los de un adicional, bajo su repo.
+  const pieces = piecesOf(report.patch);
+  assert.ok(pieces.length > 0);
+  pieces.forEach((piece) => {
+    assert.ok(/^diff --git [^\n]*\n$/.test(piece) || piece.match(/^\+export const n/gm)?.length === 5, piece);
+    assert.ok(/^diff --git a\/(?:fichero-|acme\/lib-[01]\/fichero-)/.test(piece), piece);
+  });
 });
 
 test('maskDiffSecrets: el código sigue legible; los literales, los .env y los tokens no salen', () => {
