@@ -17,12 +17,13 @@
 //   medir, por fichero (maskDiffChunk: en los hunks de un fichero de código no confunde `password: string` con un
 //   secreto; en todo lo demás, el del feed entero). las rutas no son código: siempre el entero (maskDiffText). el
 //   server lo repite.
-// - nunca tumba el run: un git que falla deja el turno sin diff y una línea en el log.
+// - nunca tumba el run: un git que falla deja el turno sin diff y una línea en el log. un patch demasiado largo no es un
+//   fallo: se corta en la frontera de un fichero (gitPatch), y los de detrás siguen en la lista sin cuerpo.
 // - en checkout la foto incluye lo que la persona edite a la vez en su copia: se acepta (está en el contrato).
 // - repos adicionales (t#597, con `changes.extraRepos`): cada worktree adicional con su foto y su diff, en el MISMO
 //   informe: sus ficheros llevan `repo` y sus cabeceras van bajo él (`a/<repo>/<ruta>`, extraRepoPatchPath del
 //   protocolo). los topes son del informe entero: el principal primero y cada adicional con lo que quede
-//   (combineChanges).
+//   (combineChanges); el que ya no cabe en la lista solo suma a filesTotal.
 
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
@@ -44,8 +45,9 @@ const execFileP = promisify(execFile);
 
 // `add -A` puede hashear ficheros nuevos grandes: más holgado que el git local de worktree.ts.
 const GIT_TIMEOUT_MS = 60_000;
-// salida máxima de un git (el patch entero antes de recortar): más grande, el turno se queda sin diff.
+// salida máxima de un git. el patch entero antes de recortar puede pasar de aquí: ver gitPatch.
 const GIT_MAX_BUFFER = 64 * 1024 * 1024;
+const MAX_BUFFER_ERROR = 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER';
 const TMP_PREFIX = 'duckhunt-turn-';
 // la copia del índice real se fecha este margen antes que él (ver snapshotTree): de más, solo se rehashea de más.
 const RACY_MARGIN_MS = 1000;
@@ -60,6 +62,15 @@ const diffArgs = (repo: string | null): string[] => {
 async function git(cwd: string, args: string[], env: NodeJS.ProcessEnv): Promise<string> {
   const { stdout } = await execFileP('git', args, { cwd, env, timeout: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER, encoding: 'utf-8' });
   return stdout;
+}
+
+// el patch del turno. más largo que GIT_MAX_BUFFER no lo deja sin diff: node corta a git y lo leído basta, porque el
+// presupuesto (patchMaxChars) es mucho menor y la lista de ficheros sale de otros git. lo demás lo decide budgetPatch.
+function gitPatch(cwd: string, args: string[], env: NodeJS.ProcessEnv): Promise<string> {
+  return git(cwd, args, env).catch((err: Error & { code?: string; stdout?: string }) => {
+    if (err.code !== MAX_BUFFER_ERROR || typeof err.stdout !== 'string') throw err;
+    return cutPatchAtFile(err.stdout);
+  });
 }
 
 /** foto del árbol de trabajo de `dir` como tree de git (lo que vería `add -A`), sin tocar su índice. null = git falló. */
@@ -150,6 +161,13 @@ export function budgetPatch(patch: string, limits: Pick<LegacyClaimChanges, 'fil
     .out.join('');
 }
 
+/** un patch cortado a media: el último fichero se queda en su cabecera, sin un trozo de hunk que parezca el diff entero; una cabecera a medias, fuera. */
+export function cutPatchAtFile(patch: string): string {
+  const start = patch.lastIndexOf(`\n${FILE_HEADER}`) + 1;
+  const headerEnd = patch.indexOf('\n', start);
+  return patch.slice(0, headerEnd === -1 ? start : headerEnd + 1);
+}
+
 /** el diff entre dos fotos del árbol con los topes del claim; null = nada cambió o git falló. `repo` = el de un repo
  *  adicional (t#597): sus ficheros lo llevan y sus cabeceras van bajo él. */
 export async function diffTrees(
@@ -166,7 +184,7 @@ export async function diffTrees(
     const [nameStatus, numstat, patch] = await Promise.all([
       git(dir, [...DIFF, '--name-status', '-z', from, to], env),
       git(dir, [...DIFF, '--numstat', '-z', from, to], env),
-      git(dir, [...DIFF, from, to], env),
+      gitPatch(dir, [...DIFF, from, to], env),
     ]);
     const stats = parseNumstat(numstat);
     const all = parseNameStatus(nameStatus);

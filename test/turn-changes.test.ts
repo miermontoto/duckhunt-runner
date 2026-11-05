@@ -14,7 +14,7 @@ import { parseClaim } from '../src/claim.js';
 import { withExtraChanges } from '../src/daemon.js';
 import { scrubEnv } from '../src/scrub-env.js';
 import { maskDiffChunk, maskDiffSecrets, maskSecrets, SECRET_MASK } from '../src/secret-mask.js';
-import { budgetPatch, parseNameStatus, parseNumstat, snapshotTree, turnChanges } from '../src/turn-changes.js';
+import { budgetPatch, cutPatchAtFile, parseNameStatus, parseNumstat, snapshotTree, turnChanges } from '../src/turn-changes.js';
 import {
   RUN_CHANGES_FILE_PATCH_MAX_CHARS,
   RUN_CHANGES_FILES_MAX,
@@ -176,6 +176,7 @@ test('repos adicionales: el informe del principal más varios adicionales no pas
   assert.ok(report.patch.length <= limits.patchMaxChars, `${report.patch.length} > ${limits.patchMaxChars}`);
   const byRepo = report.files.reduce<Record<string, number>>((acc, f) => ({ ...acc, [f.repo ?? '']: (acc[f.repo ?? ''] ?? 0) + 1 }), {});
   assert.deepEqual(byRepo, { '': FILES_PER_REPO, 'acme/lib-0': FILES_PER_REPO, 'acme/lib-1': limits.filesMax - 2 * FILES_PER_REPO });
+  assert.equal(report.filesTotal, FILES_PER_REPO * dirs.length, 'el repo que ya no cabe en la lista también cuenta');
   // cada trozo, un fichero entero (sus 5 líneas) o su cabecera sola; los de un adicional, bajo su repo.
   const pieces = piecesOf(report.patch);
   assert.ok(pieces.length > 0);
@@ -183,6 +184,44 @@ test('repos adicionales: el informe del principal más varios adicionales no pas
     assert.ok(/^diff --git [^\n]*\n$/.test(piece) || piece.match(/^\+export const n/gm)?.length === 5, piece);
     assert.ok(/^diff --git a\/(?:fichero-|acme\/lib-[01]\/fichero-)/.test(piece), piece);
   });
+});
+
+test('repos adicionales: un adicional sin sitio en la lista no añade ficheros ni patch, y cuenta en filesTotal', async () => {
+  const [main, extra] = [repo(), repo()];
+  const [fromMain, fromExtra] = await Promise.all([snapshotTree(main, env), snapshotTree(extra, env)]);
+  fs.writeFileSync(path.join(main, 'uno.ts'), 'export const a = 1;\n');
+  fs.writeFileSync(path.join(extra, 'otro.ts'), 'export const b = 2;\n');
+  const limits = { filesMax: 1, filePatchMaxChars: 1000, patchMaxChars: 4000 };
+  const primary = await turnChanges(main, env, fromMain!, limits);
+  const report = await withExtraChanges(primary, [{ repo: 'acme/lib', dir: extra, tree: fromExtra! }], limits, env);
+  assert.deepEqual(report?.files.map((f) => f.path), ['uno.ts']);
+  assert.equal(report?.filesTotal, 2);
+  assert.ok(!report?.patch.includes('otro.ts'), 'su patch no lo encontraría nadie');
+});
+
+test('un patch más largo que el buffer de git no deja el turno sin diff: lista entera, lo que cabe y el resto sin cuerpo', async () => {
+  const dir = repo();
+  const from = await snapshotTree(dir, env);
+  fs.writeFileSync(path.join(dir, 'a.ts'), 'export const a = 1;\n');
+  // 70 MB en líneas de texto (más que GIT_MAX_BUFFER): el patch se corta dentro de este fichero, antes de z.ts.
+  fs.writeFileSync(path.join(dir, 'big.txt'), `${'x'.repeat(99)}\n`.repeat(700_000));
+  fs.writeFileSync(path.join(dir, 'z.ts'), 'export const z = 1;\n');
+  const report = await turnChanges(dir, env, from!, { filesMax: 10, filePatchMaxChars: 1000, patchMaxChars: 4000 });
+  assert.ok(report, 'el turno conserva su diff');
+  assert.deepEqual(report.files.map((f) => f.path), ['a.ts', 'big.txt', 'z.ts']);
+  assert.equal(report.files.find((f) => f.path === 'big.txt')?.additions, 700_000);
+  const pieces = piecesOf(report.patch);
+  assert.equal(pieces.length, 2, 'z.ts quedó detrás del corte: sigue en la lista');
+  assert.match(pieces[0]!, /\+export const a = 1;/);
+  assert.equal(pieces[1], headerLine('big.txt'));
+});
+
+test('cutPatchAtFile: el fichero cortado a media se queda en su cabecera; una cabecera a medias, fuera', () => {
+  const whole = `${headerLine('a.ts')}--- a/a.ts\n+++ b/a.ts\n@@ -1 +1 @@\n+uno\n`;
+  assert.equal(cutPatchAtFile(`${whole}${headerLine('b.ts')}--- a/b.ts\n+++ b/b.ts\n@@ -1,9 +1,9`), `${whole}${headerLine('b.ts')}`);
+  assert.equal(cutPatchAtFile(`${whole}diff --git a/b.t`), whole);
+  assert.equal(cutPatchAtFile(`${headerLine('a.ts')}--- a/a.ts`), headerLine('a.ts'), 'un solo fichero');
+  assert.equal(cutPatchAtFile('diff --git a/a.t'), '');
 });
 
 test('maskDiffSecrets: el código sigue legible; los literales, los .env y los tokens no salen', () => {
