@@ -277,9 +277,10 @@ async function extraSnapshots(res: MaterializedRun): Promise<Array<{ repo: strin
   return out;
 }
 
-// el diff del turno con el de cada repo adicional detrás, cada uno con los topes que le dejan los anteriores (t#597,
-// turn-changes.ts::combineChanges). i/o secuencial por lo mismo.
-async function withExtraChanges(
+/** el diff del turno con el de cada repo adicional detrás, cada uno con los topes que le dejan los anteriores (t#597,
+ *  turn-changes.ts::combineChanges): el informe entero nunca pasa de filesMax ni de patchMaxChars. i/o secuencial
+ *  por lo mismo. */
+export async function withExtraChanges(
   primary: RunChangesReport | null,
   extras: ReadonlyArray<{ repo: string; dir: string; tree: string }>,
   limits: LegacyClaimChanges,

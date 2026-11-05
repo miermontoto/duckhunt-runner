@@ -8,6 +8,8 @@
 // - el claim: 204 = nada que hacer (server anterior a t#465 P12, o en pausa, sin slot, actualizar: la cabecera);
 //   200 { run: null } = sin trabajo con la fila de esta máquina; un json ilegible cuenta como reclamado (y no se
 //   puede cerrar: lo cierra el sweeper del server); un claim que no parsea se devuelve como invalid con su id.
+// - un http de error se loguea con su motivo en una línea (failure-reason.ts): el mensaje del server, nunca una página
+//   html entera.
 
 import { claimRunId, parseClaim } from '../claim.js';
 import type { SeqEvent } from '../event-uploader.js';
@@ -22,6 +24,7 @@ import type { RunnerCredential } from '../config.js';
 import { RUNNER_CLAUDE_VERSION_MAX_CHARS, RUNNER_SLASH_COMMANDS_PATH, RUNNER_STATE_HEADER, type RunChangesReport, type RunnerSlashCommands } from '../vendor/runner-protocol/index.js';
 import { HttpTransport } from './http-transport.js';
 import { credentialStore } from './credentials.js';
+import { failureReason } from './failure-reason.js';
 import {
   CLAIM_RESULT,
   PlatformRejectedError,
@@ -114,7 +117,7 @@ export class Duckhunt42Platform implements Platform {
     const header = res.headers.get(RUNNER_STATE_HEADER);
     if (res.status === HTTP_NO_CONTENT) return { kind: CLAIM_RESULT.idle, said: { state: header, runner: null }, commandsPending };
     if (res.status !== HTTP_OK) {
-      console.error(`[runner] claim falló: http ${res.status} ${await res.text().catch(() => '')}`);
+      console.error(`[runner] claim falló: ${await failureReason(res)}`);
       return { kind: CLAIM_RESULT.unavailable, commandsPending };
     }
     const raw: unknown = await res.json().catch((err: Error) => {
@@ -163,7 +166,7 @@ export class Duckhunt42Platform implements Platform {
       console.error(`[runner] diff del turno del run ${runId} no subido: ${err.message}`);
       return null;
     });
-    if (res && !res.ok) console.error(`[runner] diff del turno del run ${runId} rechazado: http ${res.status}`);
+    if (res && !res.ok) console.error(`[runner] diff del turno del run ${runId} rechazado: ${await failureReason(res)}`);
   }
 
   // cierre con reintento acotado: es lo único del run que el server no puede reconstruir.
@@ -182,7 +185,7 @@ export class Duckhunt42Platform implements Platform {
       // 409 = el server ya cerró el run (cancel del usuario, sweeper): benigno.
       if (res && (res.ok || res.status === HTTP_CONFLICT)) return;
       if (res && !isTransient(res.status)) {
-        console.error(`[runner] status post rechazado: http ${res.status} ${await res.text().catch(() => '')}`);
+        console.error(`[runner] status post rechazado: ${await failureReason(res)}`);
         return;
       }
       if (res) console.error(`[runner] status post: http ${res.status} (intento ${attempt}/${STATUS_POST_ATTEMPTS})`);
@@ -251,7 +254,7 @@ export class Duckhunt42Platform implements Platform {
     }
     if (res.status === HTTP_NOT_FOUND) return { kind: 'unsupported' };
     if (res.status === HTTP_UNAUTHORIZED) return { kind: 'gone' };
-    if (!res.ok) throw new Error(`el server respondió http ${res.status} ${await res.text().catch(() => '')}`);
+    if (!res.ok) throw new Error(`el server respondió ${await failureReason(res)}`);
     const body = (await res.json().catch(() => ({}))) as { canceled?: unknown };
     return { kind: 'unpaired', canceled: Array.isArray(body.canceled) ? body.canceled.length : 0 };
   }

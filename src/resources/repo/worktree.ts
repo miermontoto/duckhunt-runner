@@ -19,6 +19,13 @@
 // sigue registrado y el `worktree add` fallaría para siempre: antes de crearlo, `git worktree prune`.
 // al server solo viaja una nota corta con la base git (`origin/main@a1b2c3d`): ni paths absolutos ni el
 // nombre del directorio (conv-88 se leía en la ui como id del run, que es r#88).
+// submódulos (t#617): el repo de un submódulo de un worktree vive bajo SU directorio de admin
+// (.git/worktrees/<wt>/modules/) y se va con él. git se niega a borrar sin --force un worktree que los tiene
+// (los da siempre por sucios, aunque estén limpios), así que su trabajo lo cuenta worktreeWork: lo sin commitear
+// de cada submódulo poblado y los commits que solo guardan sus repos (los de una rama local, un tag local o el stash
+// del submódulo, que el status del padre no ve, y los de uno de-inicializado, cuyo repo sigue ahí) cuentan como
+// trabajo del worktree, y
+// solo uno limpio por esa cuenta se borra forzado (removeCleanWorktree). sin submódulos, sin --force: git hace de red.
 
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
@@ -37,6 +44,21 @@ const GIT_FETCH_TIMEOUT_MS = 60_000;
 const SHORT_SHA_CHARS = 7;
 const REMOTE = 'origin';
 const REMOTE_PREFIX = `${REMOTE}/`;
+// lo sin commitear de un repo: un submódulo solo si cambió su commit (lo de dentro se cuenta en el suyo) y sin depender
+// de la config del usuario (showUntrackedFiles, el `ignore` de .gitmodules).
+const WORK_STATUS = ['status', '--porcelain', '--ignore-submodules=dirty', '--untracked-files=normal'];
+// commits alcanzables solo desde el HEAD detached de un worktree: al borrarlo se perderían (sus ramas locales son del
+// checkout y sobreviven).
+const WORKTREE_ONLY_COMMITS = ['rev-list', '--count', 'HEAD', '--not', '--branches', '--remotes', '--tags'];
+// commits de un repo de submódulo que ningún remoto contiene, desde cualquiera de sus refs (HEAD, ramas, tags, stash):
+// el repo entero se va con el worktree, sus tags y su stash también. un tag del remoto sobre un commit que ninguna rama
+// remota contiene cuenta igual: sin red no se distingue de uno local y conservar es el lado seguro.
+const SUBMODULE_ONLY_COMMITS = ['rev-list', '--count', '--all', '--not', '--remotes'];
+// cada submódulo poblado (anidados también): su ruta desde la raíz del worktree, separada por NUL.
+const POPULATED_SUBMODULES = ['submodule', 'foreach', '--quiet', '--recursive', 'printf "%s\\0" "$displaypath"'];
+// el fichero que distingue un git dir de un directorio intermedio (el de un submódulo con barras en su nombre).
+const GIT_DIR_MARKER = 'HEAD';
+const MODULES_DIR = 'modules';
 
 export interface PreparedWorktree {
   workdir: string;
@@ -259,18 +281,63 @@ export async function removeRunWorktree(repoPath: string, dir: string, env: Node
   });
 }
 
-/** lo que un worktree guarda y se perdería al borrarlo: ficheros sin commitear y commits que ninguna rama, remoto ni tag contiene. */
+/** lo que un worktree guarda y se perdería al borrarlo: ficheros sin commitear y commits que ninguna rama, remoto ni
+ *  tag contiene; los de sus submódulos incluidos, donde solo salva un remoto (ver cabecera). */
 export interface WorktreeWork {
   dirtyFiles: number;
   unpushedCommits: number;
+  // repos de submódulo que guarda el worktree (poblados, o de-inicializados con su repo aún bajo modules/): con alguno,
+  // git no lo borra sin --force. ausente = ninguno. no viaja en worktree_report.
+  submodules?: number;
 }
 
-/** recuentos del trabajo que guarda un worktree (los anuncia worktree_report: nunca paths). */
+const lineCount = (out: string): number => (out ? out.split('\n').length : 0);
+const countOf = (out: string): number => Number.parseInt(out, 10) || 0;
+const sum = (ns: number[]): number => ns.reduce((a, b) => a + b, 0);
+
+// git dirs de submódulo bajo `modules` y, anidados, bajo el modules/ de cada uno: ahí sigue también el repo de un
+// submódulo de-inicializado, con sus commits, aunque el foreach ya no lo visite.
+function moduleGitDirs(modules: string): string[] {
+  if (!fs.existsSync(modules)) return [];
+  return fs
+    .readdirSync(modules, { withFileTypes: true })
+    .filter((e) => e.isDirectory())
+    .flatMap((e) => {
+      const dir = path.join(modules, e.name);
+      return fs.existsSync(path.join(dir, GIT_DIR_MARKER)) ? [dir, ...moduleGitDirs(path.join(dir, MODULES_DIR))] : moduleGitDirs(dir);
+    });
+}
+
+// lo que guardan los submódulos de un worktree: lo sin commitear y los commits propios de cada poblado, más los commits
+// de los repos de submódulo que el foreach no visita (de-inicializados). un git que falla lanza: el gc lo conserva.
+async function submoduleWork(dir: string, env: NodeJS.ProcessEnv): Promise<Required<WorktreeWork>> {
+  const populated = (await git(dir, POPULATED_SUBMODULES, env)).split('\0').filter((p) => p !== '');
+  const visited = await Promise.all(
+    populated.map(async (p) => {
+      const sub = path.join(dir, p);
+      const [status, commits, gitDir] = await Promise.all([git(sub, WORK_STATUS, env), git(sub, SUBMODULE_ONLY_COMMITS, env), git(sub, ['rev-parse', '--absolute-git-dir'], env)]);
+      return { dirtyFiles: lineCount(status), commits: countOf(commits), gitDir: fs.realpathSync(gitDir) };
+    }),
+  );
+  const seen = new Set(visited.map((v) => v.gitDir));
+  const modules = path.resolve(dir, await git(dir, ['rev-parse', '--git-path', MODULES_DIR], env));
+  const parked = moduleGitDirs(modules).filter((d) => !seen.has(fs.realpathSync(d)));
+  const parkedCommits = await Promise.all(parked.map(async (gitDir) => countOf(await git(dir, [`--git-dir=${gitDir}`, ...SUBMODULE_ONLY_COMMITS], env))));
+  return {
+    dirtyFiles: sum(visited.map((v) => v.dirtyFiles)),
+    unpushedCommits: sum(visited.map((v) => v.commits)) + sum(parkedCommits),
+    submodules: visited.length + parked.length,
+  };
+}
+
+/** recuentos del trabajo que guarda un worktree, sus submódulos incluidos (los anuncia worktree_report: nunca paths). */
 export async function worktreeWork(dir: string, env: NodeJS.ProcessEnv): Promise<WorktreeWork> {
-  const status = await git(dir, ['status', '--porcelain'], env);
-  // commits alcanzables solo desde el HEAD detached de este worktree: al borrarlo se perderían.
-  const orphans = await git(dir, ['rev-list', '--count', 'HEAD', '--not', '--branches', '--remotes', '--tags'], env);
-  return { dirtyFiles: status ? status.split('\n').length : 0, unpushedCommits: Number.parseInt(orphans, 10) || 0 };
+  const [status, orphans, subs] = await Promise.all([git(dir, WORK_STATUS, env), git(dir, WORKTREE_ONLY_COMMITS, env), submoduleWork(dir, env)]);
+  return {
+    dirtyFiles: lineCount(status) + subs.dirtyFiles,
+    unpushedCommits: countOf(orphans) + subs.unpushedCommits,
+    ...(subs.submodules > 0 ? { submodules: subs.submodules } : {}),
+  };
 }
 
 /** motivo para NO borrar un worktree (cambios sin commitear o commits que ninguna rama/remoto guarda), o null. */
@@ -284,7 +351,11 @@ export async function unsavedWork(dir: string, env: NodeJS.ProcessEnv): Promise<
   return describeWork(await worktreeWork(dir, env));
 }
 
-/** borra un worktree de conversación LIMPIO (sin --force: git se niega si aparece algo sucio). */
-export async function removeCleanWorktree(repoPath: string, dir: string, env: NodeJS.ProcessEnv): Promise<void> {
-  await git(repoPath, ['worktree', 'remove', '--end-of-options', dir], env);
+/**
+ * borra un worktree de conversación LIMPIO. sin --force (git se niega si aparece algo sucio) salvo con el `work` de
+ * worktreeWork limpio y con submódulos: git los da siempre por sucios y ahí la cuenta del daemon hace de red.
+ */
+export async function removeCleanWorktree(repoPath: string, dir: string, env: NodeJS.ProcessEnv, work?: WorktreeWork): Promise<void> {
+  const force = work !== undefined && (work.submodules ?? 0) > 0 && describeWork(work) === null;
+  await git(repoPath, ['worktree', 'remove', ...(force ? ['--force'] : []), '--end-of-options', dir], env);
 }

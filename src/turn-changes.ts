@@ -10,9 +10,13 @@
 //   textconv (lanzarían programas suyos) y rutas sin comillas (core.quotePath=false): la web busca cada fichero
 //   por su cabecera `diff --git a/<ruta> b/<ruta>`.
 // - un fichero más largo que filePatchMaxChars, o que ya no cabe en patchMaxChars, viaja con su cabecera sola (sin
-//   hunks): sale en la lista con sus recuentos y sin cuerpo. secretos enmascarados ANTES de medir, por fichero
-//   (maskDiffChunk: en los hunks de un fichero de código no confunde `password: string` con un secreto; en todo lo
-//   demás, el del feed entero). las rutas no son código: siempre el entero (maskDiffText). el server lo repite.
+//   hunks): sale en la lista con sus recuentos y sin cuerpo. la cabecera también cuenta contra patchMaxChars: si ni
+//   ella cabe, el fichero se queda fuera del patch (sigue en la lista). tras un cambio de rama en el worktree son
+//   miles de ficheros y sus cabeceras solas pasaban del tope duro del server (400: el turno perdía el diff entero); lo
+//   que pase de patchMaxChars el server lo recorta igual en la frontera de un fichero. secretos enmascarados ANTES de
+//   medir, por fichero (maskDiffChunk: en los hunks de un fichero de código no confunde `password: string` con un
+//   secreto; en todo lo demás, el del feed entero). las rutas no son código: siempre el entero (maskDiffText). el
+//   server lo repite.
 // - nunca tumba el run: un git que falla deja el turno sin diff y una línea en el log.
 // - en checkout la foto incluye lo que la persona edite a la vez en su copia: se acepta (está en el contrato).
 // - repos adicionales (t#597, con `changes.extraRepos`): cada worktree adicional con su foto y su diff, en el MISMO
@@ -118,7 +122,8 @@ export function parseNumstat(out: string): Map<string, { additions: number | nul
   return stats;
 }
 
-/** el patch por fichero: cada `diff --git` hasta el siguiente, enmascarado, o su cabecera sola si no cabe. */
+/** el patch por fichero: cada `diff --git` hasta el siguiente, enmascarado, o su cabecera sola si no cabe; lo que ni
+ *  así cabe en patchMaxChars se queda fuera. nunca pasa de patchMaxChars. */
 export function budgetPatch(patch: string, limits: Pick<LegacyClaimChanges, 'filePatchMaxChars' | 'patchMaxChars'>): string {
   const chunks = patch
     .split(`\n${FILE_HEADER}`)
@@ -126,14 +131,23 @@ export function budgetPatch(patch: string, limits: Pick<LegacyClaimChanges, 'fil
     .filter((c) => c.startsWith(FILE_HEADER));
   // un fichero más largo que su tope ni se enmascara: viaja su cabecera sola (el enmascarado, acotado a lo que cabe).
   const headerOf = (c: string): string => `${maskDiffText(c.split('\n', 1)[0]!)}\n`;
-  return chunks.reduce<{ out: string[]; used: number }>(
-    (acc, raw) => {
-      const masked = raw.length <= limits.filePatchMaxChars ? maskDiffChunk(raw).replace(/\n?$/, '\n') : null;
-      const piece = masked !== null && acc.used + masked.length <= limits.patchMaxChars ? masked : headerOf(raw);
-      return { out: [...acc.out, piece], used: acc.used + piece.length };
-    },
-    { out: [], used: 0 },
-  ).out.join('');
+  // el acumulador es local y se muta: con miles de ficheros, copiarlo en cada paso era cuadrático.
+  return chunks
+    .reduce<{ out: string[]; used: number }>(
+      (acc, raw) => {
+        const header = headerOf(raw);
+        // ni la cabecera cabe: fuera, sin enmascarar el cuerpo (el enmascarado empieza por esa misma cabecera). uno
+        // posterior más corto aún puede caber.
+        if (acc.used + header.length > limits.patchMaxChars) return acc;
+        const masked = raw.length <= limits.filePatchMaxChars ? maskDiffChunk(raw).replace(/\n?$/, '\n') : null;
+        const piece = masked !== null && acc.used + masked.length <= limits.patchMaxChars ? masked : header;
+        acc.out.push(piece);
+        acc.used += piece.length;
+        return acc;
+      },
+      { out: [], used: 0 },
+    )
+    .out.join('');
 }
 
 /** el diff entre dos fotos del árbol con los topes del claim; null = nada cambió o git falló. `repo` = el de un repo

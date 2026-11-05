@@ -1,5 +1,5 @@
 // worktrees de conversación contra repos git reales en un tmpdir: base tras fetch, rama nueva,
-// reutilización entre segmentos y gc que nunca borra trabajo sin guardar.
+// reutilización entre segmentos y gc que nunca borra trabajo sin guardar, también con submódulos.
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -13,16 +13,21 @@ import { LEGACY_PLATFORM_ID } from '../src/paths.js';
 import { isUsableBranch, prepareCheckout, prepareConversationWorktree, prepareRunWorktree, removeCleanWorktree, unsavedWork, worktreeWork } from '../src/resources/repo/worktree.js';
 
 const DAY_MS = 24 * 60 * 60_000;
-// identidad y firma fuera: el test no depende de la config git de la máquina.
+// identidad y firma fuera: el test no depende de la config git de la máquina. los submódulos de los tests son
+// rutas locales (protocolo file, que git solo deja clonar a un submódulo con permiso). locale C: los mensajes de git
+// que se comprueban salen en inglés aunque la máquina lo tenga traducido (con C, gettext ignora LANGUAGE).
 const env: NodeJS.ProcessEnv = {
   ...scrubEnv(process.env),
+  LC_ALL: 'C',
   GIT_AUTHOR_NAME: 't',
   GIT_AUTHOR_EMAIL: 't@t',
   GIT_COMMITTER_NAME: 't',
   GIT_COMMITTER_EMAIL: 't@t',
-  GIT_CONFIG_COUNT: '1',
+  GIT_CONFIG_COUNT: '2',
   GIT_CONFIG_KEY_0: 'commit.gpgsign',
   GIT_CONFIG_VALUE_0: 'false',
+  GIT_CONFIG_KEY_1: 'protocol.file.allow',
+  GIT_CONFIG_VALUE_1: 'always',
 };
 const git = (cwd: string, ...args: string[]): string => execFileSync('git', args, { cwd, env, encoding: 'utf-8' }).trim();
 
@@ -169,4 +174,102 @@ test('conv-<id> borrado a mano sin git worktree remove: el siguiente segmento lo
   const again = await prepareConversationWorktree(clone, '20', null, env, LEGACY_PLATFORM_ID);
   assert.equal(again.workdir, conv.workdir);
   assert.equal(git(again.workdir, 'rev-parse', 'HEAD'), mainSha);
+});
+
+test('gc con submódulos: limpio se borra (forzado); lo sin commitear o los commits que solo guarda el submódulo (rama, tag o stash) lo conservan', async () => {
+  const subOrigin = path.join(root, 'sub-origin');
+  fs.mkdirSync(subOrigin);
+  git(subOrigin, 'init', '-q', '-b', 'main');
+  git(subOrigin, 'commit', '-q', '--allow-empty', '-m', 'sub');
+  // un tag del remoto sobre un commit de su rama: lo guarda el remoto, no cuenta.
+  git(subOrigin, 'tag', 'v1');
+  const superOrigin = path.join(root, 'super-origin');
+  fs.mkdirSync(superOrigin);
+  git(superOrigin, 'init', '-q', '-b', 'main');
+  git(superOrigin, 'submodule', 'add', '-q', subOrigin, 'lib');
+  git(superOrigin, 'commit', '-q', '-m', 'con submódulo');
+  const superClone = path.join(root, 'super-clone');
+  git(root, 'clone', '-q', superOrigin, superClone);
+  // cada conversación con el submódulo poblado, como lo deja un agente que corre `git submodule update --init`.
+  const conv = async (id: string): Promise<string> => {
+    const { workdir } = await prepareConversationWorktree(superClone, id, null, env, LEGACY_PLATFORM_ID);
+    git(workdir, 'submodule', 'update', '-q', '--init');
+    return workdir;
+  };
+  // un commit en una rama local del submódulo, con su HEAD de vuelta en el commit que registra el padre.
+  const localBranchCommit = (workdir: string): void => {
+    const lib = path.join(workdir, 'lib');
+    git(lib, 'checkout', '-q', '-b', 'trabajo');
+    git(lib, 'commit', '-q', '--allow-empty', '-m', 'solo en el submódulo');
+    git(lib, 'checkout', '-q', '--detach', 'HEAD~1');
+  };
+
+  const clean = await conv('40');
+  assert.deepEqual(await worktreeWork(clean, env), { dirtyFiles: 0, unpushedCommits: 0, submodules: 1 });
+  // git solo, sin la cuenta del daemon: se niega aunque esté limpio.
+  await assert.rejects(removeCleanWorktree(superClone, clean, env), /submodules/);
+
+  const untracked = await conv('41');
+  fs.writeFileSync(path.join(untracked, 'lib', 'a-medias.txt'), 'x');
+  const branched = await conv('42');
+  localBranchCommit(branched);
+  assert.equal(git(branched, 'status', '--porcelain'), '', 'el status del padre no ve la rama local del submódulo');
+  // de-inicializado: el foreach ya no lo visita, pero su repo (y su commit) sigue bajo el admin del worktree.
+  const parked = await conv('43');
+  localBranchCommit(parked);
+  git(parked, 'submodule', 'deinit', '-q', '--all');
+  const parkedClean = await conv('44');
+  git(parkedClean, 'submodule', 'deinit', '-q', '--all');
+  // un .gitmodules con ignore = all no esconde lo sin commitear del submódulo.
+  const ignored = await conv('45');
+  git(ignored, 'config', '-f', '.gitmodules', 'submodule.lib.ignore', 'all');
+  git(ignored, 'commit', '-q', '-am', 'ignora el submódulo');
+  fs.writeFileSync(path.join(ignored, 'lib', 'a-medias.txt'), 'x');
+  // un stash del submódulo y un commit que solo guarda un tag local suyo: se irían con su repo.
+  const stashed = await conv('46');
+  fs.writeFileSync(path.join(stashed, 'lib', 'a-medias.txt'), 'x');
+  git(path.join(stashed, 'lib'), 'stash', 'push', '-q', '--include-untracked');
+  const tagged = await conv('47');
+  git(path.join(tagged, 'lib'), 'commit', '-q', '--allow-empty', '-m', 'solo en un tag local');
+  git(path.join(tagged, 'lib'), 'tag', 'mi-tag');
+  git(path.join(tagged, 'lib'), 'checkout', '-q', '--detach', 'HEAD~1');
+  [stashed, tagged].forEach((dir) => assert.equal(git(dir, 'status', '--porcelain'), '', `${path.basename(dir)}: el status del padre no lo ve`));
+
+  const targets = selectForRemoval(listWorktreeCandidates([superClone], LEGACY_PLATFORM_ID), new Set(), Date.now());
+  assert.deepEqual(targets.map((c) => c.runId).sort(), ['40', '41', '42', '43', '44', '45', '46', '47']);
+  const { removed, kept } = await removeWorktrees(targets, env);
+  assert.equal(removed, 2);
+  assert.ok(!fs.existsSync(clean), 'limpio con un submódulo poblado: borrado');
+  assert.ok(!fs.existsSync(parkedClean), 'limpio con un submódulo de-inicializado: borrado');
+  [untracked, branched, parked, ignored, stashed, tagged].forEach((dir) => assert.ok(fs.existsSync(dir), `${path.basename(dir)} se conserva`));
+  // worktree_report: recuentos, sin paths ni el número de submódulos.
+  assert.deepEqual(
+    [...kept].sort((a, b) => a.runId.localeCompare(b.runId)),
+    [
+      { runId: '41', dirtyFiles: 1, unpushedCommits: 0 },
+      { runId: '42', dirtyFiles: 0, unpushedCommits: 1 },
+      { runId: '43', dirtyFiles: 0, unpushedCommits: 1 },
+      // su commit de .gitmodules también cuenta; el fichero del submódulo, aunque ese .gitmodules lo ignore.
+      { runId: '45', dirtyFiles: 1, unpushedCommits: 1 },
+      // el stash son sus commits (el de los cambios, el del índice y el de lo no versionado).
+      { runId: '46', dirtyFiles: 0, unpushedCommits: 3 },
+      { runId: '47', dirtyFiles: 0, unpushedCommits: 1 },
+    ],
+  );
+  assert.equal(git(superClone, 'worktree', 'list', '--porcelain').split('\n').filter((l) => l.startsWith('worktree ')).length, 7, 'el checkout y los 6 conservados');
+});
+
+test('sin submódulos el borrado sigue sin --force: git hace de red aunque la cuenta diga limpio', async () => {
+  const conv = await prepareConversationWorktree(clone, '50', null, env, LEGACY_PLATFORM_ID);
+  fs.writeFileSync(path.join(conv.workdir, 'a-medias.txt'), 'x');
+  // una cuenta que miente (limpio): sin submódulos no fuerza y git se niega.
+  await assert.rejects(removeCleanWorktree(clone, conv.workdir, env, { dirtyFiles: 0, unpushedCommits: 0 }), /untracked/);
+  // con submódulos pero con trabajo: tampoco fuerza.
+  await assert.rejects(removeCleanWorktree(clone, conv.workdir, env, { dirtyFiles: 1, unpushedCommits: 0, submodules: 1 }), /untracked/);
+  assert.ok(fs.existsSync(path.join(conv.workdir, 'a-medias.txt')));
+  fs.rmSync(path.join(conv.workdir, 'a-medias.txt'));
+  const work = await worktreeWork(conv.workdir, env);
+  assert.deepEqual(work, { dirtyFiles: 0, unpushedCommits: 0 });
+  await removeCleanWorktree(clone, conv.workdir, env, work);
+  assert.ok(!fs.existsSync(conv.workdir));
 });
