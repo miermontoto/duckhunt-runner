@@ -289,8 +289,9 @@ export async function withExtraChanges(
   let combined = primary;
   for (const x of extras) {
     const left = remainingLimits(limits, combined);
-    if (left.filesMax === 0) break;
-    combined = combineChanges([combined, await turnChanges(x.dir, env, x.tree, left, x.repo)]);
+    // sin sitio en la lista solo cuenta en filesTotal: el patch de un fichero que no sale en ella no lo encontraría nadie.
+    const room = left.filesMax === 0 ? { ...left, patchMaxChars: 0 } : left;
+    combined = combineChanges([combined, await turnChanges(x.dir, env, x.tree, room, x.repo)]);
   }
   return combined;
 }
