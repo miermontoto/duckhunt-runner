@@ -17,8 +17,9 @@
 // de la expresión) y su selector si lo hay; handle_dialog, la acción; press_key, la tecla. el resto, el genérico.
 // subagentes y tareas (t#636): cada tool call lleva su id (`toolUseId`) y lo hecho dentro de un subagente, la de su padre
 // (`parentToolUseId`, del parent_tool_use_id del cli); los system task_started / task_progress / task_notification salen
-// como eventos `task` (id, tipo, estado y el nombre de un workflow) con su descripción o su resumen saneados como el
-// resto. un id que no tiene la forma de los del cli no viaja (el evento sale sin él, o no sale si es el de su tarea).
+// como eventos `task` (id, tipo, estado y el nombre de un workflow) con su descripción corta y, al acabar, el resumen
+// solo de un workflow (el de un subagente ya llegó como su prosa; el de un comando podría llevar su salida), saneados
+// como el resto. un id que no tiene la forma de los del cli no viaja (el evento sale sin él, o no sale si es el de su tarea).
 
 import path from 'node:path';
 import type { StreamContent, StreamLine } from './claude.js';
@@ -281,11 +282,14 @@ function taskEvent(ev: StreamLine, ctx: FeedContext): FeedEvent | null {
   const type = (typeof ev.task_type === 'string' ? TASK_TYPE_OF.get(ev.task_type) : undefined) ?? AGENT_RUN_TASK_TYPE.other;
   const name = textOf(ev.workflow_name);
   const toolUseId = cliId(ev.tool_use_id);
-  // al acabar, su resumen (lo que trajo); en marcha, lo que está haciendo.
-  const said = subtype === 'task_notification' ? (textOf(ev.summary) ?? textOf(ev.description)) : (textOf(ev.description) ?? textOf(ev.summary));
+  // el non-goal del feed (nunca salida de tools): en marcha, solo la descripción corta de lo que hace (la escribe el
+  // agente, como el argumento de una tool); al acabar, el resumen SOLO de un workflow, cuyo interior no viaja. el de un
+  // subagente ya llegó como su prosa (--forward-subagent-text) y el de un comando puede llevar su salida: nunca.
+  const workflowSummary = subtype === 'task_notification' && type === AGENT_RUN_TASK_TYPE.workflow ? textOf(ev.summary) : null;
+  const description = subtype === 'task_notification' ? null : textOf(ev.description);
   return {
     kind: FEED_KIND.task,
-    body: said ? sanitize(said, ctx, ctx.bodyMaxChars) : '',
+    body: workflowSummary ? sanitize(workflowSummary, ctx, ctx.bodyMaxChars) : description ? sanitize(oneLine(description), ctx, ctx.toolArgMaxChars) : '',
     task: { id, type, status: taskStatusOf(subtype, ev.status), ...(name ? { name: sanitize(oneLine(name), ctx, AGENT_RUN_TASK_NAME_MAX_CHARS) } : {}) },
     ...(toolUseId ? { toolUseId } : {}),
   };

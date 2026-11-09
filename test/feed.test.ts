@@ -143,8 +143,11 @@ test('tareas (t#636): sus hitos salen como eventos task con su tipo, su estado y
     feedEventsFromStream({ type: 'system', subtype: 'task_progress', task_id: 'w1', task_type: 'local_workflow', workflow_name: 'count-txt', description: 'Count: count-txt', summary: 'x' }, ctx),
     [{ kind: 'task', body: 'Count: count-txt', task: { id: 'w1', type: 'workflow', status: 'running', name: 'count-txt' } }],
   );
-  const done = feedEventsFromStream({ type: 'system', subtype: 'task_notification', task_id: 'a01', status: 'completed', summary: `encontré ${key} en /home/u/dev/app/.duckhunt/worktrees/conv-88/src/a.ts` }, ctx);
-  assert.deepEqual(done, [{ kind: 'task', body: `encontré ${SECRET_MASK} en ./src/a.ts`, task: { id: 'a01', type: 'other', status: 'completed' } }]);
+  // al acabar, el resumen solo de un workflow (saneado); el de un subagente o un comando, nunca (puede ser su salida).
+  const wf = feedEventsFromStream({ type: 'system', subtype: 'task_notification', task_id: 'w1', task_type: 'local_workflow', status: 'completed', summary: `encontré ${key} en /home/u/dev/app/.duckhunt/worktrees/conv-88/src/a.ts` }, ctx);
+  assert.deepEqual(wf, [{ kind: 'task', body: `encontré ${SECRET_MASK} en ./src/a.ts`, task: { id: 'w1', type: 'workflow', status: 'completed' } }]);
+  assert.equal(feedEventsFromStream({ type: 'system', subtype: 'task_notification', task_id: 'a01', task_type: 'local_agent', status: 'completed', summary: 'el resultado entero' }, ctx)[0]?.body, '');
+  assert.equal(feedEventsFromStream({ type: 'system', subtype: 'task_notification', task_id: 'b1', task_type: 'local_bash', status: 'completed', summary: 'salida del comando', description: 'x' }, ctx)[0]?.body, '');
   assert.equal(feedEventsFromStream({ type: 'system', subtype: 'task_notification', task_id: 'b2', task_type: 'local_bash', status: 'stopped' }, ctx)[0]?.task?.status, 'stopped');
   assert.equal(feedEventsFromStream({ type: 'system', subtype: 'task_notification', task_id: 'b2', status: 'failed' }, ctx)[0]?.task?.status, 'failed');
   // sin un id de tarea que pueda viajar, nada; task_updated y el resto de system, tampoco.
