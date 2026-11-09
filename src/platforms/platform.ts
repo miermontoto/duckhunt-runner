@@ -18,7 +18,7 @@ import type { RepoChoice, RepoIssue } from '../resources/repo/health.js';
 import type { KeptWorktree, RunnerBlock } from '../server-state.js';
 import type { StatusReport } from '../status-report.js';
 import type { SlashUploadOutcome } from '../slash-commands.js';
-import type { RunChangesReport, RunnerSlashCommands } from '../vendor/runner-protocol/index.js';
+import type { RunChangesReport, RunnerSlashCommands, RunInboxCommand } from '../vendor/runner-protocol/index.js';
 import type { Exposure, ToolsetCeiling } from './types.js';
 
 export const PROTOCOL = {
@@ -111,6 +111,9 @@ export interface Platform {
   progress(runId: string, toolCalls: number, seg: RunSegment, workdir?: string): Promise<void>;
   /** status http del lote (EventUploader decide reintentar o parar). lanza en error de red. */
   events(runId: string, events: SeqEvent[], seg: RunSegment): Promise<number>;
+  /** el buzón del proceso vivo (t#636, live.ts): long-poll de las órdenes de la persona. [] = venció sin ninguna; null = el
+   *  run ya no las acepta (deja de pedir). solo las plataformas cuyo claim trae `live` (hoy duckhunt-42); lanza en error de red. */
+  inbox?(runId: string, seg: RunSegment, waitMs: number, signal: AbortSignal): Promise<RunInboxCommand[] | null>;
   /** el diff del turno (t#514), antes de `result`. solo las plataformas cuyo claim trae el bloque `changes` (hoy
    *  duckhunt-42); nunca lanza: lo que no llega, el hilo no lo enseña. */
   changes?(runId: string, report: RunChangesReport, seg: RunSegment): Promise<void>;

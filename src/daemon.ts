@@ -149,6 +149,7 @@ import { browserVaultDeny, otherPlatformsDeny, otherScratchDeny, secretPathsDeny
 import { CLAIM_OUTCOME } from './server-state.js';
 import { consumeStreamLine, detectClaude, newStreamState, supportsPermissionPromptTool, supportsRewind, type ClaudeInfo } from './claude.js';
 import { buildClaudeArgs, claudeRunEnv } from './claude-args.js';
+import { LiveSession } from './live-session.js';
 import { announcedCapabilities } from './announced-capabilities.js';
 import { mirroredDeny, READ_MIRRORED_TOOLS, settingsFilesFor, WRITE_TOOLS } from './user-permissions.js';
 import { canBypassPermissions, EVENTS_DEFAULTS, PROMPT_PROFILE, RUN_ISOLATION, RUN_KIND, type ClaimResponse } from './claim.js';
@@ -188,7 +189,7 @@ import { credentialStore } from './platforms/credentials.js';
 import { PLATFORM_FACTORIES } from './platforms/factories.js';
 import { Scheduler } from './platforms/scheduler.js';
 import { PLATFORM_STATE, PlatformSupervisor, type SupervisorHooks } from './platforms/supervisor.js';
-import { REWIND_RESTORE_ERROR, RUNNER_LABEL_MAX_CHARS, type LegacyClaimChanges, type RunChangesReport, type ToolsetShadow } from './vendor/runner-protocol/index.js';
+import { REWIND_RESTORE_ERROR, RUNNER_LABEL_MAX_CHARS, type LegacyClaimChanges, type RunChangesReport, type ToolsetShadow, type RunInboxCommand } from './vendor/runner-protocol/index.js';
 import { shadowOf } from './toolset/shadow.js';
 import { intersectToolset } from './toolset/intersect.js';
 import { v0Announce } from './platforms/v0.js';
@@ -217,6 +218,17 @@ const STDERR_TAIL_MAX_CHARS = 4000;
 const SHUTDOWN_GRACE_MS = 20_000;
 const EXIT_CODE_SIGINT = 130;
 const EXIT_CODE_SIGTERM = 143;
+// pausa entre long-polls del buzón cuando uno vuelve vacío antes de tiempo (error de red, server que no espera).
+const INBOX_RETRY_MS = 2_000;
+// espera que se corta al abortar (el proceso salió).
+const abortableSleep = (ms: number, signal: AbortSignal): Promise<void> =>
+  new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener('abort', () => {
+      clearTimeout(timer);
+      resolve();
+    }, { once: true });
+  });
 // la credencial ya no vale (desvinculada, revocada o caducada): EX_CONFIG de sysexits, sin `login` no vuelve.
 export const EXIT_CODE_UNPAIRED = 78;
 // tope de la nota de workdir.
@@ -1463,6 +1475,8 @@ export class RunnerDaemon {
       note(readShellNote(shell)!);
     }
     const readOnlyDeny = res.addDirs.filter((a) => a.readOnly).flatMap((a) => readOnlyDirDeny(a.dir));
+    // el buzón del proceso vivo (t#636, fase 2): solo si el claim lo trae y el cli tiene stdin en stream-json.
+    const live = claim.live && this.claude.supported.has('--input-format') ? claim.live : null;
     const args = (prompt: string, resumeSessionId: string | null): string[] =>
       buildClaudeArgs({
         claim,
@@ -1486,15 +1500,17 @@ export class RunnerDaemon {
         // los repos adicionales (t#597) y el deny de los de solo lectura.
         addDirs: res.addDirs.map((a) => a.dir),
         readOnlyDirsDeny: readOnlyDeny,
+        liveInput: live !== null,
       });
     // reanudar o no lo decide el server: manda sessionId solo cuando hay sesión que retomar.
     const resume = run.sessionId;
-    let attempt = await this.spawnClaude(sup, claim, lease, args(claim.prompt, resume), res, feed, ctx);
+    const liveOf = (prompt: string) => (live ? { prompt, waitMs: live.waitMs } : null);
+    let attempt = await this.spawnClaude(sup, claim, lease, args(claim.prompt, resume), res, feed, ctx, liveOf(claim.prompt));
     let resumed: boolean | undefined = resume ? true : undefined;
     if (resume && attempt.killedBy === null && attempt.exitCode !== 0 && !attempt.stream.sawAssistant && claim.fallbackPrompt) {
       console.log(`${this.tagOf(sup)} run ${run.id}: la sesión ${resume} no se pudo reanudar`);
       note('la sesión anterior no se pudo reanudar en este runner: reintento desde cero');
-      attempt = await this.spawnClaude(sup, claim, lease, args(claim.fallbackPrompt, null), res, feed, ctx);
+      attempt = await this.spawnClaude(sup, claim, lease, args(claim.fallbackPrompt, null), res, feed, ctx, liveOf(claim.fallbackPrompt));
       resumed = false;
     }
     return { report: reportFor(attempt, resumed), attempt };
@@ -1502,7 +1518,8 @@ export class RunnerDaemon {
 
   // spawnea claude en su propio grupo de procesos, consume stdout (stream-json → contadores + feed)
   // y stderr (tail), bombea el progreso y aplica el timeout wall-clock. si el run ya murió (cancel o
-  // parada mientras esperaba turno) no lo lanza. resuelve siempre (nunca rechaza).
+  // parada mientras esperaba turno) no lo lanza. resuelve siempre (nunca rechaza). con `live` (t#636, fase 2) el prompt
+  // va por stdin, que sigue abierto mientras haga falta (live-session.ts), y atiende el buzón del run mientras vive.
   private spawnClaude(
     sup: PlatformSupervisor,
     claim: ClaimResponse,
@@ -1511,6 +1528,7 @@ export class RunnerDaemon {
     res: MaterializedRun,
     feed: EventUploader | null,
     ctx: FeedContext,
+    live: { prompt: string; waitMs: number } | null = null,
   ): Promise<Attempt> {
     const runId = claim.run.id;
     const seg = claim.run.segment !== null ? { segment: claim.run.segment } : {};
@@ -1532,7 +1550,12 @@ export class RunnerDaemon {
 
       let child: ChildProcess;
       try {
-        child = spawn('claude', args, { cwd: res.cwd.dir, env: { ...res.env, ...claudeRunEnv(res.env, claim) }, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+        child = spawn('claude', args, {
+          cwd: res.cwd.dir,
+          env: { ...res.env, ...claudeRunEnv(res.env, claim) },
+          stdio: [live ? 'pipe' : 'ignore', 'pipe', 'pipe'],
+          detached: true,
+        });
       } catch (err) {
         if (logFile !== null) fs.closeSync(logFile);
         resolve({ exitCode: null, killedBy: null, stream, stderrTail: `no se pudo lanzar claude: ${(err as Error).message}` });
@@ -1547,8 +1570,16 @@ export class RunnerDaemon {
       };
       lease.attach(child, kill);
 
+      const session = live && child.stdin ? new LiveSession(child.stdin) : null;
+      const inboxAbort = new AbortController();
+      if (session && live) {
+        session.start(live.prompt);
+        void this.pollInbox(sup, runId, seg, live.waitMs, session, inboxAbort.signal);
+      }
+
       readline.createInterface({ input: child.stdout! }).on('line', (line) => {
         const ev = consumeStreamLine(stream, line);
+        if (ev && session) session.observe(ev);
         if (ev && feed) feedEventsFromStream(ev, ctx).forEach((e) => feed.push(e));
         if (logFile !== null) fs.writeSync(logFile, `${line}\n`);
       });
@@ -1586,6 +1617,8 @@ export class RunnerDaemon {
         }, EXIT_DRAIN_MS);
       });
       child.on('close', (code) => {
+        inboxAbort.abort();
+        session?.end();
         clearInterval(progress);
         clearTimeout(timeout);
         if (killTimer) clearTimeout(killTimer);
@@ -1595,6 +1628,25 @@ export class RunnerDaemon {
         resolve({ exitCode: code, killedBy, stream, stderrTail: stderrTail.join('\n').slice(-STDERR_TAIL_MAX_CHARS) });
       });
     });
+  }
+
+  // el buzón del proceso vivo (t#636, fase 2): long-poll mientras stdin siga abierto; cada orden va al proceso. un fallo de
+  // red espera y reintenta; un run que ya no las acepta (null) deja de pedir.
+  private async pollInbox(sup: PlatformSupervisor, runId: string, seg: RunSegment, waitMs: number, session: LiveSession, signal: AbortSignal): Promise<void> {
+    const inbox = sup.platform.inbox?.bind(sup.platform);
+    if (!inbox) return;
+    // i/o secuencial: un long-poll tras otro mientras el proceso viva.
+    while (session.open && !signal.aborted) {
+      const commands = await inbox(runId, seg, waitMs, signal).catch((err: Error) => {
+        if (!signal.aborted) console.error(`${this.tagOf(sup)} buzón del run ${runId}: ${err.message}`);
+        return [] as RunInboxCommand[];
+      });
+      if (commands === null) return;
+      commands.forEach((c) => {
+        if (!session.command(c)) console.log(`${this.tagOf(sup)} run ${runId}: orden ${c.kind} sin proceso que la atienda`);
+      });
+      if (commands.length === 0 && !signal.aborted) await abortableSleep(INBOX_RETRY_MS, signal);
+    }
   }
 
   // progreso del segmento: fuego y olvido (el siguiente envío lo corrige).

@@ -87,6 +87,8 @@ import {
   type LegacyClaimPermissions,
   type LegacyClaimRestore,
   type RunnerCapability,
+  RUN_INBOX_WAIT_MS,
+  type LegacyClaimLive,
 } from './vendor/runner-protocol/index.js';
 import { parseToolsetV1 } from './toolset/parse.js';
 import { sameRepoKey } from './repo-key.js';
@@ -306,6 +308,8 @@ export interface ClaimResponse {
   permissions?: LegacyClaimPermissions;
   // la foto a la que vuelven los ficheros del worktree antes del turno (t#564, rewind-files.ts). ausente = ninguna.
   restore?: LegacyClaimRestore;
+  // t#636, fase 2 (live.ts): el proceso atiende el buzón del run (stdin en stream-json). ausente = el de siempre.
+  live?: LegacyClaimLive;
   mcp: McpServer;
   // avisos de la validación local (rama ignorada…): el daemon los loguea y los sube al feed.
   warnings: string[];
@@ -401,6 +405,13 @@ function eventsConfig(v: unknown): EventsConfig | null {
 }
 
 // los topes del diff del turno, nunca por encima de los del protocolo (el server rechazaría el cuerpo).
+// el bloque live (t#636): la espera del long-poll, acotada a la del protocolo; otra cosa, sin buzón.
+function liveConfig(v: unknown): LegacyClaimLive | null {
+  if (!isObj(v)) return null;
+  const wait = posInt(v.waitMs);
+  return wait === null ? null : { waitMs: Math.min(wait, RUN_INBOX_WAIT_MS) };
+}
+
 function changesConfig(v: unknown): LegacyClaimChanges | null {
   if (!isObj(v)) return null;
   const capped = (n: unknown, max: number): number => Math.min(posInt(n) ?? max, max);
@@ -532,6 +543,7 @@ export function parseClaimBody(raw: unknown, id: string, machine: ClaimMachine =
   const aws = isObj(r.aws) ? { accountId: str(r.aws.accountId), region: str(r.aws.region) } : null;
   const numOrNull = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
   const changes = changesConfig(raw.changes);
+  const live = liveConfig(raw.live);
   const segment = posInt(r.segment);
   const permissions = permissionsOf(raw.permissions, autonomy, { serverName, url }, segment);
   const isolation = kind === RUN_KIND.prompt && r.isolation === RUN_ISOLATION.checkout ? RUN_ISOLATION.checkout : RUN_ISOLATION.worktree;
@@ -574,6 +586,7 @@ export function parseClaimBody(raw: unknown, id: string, machine: ClaimMachine =
     ...(changes !== null ? { changes } : {}),
     ...(permissions !== null ? { permissions } : {}),
     ...(restore !== null ? { restore } : {}),
+    ...(live !== null ? { live } : {}),
     mcp: { serverName, url, token, expiresAt: numOrNull(mcp.expiresAt) ?? 0 },
     warnings,
     toolset: null,

@@ -92,6 +92,8 @@ export interface ClaudeArgsInput {
   // los directorios de los repos adicionales (t#597) y el deny de los de solo lectura (readOnlyDirsDeny).
   addDirs?: readonly string[];
   readOnlyDirsDeny?: readonly string[];
+  // t#636, fase 2 (live-session.ts): el prompt va por stdin en stream-json, no tras `--`.
+  liveInput?: boolean;
 }
 
 /** flags sin los que el cli no puede cumplir un prompt run (el daemon solo anuncia `prompt` si los tiene todos). */
@@ -112,6 +114,9 @@ export function buildClaudeArgs(i: ClaudeArgsInput): string[] {
   }
   if (claim.permissions && !i.permissionPromptTool) {
     throw new Error('el claude instalado no soporta --permission-prompt-tool: actualiza claude code (sin él la conversación no puede preguntarte)');
+  }
+  if (i.liveInput && !has('--input-format')) {
+    throw new Error('el claude instalado no soporta --input-format: actualiza claude code (sin él el proceso no atiende el buzón)');
   }
   const forkAt = i.resumeSessionId ? (i.resumeAt ?? null) : null;
   if (forkAt !== null && !i.rewind) {
@@ -147,6 +152,7 @@ export function buildClaudeArgs(i: ClaudeArgsInput): string[] {
     '-p',
     '--output-format',
     'stream-json',
+    ...(i.liveInput ? ['--input-format', 'stream-json'] : []),
     ...(has('--verbose') ? ['--verbose'] : []),
     // t#636: lo que dicen los subagentes, con su padre (el feed lo anida); sin el flag el cli solo manda sus tool calls.
     ...(has('--forward-subagent-text') ? ['--forward-subagent-text'] : []),
@@ -167,8 +173,8 @@ export function buildClaudeArgs(i: ClaudeArgsInput): string[] {
     ...(skip ? ['--dangerously-skip-permissions'] : []),
     ...(i.resumeSessionId ? ['--resume', i.resumeSessionId] : []),
     ...(forkAt !== null ? ['--resume-session-at', forkAt, '--fork-session'] : []),
-    '--',
-    i.prompt,
+    // con stdin vivo el prompt es su primer mensaje (live-session.ts).
+    ...(i.liveInput ? [] : ['--', i.prompt]),
   ];
 }
 

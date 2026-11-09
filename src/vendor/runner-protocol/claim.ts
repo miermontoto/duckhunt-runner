@@ -7,6 +7,7 @@
 
 import type { AgentAutonomy, LegacyClaimPermissions } from './autonomy.js';
 import type { LegacyClaimRestore } from './rewind.js';
+import type { LegacyClaimLive } from './live.js';
 import type { LegacyClaimChanges } from './changes.js';
 import type { GrantAccess, ToolsetV1 } from './toolset.js';
 
@@ -182,6 +183,8 @@ export interface LegacyClaimBody {
   // solo a un daemon con RUNNER_CAPABILITY.rewindFiles (t#564, rewind.ts), tras changes: el árbol que restaurar en el
   // worktree antes del turno y el HEAD que tiene que seguir teniendo.
   restore?: LegacyClaimRestore;
+  // solo a un daemon con RUNNER_CAPABILITY.liveInput (t#636, live.ts), tras restore: el proceso atiende el buzón del run.
+  live?: LegacyClaimLive;
   mcp: LegacyClaimMcp;
   runner?: LegacyClaimRunner;
 }

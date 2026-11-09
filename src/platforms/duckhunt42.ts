@@ -21,7 +21,17 @@ import { CLAIM_OUTCOME, parseRunnerBlock } from '../server-state.js';
 import { SLASH_UPLOAD, type SlashUploadOutcome } from '../slash-commands.js';
 import { clampReport, type StatusReport } from '../status-report.js';
 import type { RunnerCredential } from '../config.js';
-import { RUNNER_CLAUDE_VERSION_MAX_CHARS, RUNNER_SLASH_COMMANDS_PATH, RUNNER_STATE_HEADER, type RunChangesReport, type RunnerSlashCommands } from '../vendor/runner-protocol/index.js';
+import {
+  RUNNER_CLAUDE_VERSION_MAX_CHARS,
+  RUNNER_SLASH_COMMANDS_PATH,
+  RUNNER_STATE_HEADER,
+  type RunChangesReport,
+  type RunnerSlashCommands,
+  AGENT_RUN_EVENT_ID_RE,
+  RUN_INBOX_COMMANDS_MAX,
+  RUN_INBOX_KIND,
+  type RunInboxCommand,
+} from '../vendor/runner-protocol/index.js';
 import { HttpTransport } from './http-transport.js';
 import { credentialStore } from './credentials.js';
 import { failureReason } from './failure-reason.js';
@@ -54,6 +64,15 @@ const HTTP_UNAUTHORIZED = 401;
 const HTTP_NOT_FOUND = 404;
 const HTTP_TIMEOUT = 408;
 const HTTP_CONFLICT = 409;
+// margen del GET del buzón sobre la espera que pide (la respuesta llega justo al vencer).
+const INBOX_SLACK_MS = 10_000;
+// id de una orden del buzón (también el request_id del control_request): opaco y acotado.
+const INBOX_ID_RE = /^[A-Za-z0-9_-]{1,100}$/;
+const isInboxCommand = (v: unknown): v is RunInboxCommand => {
+  if (typeof v !== 'object' || v === null) return false;
+  const c = v as Record<string, unknown>;
+  return c.kind === RUN_INBOX_KIND.stopTask && typeof c.id === 'string' && INBOX_ID_RE.test(c.id) && typeof c.taskId === 'string' && AGENT_RUN_EVENT_ID_RE.test(c.taskId);
+};
 const HTTP_TOO_MANY = 429;
 const HTTP_SERVER_ERROR = 500;
 const KEEP: HeartbeatVerdict = { stop: false };
@@ -158,6 +177,17 @@ export class Duckhunt42Platform implements Platform {
   async events(runId: string, events: SeqEvent[], seg: RunSegment): Promise<number> {
     const res = await this.transport.post(`/runs/${runId}/events`, { events, ...seg });
     return res.status;
+  }
+
+  // el buzón del proceso vivo (t#636, live.ts): long-poll. 404/409 = el run ya no lo acepta (null: deja de pedir); otra
+  // respuesta no ok, vacío (el daemon vuelve a pedir). solo órdenes con su forma: un id de tarea con la de los del cli.
+  async inbox(runId: string, seg: RunSegment, waitMs: number, signal: AbortSignal): Promise<RunInboxCommand[] | null> {
+    if (seg.segment === undefined) return null;
+    const res = await this.transport.get(`/runs/${runId}/inbox?segment=${seg.segment}&wait=${waitMs}`, waitMs + INBOX_SLACK_MS, signal);
+    if (res.status === HTTP_NOT_FOUND || res.status === HTTP_CONFLICT) return null;
+    if (!res.ok) return [];
+    const body = (await res.json().catch(() => null)) as { commands?: unknown } | null;
+    return Array.isArray(body?.commands) ? body.commands.filter(isInboxCommand).slice(0, RUN_INBOX_COMMANDS_MAX) : [];
   }
 
   // el diff del turno (t#514): un intento, sin reintento ni excepción (un 409 = el run ya se cerró).
