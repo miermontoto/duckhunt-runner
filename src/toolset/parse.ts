@@ -21,7 +21,7 @@ import {
 } from '../vendor/runner-protocol/index.js';
 
 // claves del toolset y de cada grant: ni una más.
-const TOOLSET_KEYS: ReadonlySet<string> = new Set(['v', 'shell', 'fsWrite', 'memory', 'web', 'vcsPush', 'grants', 'platformTools', 'autonomy', 'approvals']);
+const TOOLSET_KEYS: ReadonlySet<string> = new Set(['v', 'shell', 'fsWrite', 'memory', 'web', 'vcsPush', 'grants', 'platformTools', 'autonomy', 'approvals', 'subagents', 'workflows']);
 const GRANT_KEYS: ReadonlySet<string> = new Set(['type', 'key', 'access']);
 const FLAG_KEYS = ['fsWrite', 'memory', 'web', 'vcsPush'] as const;
 // tipo de recurso (repo, aws, browser…) y su clave tal como el daemon la anunció (ws/slug, id de cuenta, default…):
@@ -72,6 +72,15 @@ function autonomyOf(raw: Obj): Pick<ToolsetV1, 'autonomy' | 'approvals'> {
   return { autonomy: autonomy as AgentAutonomy, approvals: [...(approvals as string[])] };
 }
 
+// subagentes y workflows (t#636): booleanos opcionales; workflows sin subagents no tiene sentido y se rechaza.
+function delegationOf(raw: Obj): Pick<ToolsetV1, 'subagents' | 'workflows'> {
+  const { subagents, workflows } = raw;
+  if (subagents !== undefined && typeof subagents !== 'boolean') throw invalid('subagents no booleano');
+  if (workflows !== undefined && typeof workflows !== 'boolean') throw invalid('workflows no booleano');
+  if (workflows === true && subagents !== true) throw invalid('workflows sin subagents');
+  return { ...(subagents !== undefined ? { subagents } : {}), ...(workflows !== undefined ? { workflows } : {}) };
+}
+
 /** valida el toolset_v1 de un claim (ver cabecera). lanza con el motivo. */
 export function parseToolsetV1(raw: unknown): ToolsetV1 {
   if (!isObj(raw)) throw invalid('no es un objeto');
@@ -98,5 +107,6 @@ export function parseToolsetV1(raw: unknown): ToolsetV1 {
     grants,
     platformTools: [...(tools as string[])],
     ...autonomyOf(raw),
+    ...delegationOf(raw),
   };
 }

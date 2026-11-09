@@ -7,8 +7,45 @@ export const AGENT_RUN_EVENT_KIND = {
   text: 'text',
   tool: 'tool',
   system: 'system',
+  // t#636: un hito de un subagente o de una tarea en segundo plano (task_started, task_progress y task_notification
+  // del cli): body = su descripción o su resumen y `task` su id, tipo y estado. solo de un daemon con `subagents`.
+  task: 'task',
 } as const;
 export type AgentRunEventKind = (typeof AGENT_RUN_EVENT_KIND)[keyof typeof AGENT_RUN_EVENT_KIND];
+
+// el árbol de un run con subagentes (t#636): `toolUseId` = el id de la tool call de un evento tool (el que lanza un
+// subagente o un workflow es el padre de lo que hagan) y `parentToolUseId` = la tool call de la que cuelga un evento
+// hecho DENTRO de un subagente (null = el agente principal). ids opacos del cli, nunca rutas ni texto.
+export const AGENT_RUN_EVENT_ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
+
+/** qué es una tarea: un subagente, un workflow, un comando en segundo plano u otra cosa que el cli lance. */
+export const AGENT_RUN_TASK_TYPE = {
+  agent: 'agent',
+  workflow: 'workflow',
+  shell: 'shell',
+  other: 'other',
+} as const;
+export type AgentRunTaskType = (typeof AGENT_RUN_TASK_TYPE)[keyof typeof AGENT_RUN_TASK_TYPE];
+
+/** estado de una tarea en su último hito: running hasta su task_notification, que trae cómo acabó. */
+export const AGENT_RUN_TASK_STATUS = {
+  running: 'running',
+  completed: 'completed',
+  failed: 'failed',
+  stopped: 'stopped',
+} as const;
+export type AgentRunTaskStatus = (typeof AGENT_RUN_TASK_STATUS)[keyof typeof AGENT_RUN_TASK_STATUS];
+
+// tope del nombre de una tarea (el de un workflow, `workflow_name` del cli).
+export const AGENT_RUN_TASK_NAME_MAX_CHARS = 120;
+
+/** la tarea de un evento kind=task. `toolUseId` del evento = la tool call que la lanzó (si el cli lo dice). */
+export interface AgentRunEventTask {
+  id: string;
+  type: AgentRunTaskType;
+  status: AgentRunTaskStatus;
+  name?: string;
+}
 // tope del body de un evento (el server recorta tras enmascarar) y del nombre de la tool.
 export const AGENT_RUN_EVENT_BODY_MAX_CHARS = 4000;
 // body crudo más largo que esto se rechaza (400) en vez de recortarse: el daemon ya recorta.

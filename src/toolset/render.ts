@@ -24,6 +24,10 @@
 //   `Bash`/`Bash(…)` sin shell entera, Edit/Write/MultiEdit/NotebookEdit sin escritura, WebFetch/WebSearch sin web y
 //   todo `mcp__…` que no sea una de sus platformTools en el servidor de la plataforma. lo descartado va al log de lo
 //   recortado (approvalsNarrowed, `approval:<id>`); con el techo de duckhunt no se descarta nada.
+// - subagentes (t#636, `subagents`/`workflows` del toolset): Agent, Task y TaskStop (y Workflow si se concede) tras las
+//   tools de la plataforma en cualquier nivel (lo que hagan sus subagentes lo decide el nivel igual: heredan los
+//   permisos del run); al deny, ListAgents y SendMessage (alcanzan otras sesiones de la máquina) y Workflow si no se
+//   concede (en auto o bypass no basta con no listarla).
 
 import {
   AGENT_AUTONOMY,
@@ -45,6 +49,10 @@ export const CLAUDE_CODE_TOOLS = {
   fsWrite: ['Edit', 'Write'],
   web: ['WebFetch', 'WebSearch'],
   notebook: 'NotebookEdit',
+  // t#636: el cli 2.1.319 anuncia Task y la llama Agent: van las dos.
+  subagents: ['Agent', 'Task', 'TaskStop'],
+  workflow: 'Workflow',
+  crossSession: ['ListAgents', 'SendMessage'],
 } as const;
 
 // lecturas de credenciales locales, genéricas y relativas a ~ (AGENT_SECRET_READ_DENY del server). las rutas reales
@@ -136,6 +144,8 @@ export function renderClaudeTools(t: ToolsetV1, ctx: RenderContext): ClaudeTools
     ...(t.web && !asked ? CLAUDE_CODE_TOOLS.web : []),
     ...(rendersAwsRead(t, ctx) ? AWS_READ_ALLOWED : []),
     ...t.platformTools.map((tool) => mcpToolId(ctx.mcpServerName, tool)),
+    ...(t.subagents ? CLAUDE_CODE_TOOLS.subagents : []),
+    ...(t.subagents && t.workflows ? [CLAUDE_CODE_TOOLS.workflow] : []),
   ];
   return {
     allowed: t.approvals ? Array.from(new Set([...allowed, ...approvalsFor(t, ctx).kept])) : allowed,
@@ -147,6 +157,7 @@ export function renderClaudeTools(t: ToolsetV1, ctx: RenderContext): ClaudeTools
       ...(t.shell === TOOLSET_SHELL.read ? AWS_READ_DENIED : []),
       ...(t.shell === TOOLSET_SHELL.full ? [] : SECRET_READ_DENY),
       ...(t.vcsPush ? [] : VCS_PUSH_DENY),
+      ...(t.subagents ? [...CLAUDE_CODE_TOOLS.crossSession, ...(t.workflows ? [] : [CLAUDE_CODE_TOOLS.workflow])] : []),
     ],
     permissionMode: level === undefined ? PROMPT_PERMISSION_MODE : AGENT_AUTONOMY_PERMISSION_MODE[level],
   };

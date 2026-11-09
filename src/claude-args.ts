@@ -148,6 +148,8 @@ export function buildClaudeArgs(i: ClaudeArgsInput): string[] {
     '--output-format',
     'stream-json',
     ...(has('--verbose') ? ['--verbose'] : []),
+    // t#636: lo que dicen los subagentes, con su padre (el feed lo anida); sin el flag el cli solo manda sus tool calls.
+    ...(has('--forward-subagent-text') ? ['--forward-subagent-text'] : []),
     '--mcp-config',
     i.mcpConfigFile,
     ...(addDirs.length > 0 ? ['--add-dir', ...addDirs] : []),

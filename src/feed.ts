@@ -15,11 +15,26 @@
 // tools de una sesión de navegador (t#495, M7, mcp__res_browser_<clave>__<tool>): un resumen propio de las que
 // teclean o ejecutan algo, sin lo tecleado ni el js: fill / select_option, su selector; evaluate, `js ‹n›` (el largo
 // de la expresión) y su selector si lo hay; handle_dialog, la acción; press_key, la tecla. el resto, el genérico.
+// subagentes y tareas (t#636): cada tool call lleva su id (`toolUseId`) y lo hecho dentro de un subagente, la de su padre
+// (`parentToolUseId`, del parent_tool_use_id del cli); los system task_started / task_progress / task_notification salen
+// como eventos `task` (id, tipo, estado y el nombre de un workflow) con su descripción o su resumen saneados como el
+// resto. un id que no tiene la forma de los del cli no viaja (el evento sale sin él, o no sale si es el de su tarea).
 
 import path from 'node:path';
 import type { StreamContent, StreamLine } from './claude.js';
 import { maskSecrets } from './secret-mask.js';
-import { AGENT_RUN_EVENT_KIND, AGENT_RUN_EVENT_TOOL_MAX_CHARS, type AgentRunEventKind } from './vendor/runner-protocol/index.js';
+import {
+  AGENT_RUN_EVENT_ID_RE,
+  AGENT_RUN_EVENT_KIND,
+  AGENT_RUN_EVENT_TOOL_MAX_CHARS,
+  AGENT_RUN_TASK_NAME_MAX_CHARS,
+  AGENT_RUN_TASK_STATUS,
+  AGENT_RUN_TASK_TYPE,
+  type AgentRunEventKind,
+  type AgentRunEventTask,
+  type AgentRunTaskStatus,
+  type AgentRunTaskType,
+} from './vendor/runner-protocol/index.js';
 
 // tipos de evento del feed (AGENT_RUN_EVENT_KIND del protocolo).
 export const FEED_KIND = AGENT_RUN_EVENT_KIND;
@@ -29,6 +44,10 @@ export interface FeedEvent {
   kind: FeedKind;
   tool?: string;
   body: string;
+  // t#636: la tool call de un evento tool, la de la que cuelga uno hecho dentro de un subagente y la tarea de uno task.
+  toolUseId?: string;
+  parentToolUseId?: string;
+  task?: AgentRunEventTask;
 }
 
 export interface FeedContext {
@@ -45,6 +64,8 @@ export interface FeedContext {
 // tope del nombre de la tool (AGENT_RUN_EVENT_TOOL_MAX_CHARS del protocolo).
 const TOOL_NAME_MAX_CHARS = AGENT_RUN_EVENT_TOOL_MAX_CHARS;
 const ELLIPSIS = '…';
+// el nombre del meta de un workflow inline (`name: 'x'`), para su línea del feed sin enseñar el script.
+const WORKFLOW_META_NAME_RE = /\bname:\s*['"]([^'"\n]{1,80})['"]/;
 // prefijo de una ruta fuera del worktree (solo se enseña el nombre del fichero).
 const OUTSIDE_PREFIX = `${ELLIPSIS}/`;
 // resumen genérico de argumentos (tools mcp y desconocidas): cuántos campos y cuán largos.
@@ -210,27 +231,75 @@ export function summarizeToolUse(name: string, input: unknown, ctx: FeedContext)
     }
     if (name === 'WebSearch') return str('query') ?? '';
     if (name === 'Task' || name === 'Agent') return str('description') ?? '';
+    // un workflow: su nombre (el de la tool o el de su meta), nunca el script.
+    if (name === 'Workflow') return str('name') ?? WORKFLOW_META_NAME_RE.exec(str('script') ?? '')?.[1] ?? '';
     if (name === 'TodoWrite') return Array.isArray(args.todos) ? `${args.todos.length} tareas` : '';
     return browserSummary(name, args) ?? s3ReadSummary(name, args) ?? summarizeArgs(args, !isPlatformTool(name, ctx));
   })();
   return sanitize(oneLine(raw), ctx, ctx.toolArgMaxChars);
 }
 
-function eventFromContent(c: StreamContent, ctx: FeedContext): FeedEvent | null {
+// un id del cli que puede viajar (AGENT_RUN_EVENT_ID_RE); otra cosa, null.
+const cliId = (v: unknown): string | null => (typeof v === 'string' && AGENT_RUN_EVENT_ID_RE.test(v) ? v : null);
+
+function eventFromContent(c: StreamContent, ctx: FeedContext, parent: string | null): FeedEvent | null {
+  const under = parent !== null ? { parentToolUseId: parent } : {};
   if (c.type === 'text' && typeof c.text === 'string' && c.text.trim()) {
-    return { kind: FEED_KIND.text, body: sanitize(c.text.trim(), ctx, ctx.bodyMaxChars) };
+    return { kind: FEED_KIND.text, body: sanitize(c.text.trim(), ctx, ctx.bodyMaxChars), ...under };
   }
   if (c.type === 'tool_use' && typeof c.name === 'string' && c.name && !INTERNAL_TOOLS.has(c.name)) {
-    return { kind: FEED_KIND.tool, tool: clip(c.name, TOOL_NAME_MAX_CHARS), body: summarizeToolUse(c.name, c.input, ctx) };
+    const id = cliId(c.id);
+    return { kind: FEED_KIND.tool, tool: clip(c.name, TOOL_NAME_MAX_CHARS), body: summarizeToolUse(c.name, c.input, ctx), ...(id ? { toolUseId: id } : {}), ...under };
   }
   // thinking, tool_result, imágenes…: fuera del feed a propósito.
   return null;
 }
 
-/** eventos de feed de un evento del stream-json. solo los mensajes del asistente producen alguno. */
+// los hitos de una tarea que el cli emite como system (ver cabecera).
+const TASK_SUBTYPES: ReadonlySet<string> = new Set(['task_started', 'task_progress', 'task_notification']);
+const TASK_TYPE_OF: ReadonlyMap<string, AgentRunTaskType> = new Map([
+  ['local_agent', AGENT_RUN_TASK_TYPE.agent],
+  ['local_workflow', AGENT_RUN_TASK_TYPE.workflow],
+  ['local_bash', AGENT_RUN_TASK_TYPE.shell],
+]);
+// cómo acabó una tarea según su task_notification (el cli dice completed, stopped…; lo que no se reconoce, completed).
+const STOPPED_RE = /stop|kill|cancel|abort/i;
+const FAILED_RE = /fail|error/i;
+const taskStatusOf = (subtype: string, status: unknown): AgentRunTaskStatus => {
+  if (subtype !== 'task_notification') return AGENT_RUN_TASK_STATUS.running;
+  const s = typeof status === 'string' ? status : '';
+  if (STOPPED_RE.test(s)) return AGENT_RUN_TASK_STATUS.stopped;
+  return FAILED_RE.test(s) ? AGENT_RUN_TASK_STATUS.failed : AGENT_RUN_TASK_STATUS.completed;
+};
+const textOf = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
+
+// el evento task de un hito (ver cabecera); null sin un id de tarea que pueda viajar.
+function taskEvent(ev: StreamLine, ctx: FeedContext): FeedEvent | null {
+  const subtype = ev.subtype ?? '';
+  const id = cliId(ev.task_id);
+  if (id === null) return null;
+  const type = (typeof ev.task_type === 'string' ? TASK_TYPE_OF.get(ev.task_type) : undefined) ?? AGENT_RUN_TASK_TYPE.other;
+  const name = textOf(ev.workflow_name);
+  const toolUseId = cliId(ev.tool_use_id);
+  // al acabar, su resumen (lo que trajo); en marcha, lo que está haciendo.
+  const said = subtype === 'task_notification' ? (textOf(ev.summary) ?? textOf(ev.description)) : (textOf(ev.description) ?? textOf(ev.summary));
+  return {
+    kind: FEED_KIND.task,
+    body: said ? sanitize(said, ctx, ctx.bodyMaxChars) : '',
+    task: { id, type, status: taskStatusOf(subtype, ev.status), ...(name ? { name: sanitize(oneLine(name), ctx, AGENT_RUN_TASK_NAME_MAX_CHARS) } : {}) },
+    ...(toolUseId ? { toolUseId } : {}),
+  };
+}
+
+/** eventos de feed de un evento del stream-json: los mensajes del asistente (del principal o de un subagente) y los hitos de sus tareas. */
 export function feedEventsFromStream(ev: StreamLine, ctx: FeedContext): FeedEvent[] {
+  if (ev.type === 'system' && TASK_SUBTYPES.has(ev.subtype ?? '')) {
+    const task = taskEvent(ev, ctx);
+    return task ? [task] : [];
+  }
   if (ev.type !== 'assistant' || !Array.isArray(ev.message?.content)) return [];
-  return ev.message.content.map((c) => eventFromContent(c, ctx)).filter((e): e is FeedEvent => e !== null);
+  const parent = cliId(ev.parent_tool_use_id);
+  return ev.message.content.map((c) => eventFromContent(c, ctx, parent)).filter((e): e is FeedEvent => e !== null);
 }
 
 /** nota del daemon para el feed (worktree, rama, reintentos), saneada como el resto. */

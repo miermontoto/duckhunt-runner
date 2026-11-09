@@ -178,3 +178,19 @@ test('sombra: el diff se recorta a los topes del server; el permission mode del 
   assert.equal(shadow.diff?.permissionMode, 'dontAsk');
   assert.deepEqual(compareToolset({ ...server, permissionMode: 'dontAsk' }, toolset, ctx), { match: true, explained: true, known: [], diff: null });
 });
+
+test('subagentes (t#636): Agent, Task y TaskStop tras la plataforma; Workflow solo si se concede; las otras sesiones, negadas', () => {
+  const ctx = { mcpServerName: 'duckhunt', awsCli: true };
+  const plain = renderClaudeTools(base, ctx);
+  assert.ok(!plain.allowed.includes('Agent') && !plain.disallowed.includes('ListAgents'), 'sin las claves, el render de siempre');
+  const sub = renderClaudeTools({ ...base, subagents: true, workflows: false }, ctx);
+  assert.deepEqual(sub.allowed.slice(-3), ['Agent', 'Task', 'TaskStop']);
+  assert.deepEqual(sub.disallowed.slice(-3), ['ListAgents', 'SendMessage', 'Workflow']);
+  const wf = renderClaudeTools({ ...base, subagents: true, workflows: true, autonomy: 'manual', approvals: [] }, ctx);
+  assert.deepEqual(wf.allowed.filter((t) => ['Agent', 'Task', 'TaskStop', 'Workflow'].includes(t)), ['Agent', 'Task', 'TaskStop', 'Workflow'], 'en cualquier nivel');
+  assert.ok(!wf.disallowed.includes('Workflow'));
+  assert.throws(() => parseToolsetV1({ ...base, workflows: true }), /workflows sin subagents/);
+  assert.throws(() => parseToolsetV1({ ...base, subagents: 'sí' }), /subagents no booleano/);
+  assert.deepEqual(parseToolsetV1({ ...base, subagents: true, workflows: false }).subagents, true);
+});
+

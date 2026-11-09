@@ -8,6 +8,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-13-<rand>.json",
           "--strict-mcp-config",
@@ -94,6 +95,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-12-<rand>.json",
           "--strict-mcp-config",
@@ -180,6 +182,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-11-<rand>.json",
           "--strict-mcp-config",
@@ -274,6 +277,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-8-<rand>.json",
           "--strict-mcp-config",
@@ -372,6 +376,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-5-<rand>.json",
           "--strict-mcp-config",
@@ -466,6 +471,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-6-<rand>.json",
           "--strict-mcp-config",
@@ -560,6 +566,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-1-<rand>.json",
           "--strict-mcp-config",
@@ -656,6 +663,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-2-<rand>.json",
           "--strict-mcp-config",
@@ -750,6 +758,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-3-<rand>.json",
           "--strict-mcp-config",
@@ -844,6 +853,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-7-<rand>.json",
           "--strict-mcp-config",
@@ -936,6 +946,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-9-<rand>.json",
           "--strict-mcp-config",
@@ -1028,14 +1039,15 @@
   "claim-kits/autonomy-auto": {
     "spawns": [
       {
-        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-222",
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-230",
         "argv": [
           "-p",
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
-          "<case>/home/run-config/mcp-222-<rand>.json",
+          "<case>/home/run-config/mcp-230-<rand>.json",
           "--strict-mcp-config",
           "--allowedTools",
           {
@@ -1077,7 +1089,7 @@
       }
     ],
     "runs": {
-      "222": {
+      "230": {
         "progress": [
           "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":1}"
         ],
@@ -1107,7 +1119,7 @@
     "left": {
       "runConfig": [],
       "worktrees": [
-        "conv-222"
+        "conv-230"
       ],
       "exclude": [
         "/.duckhunt/"
@@ -1117,14 +1129,15 @@
   "claim-kits/autonomy-bypass": {
     "spawns": [
       {
-        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-223",
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-231",
         "argv": [
           "-p",
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
-          "<case>/home/run-config/mcp-223-<rand>.json",
+          "<case>/home/run-config/mcp-231-<rand>.json",
           "--strict-mcp-config",
           "--allowedTools",
           {
@@ -1163,7 +1176,7 @@
       }
     ],
     "runs": {
-      "223": {
+      "231": {
         "progress": [
           "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":1}"
         ],
@@ -1193,7 +1206,7 @@
     "left": {
       "runConfig": [],
       "worktrees": [
-        "conv-223"
+        "conv-231"
       ],
       "exclude": [
         "/.duckhunt/"
@@ -1203,14 +1216,15 @@
   "claim-kits/autonomy-fixed-edit": {
     "spawns": [
       {
-        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-225",
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-233",
         "argv": [
           "-p",
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
-          "<case>/home/run-config/mcp-225-<rand>.json",
+          "<case>/home/run-config/mcp-233-<rand>.json",
           "--strict-mcp-config",
           "--allowedTools",
           {
@@ -1249,7 +1263,7 @@
       }
     ],
     "runs": {
-      "225": {
+      "233": {
         "progress": [
           "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":1}"
         ],
@@ -1279,7 +1293,7 @@
     "left": {
       "runConfig": [],
       "worktrees": [
-        "conv-225"
+        "conv-233"
       ],
       "exclude": [
         "/.duckhunt/"
@@ -1289,14 +1303,15 @@
   "claim-kits/autonomy-manual-approvals": {
     "spawns": [
       {
-        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-224",
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-232",
         "argv": [
           "-p",
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
-          "<case>/home/run-config/mcp-224-<rand>.json",
+          "<case>/home/run-config/mcp-232-<rand>.json",
           "--strict-mcp-config",
           "--allowedTools",
           {
@@ -1338,7 +1353,7 @@
       }
     ],
     "runs": {
-      "224": {
+      "232": {
         "progress": [
           "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":1}"
         ],
@@ -1368,7 +1383,7 @@
     "left": {
       "runConfig": [],
       "worktrees": [
-        "conv-224"
+        "conv-232"
       ],
       "exclude": [
         "/.duckhunt/"
@@ -1378,14 +1393,15 @@
   "claim-kits/autonomy-manual": {
     "spawns": [
       {
-        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-221",
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-229",
         "argv": [
           "-p",
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
-          "<case>/home/run-config/mcp-221-<rand>.json",
+          "<case>/home/run-config/mcp-229-<rand>.json",
           "--strict-mcp-config",
           "--allowedTools",
           {
@@ -1427,7 +1443,7 @@
       }
     ],
     "runs": {
-      "221": {
+      "229": {
         "progress": [
           "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":1}"
         ],
@@ -1457,7 +1473,7 @@
     "left": {
       "runConfig": [],
       "worktrees": [
-        "conv-221"
+        "conv-229"
       ],
       "exclude": [
         "/.duckhunt/"
@@ -1467,14 +1483,15 @@
   "claim-kits/autonomy-read": {
     "spawns": [
       {
-        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-226",
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-234",
         "argv": [
           "-p",
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
-          "<case>/home/run-config/mcp-226-<rand>.json",
+          "<case>/home/run-config/mcp-234-<rand>.json",
           "--strict-mcp-config",
           "--setting-sources",
           "user",
@@ -1521,7 +1538,7 @@
       }
     ],
     "runs": {
-      "226": {
+      "234": {
         "progress": [
           "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":1}"
         ],
@@ -1551,7 +1568,7 @@
     "left": {
       "runConfig": [],
       "worktrees": [
-        "conv-226"
+        "conv-234"
       ],
       "exclude": [
         "/.duckhunt/"
@@ -1561,14 +1578,15 @@
   "claim-kits/autonomy-template": {
     "spawns": [
       {
-        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-227",
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-235",
         "argv": [
           "-p",
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
-          "<case>/home/run-config/mcp-227-<rand>.json",
+          "<case>/home/run-config/mcp-235-<rand>.json",
           "--strict-mcp-config",
           "--setting-sources",
           "user",
@@ -1617,7 +1635,7 @@
       }
     ],
     "runs": {
-      "227": {
+      "235": {
         "progress": [
           "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":1}"
         ],
@@ -1647,7 +1665,7 @@
     "left": {
       "runConfig": [],
       "worktrees": [
-        "conv-227"
+        "conv-235"
       ],
       "exclude": [
         "/.duckhunt/"
@@ -1657,14 +1675,15 @@
   "claim-kits/lifecycle-prompt-read": {
     "spawns": [
       {
-        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-97",
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-101",
         "argv": [
           "-p",
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
-          "<case>/home/run-config/mcp-97-<rand>.json",
+          "<case>/home/run-config/mcp-101-<rand>.json",
           "--strict-mcp-config",
           "--setting-sources",
           "user",
@@ -1711,7 +1730,7 @@
       }
     ],
     "runs": {
-      "97": {
+      "101": {
         "progress": [
           "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":1}"
         ],
@@ -1741,7 +1760,7 @@
     "left": {
       "runConfig": [],
       "worktrees": [
-        "conv-97"
+        "conv-101"
       ],
       "exclude": [
         "/.duckhunt/"
@@ -1751,14 +1770,15 @@
   "claim-kits/lifecycle-template": {
     "spawns": [
       {
-        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-98",
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-102",
         "argv": [
           "-p",
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
-          "<case>/home/run-config/mcp-98-<rand>.json",
+          "<case>/home/run-config/mcp-102-<rand>.json",
           "--strict-mcp-config",
           "--setting-sources",
           "user",
@@ -1807,7 +1827,7 @@
       }
     ],
     "runs": {
-      "98": {
+      "102": {
         "progress": [
           "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":1}"
         ],
@@ -1837,7 +1857,7 @@
     "left": {
       "runConfig": [],
       "worktrees": [
-        "conv-98"
+        "conv-102"
       ],
       "exclude": [
         "/.duckhunt/"
@@ -1847,14 +1867,15 @@
   "claim-kits/model-machine": {
     "spawns": [
       {
-        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-128",
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-132",
         "argv": [
           "-p",
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
-          "<case>/home/run-config/mcp-128-<rand>.json",
+          "<case>/home/run-config/mcp-132-<rand>.json",
           "--strict-mcp-config",
           "--setting-sources",
           "user",
@@ -1901,7 +1922,7 @@
       }
     ],
     "runs": {
-      "128": {
+      "132": {
         "progress": [
           "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":1}"
         ],
@@ -1931,7 +1952,7 @@
     "left": {
       "runConfig": [],
       "worktrees": [
-        "conv-128"
+        "conv-132"
       ],
       "exclude": [
         "/.duckhunt/"
@@ -1941,14 +1962,15 @@
   "claim-kits/model-prompt-opus": {
     "spawns": [
       {
-        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-126",
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-130",
         "argv": [
           "-p",
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
-          "<case>/home/run-config/mcp-126-<rand>.json",
+          "<case>/home/run-config/mcp-130-<rand>.json",
           "--strict-mcp-config",
           "--setting-sources",
           "user",
@@ -1997,7 +2019,7 @@
       }
     ],
     "runs": {
-      "126": {
+      "130": {
         "progress": [
           "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":1}"
         ],
@@ -2027,7 +2049,7 @@
     "left": {
       "runConfig": [],
       "worktrees": [
-        "conv-126"
+        "conv-130"
       ],
       "exclude": [
         "/.duckhunt/"
@@ -2043,8 +2065,9 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
-          "<case>/home/run-config/mcp-127-<rand>.json",
+          "<case>/home/run-config/mcp-131-<rand>.json",
           "--strict-mcp-config",
           "--setting-sources",
           "user",
@@ -2093,7 +2116,7 @@
       }
     ],
     "runs": {
-      "127": {
+      "131": {
         "progress": [
           "{\"toolCalls\":0,\"workdir\":\"scratch · sin repo\",\"segment\":1}"
         ],
@@ -2135,6 +2158,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-50-<rand>.json",
           "--strict-mcp-config",
@@ -2227,6 +2251,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-47-<rand>.json",
           "--strict-mcp-config",
@@ -2311,6 +2336,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-36-<rand>.json",
           "--strict-mcp-config",
@@ -2397,6 +2423,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-62-<rand>.json",
           "--strict-mcp-config",
@@ -2493,6 +2520,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-61-<rand>.json",
           "--strict-mcp-config",
@@ -2581,6 +2609,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-38-<rand>.json",
           "--strict-mcp-config",
@@ -2650,6 +2679,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-37-<rand>.json",
           "--strict-mcp-config",
@@ -2736,6 +2766,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-52-<rand>.json",
           "--strict-mcp-config",
@@ -2818,6 +2849,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-42-<rand>.json",
           "--strict-mcp-config",
@@ -2912,6 +2944,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-39-<rand>.json",
           "--strict-mcp-config",
@@ -3006,6 +3039,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-41-<rand>.json",
           "--strict-mcp-config",
@@ -3092,6 +3126,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-40-<rand>.json",
           "--strict-mcp-config",
@@ -3186,6 +3221,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-67-<rand>.json",
           "--strict-mcp-config",
@@ -3273,6 +3309,180 @@
       ]
     }
   },
+  "claim-kits/prompt-edit-subagents-toolset": {
+    "spawns": [
+      {
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-72",
+        "argv": [
+          "-p",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--forward-subagent-text",
+          "--mcp-config",
+          "<case>/home/run-config/mcp-72-<rand>.json",
+          "--strict-mcp-config",
+          "--allowedTools",
+          {
+            "allowed": "b167ac6c76983689",
+            "count": 109,
+            "notFromClaim": [],
+            "dropped": []
+          },
+          "--disallowedTools",
+          {
+            "disallowed": "3cb7b0e0d1deab53",
+            "count": 4,
+            "notFromClaim": [
+              "Read(/<case>/home/run-config/**)"
+            ]
+          },
+          "--permission-mode",
+          "dontAsk",
+          "--",
+          "<claim.prompt>"
+        ],
+        "env": {
+          "set": {
+            "AWS_PAGER": "",
+            "DUCKHUNT_RUNNER_CONFIG": "<case>/runner.json",
+            "DUCKHUNT_RUNNER_HOME": "<case>/home",
+            "GIT_TERMINAL_PROMPT": "0"
+          },
+          "removed": [
+            "ANTHROPIC_API_KEY",
+            "CLAUDECODE",
+            "CLAUDE_CODE_SESSION_ID"
+          ]
+        },
+        "mcp": "{\"mcpServers\":{\"duckhunt\":{\"type\":\"http\",\"url\":\"http://duckhunt.test/mcp\",\"headers\":{\"Authorization\":\"Bearer dho_fixture\"}}}}"
+      }
+    ],
+    "runs": {
+      "72": {
+        "progress": [
+          "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":1}"
+        ],
+        "feed": [
+          {
+            "kind": "system",
+            "body": "origin/main@<sha>",
+            "seq": 1
+          },
+          {
+            "kind": "text",
+            "body": "miro el repo",
+            "seq": 2
+          },
+          {
+            "kind": "tool",
+            "tool": "Read",
+            "body": "README.md",
+            "seq": 3
+          }
+        ],
+        "status": [
+          "{\"status\":\"done\",\"toolCalls\":1,\"costUsd\":0.5,\"numTurns\":2,\"sessionId\":\"sess-new\",\"model\":\"claude-opus-5-5\",\"result\":\"hecho\",\"segment\":1}"
+        ]
+      }
+    },
+    "left": {
+      "runConfig": [],
+      "worktrees": [
+        "conv-72"
+      ],
+      "exclude": [
+        "/.duckhunt/"
+      ]
+    }
+  },
+  "claim-kits/prompt-edit-subagents": {
+    "spawns": [
+      {
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-70",
+        "argv": [
+          "-p",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--forward-subagent-text",
+          "--mcp-config",
+          "<case>/home/run-config/mcp-70-<rand>.json",
+          "--strict-mcp-config",
+          "--allowedTools",
+          {
+            "allowed": "b167ac6c76983689",
+            "count": 109,
+            "notFromClaim": [],
+            "dropped": []
+          },
+          "--disallowedTools",
+          {
+            "disallowed": "3cb7b0e0d1deab53",
+            "count": 4,
+            "notFromClaim": [
+              "Read(/<case>/home/run-config/**)"
+            ]
+          },
+          "--permission-mode",
+          "dontAsk",
+          "--",
+          "<claim.prompt>"
+        ],
+        "env": {
+          "set": {
+            "AWS_PAGER": "",
+            "DUCKHUNT_RUNNER_CONFIG": "<case>/runner.json",
+            "DUCKHUNT_RUNNER_HOME": "<case>/home",
+            "GIT_TERMINAL_PROMPT": "0"
+          },
+          "removed": [
+            "ANTHROPIC_API_KEY",
+            "CLAUDECODE",
+            "CLAUDE_CODE_SESSION_ID"
+          ]
+        },
+        "mcp": "{\"mcpServers\":{\"duckhunt\":{\"type\":\"http\",\"url\":\"http://duckhunt.test/mcp\",\"headers\":{\"Authorization\":\"Bearer dho_fixture\"}}}}"
+      }
+    ],
+    "runs": {
+      "70": {
+        "progress": [
+          "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":1}"
+        ],
+        "feed": [
+          {
+            "kind": "system",
+            "body": "origin/main@<sha>",
+            "seq": 1
+          },
+          {
+            "kind": "text",
+            "body": "miro el repo",
+            "seq": 2
+          },
+          {
+            "kind": "tool",
+            "tool": "Read",
+            "body": "README.md",
+            "seq": 3
+          }
+        ],
+        "status": [
+          "{\"status\":\"done\",\"toolCalls\":1,\"costUsd\":0.5,\"numTurns\":2,\"sessionId\":\"sess-new\",\"model\":\"claude-opus-5-5\",\"result\":\"hecho\",\"segment\":1}"
+        ]
+      }
+    },
+    "left": {
+      "runConfig": [],
+      "worktrees": [
+        "conv-70"
+      ],
+      "exclude": [
+        "/.duckhunt/"
+      ]
+    }
+  },
   "claim-kits/prompt-edit-timeout-1h": {
     "spawns": [
       {
@@ -3282,6 +3492,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-58-<rand>.json",
           "--strict-mcp-config",
@@ -3368,6 +3579,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-59-<rand>.json",
           "--strict-mcp-config",
@@ -3454,6 +3666,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-64-<rand>.json",
           "--strict-mcp-config",
@@ -3536,14 +3749,15 @@
   "claim-kits/prompt-read-act-after-form-yes": {
     "spawns": [
       {
-        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-143",
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-147",
         "argv": [
           "-p",
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
-          "<case>/home/run-config/mcp-143-<rand>.json",
+          "<case>/home/run-config/mcp-147-<rand>.json",
           "--strict-mcp-config",
           "--setting-sources",
           "user",
@@ -3592,7 +3806,7 @@
       }
     ],
     "runs": {
-      "143": {
+      "147": {
         "progress": [
           "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":2}"
         ],
@@ -3622,7 +3836,7 @@
     "left": {
       "runConfig": [],
       "worktrees": [
-        "conv-143"
+        "conv-147"
       ],
       "exclude": [
         "/.duckhunt/"
@@ -3632,14 +3846,15 @@
   "claim-kits/prompt-read-act-after-form": {
     "spawns": [
       {
-        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-141",
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-145",
         "argv": [
           "-p",
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
-          "<case>/home/run-config/mcp-141-<rand>.json",
+          "<case>/home/run-config/mcp-145-<rand>.json",
           "--strict-mcp-config",
           "--setting-sources",
           "user",
@@ -3688,7 +3903,7 @@
       }
     ],
     "runs": {
-      "141": {
+      "145": {
         "progress": [
           "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":2}"
         ],
@@ -3718,7 +3933,7 @@
     "left": {
       "runConfig": [],
       "worktrees": [
-        "conv-141"
+        "conv-145"
       ],
       "exclude": [
         "/.duckhunt/"
@@ -3734,6 +3949,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-65-<rand>.json",
           "--strict-mcp-config",
@@ -3830,6 +4046,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-49-<rand>.json",
           "--strict-mcp-config",
@@ -3922,6 +4139,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-46-<rand>.json",
           "--strict-mcp-config",
@@ -4016,6 +4234,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-54-<rand>.json",
           "--strict-mcp-config",
@@ -4104,14 +4323,15 @@
   "claim-kits/prompt-read-fallback-form": {
     "spawns": [
       {
-        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-142",
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-146",
         "argv": [
           "-p",
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
-          "<case>/home/run-config/mcp-142-<rand>.json",
+          "<case>/home/run-config/mcp-146-<rand>.json",
           "--strict-mcp-config",
           "--setting-sources",
           "user",
@@ -4158,7 +4378,7 @@
       }
     ],
     "runs": {
-      "142": {
+      "146": {
         "progress": [
           "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":2}"
         ],
@@ -4188,7 +4408,7 @@
     "left": {
       "runConfig": [],
       "worktrees": [
-        "conv-142"
+        "conv-146"
       ],
       "exclude": [
         "/.duckhunt/"
@@ -4204,6 +4424,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-68-<rand>.json",
           "--strict-mcp-config",
@@ -4298,6 +4519,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-56-<rand>.json",
           "--strict-mcp-config",
@@ -4375,6 +4597,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-31-<rand>.json",
           "--strict-mcp-config",
@@ -4469,6 +4692,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-60-<rand>.json",
           "--strict-mcp-config",
@@ -4565,6 +4789,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-35-<rand>.json",
           "--strict-mcp-config",
@@ -4642,6 +4867,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-32-<rand>.json",
           "--strict-mcp-config",
@@ -4736,6 +4962,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-57-<rand>.json",
           "--strict-mcp-config",
@@ -4813,6 +5040,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-33-<rand>.json",
           "--strict-mcp-config",
@@ -4907,6 +5135,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-34-<rand>.json",
           "--strict-mcp-config",
@@ -5001,6 +5230,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-51-<rand>.json",
           "--strict-mcp-config",
@@ -5091,6 +5321,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-43-<rand>.json",
           "--strict-mcp-config",
@@ -5185,6 +5416,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-45-<rand>.json",
           "--strict-mcp-config",
@@ -5279,6 +5511,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-44-<rand>.json",
           "--strict-mcp-config",
@@ -5373,6 +5606,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-66-<rand>.json",
           "--strict-mcp-config",
@@ -5460,6 +5694,101 @@
       ]
     }
   },
+  "claim-kits/prompt-read-subagents": {
+    "spawns": [
+      {
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-71",
+        "argv": [
+          "-p",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--forward-subagent-text",
+          "--mcp-config",
+          "<case>/home/run-config/mcp-71-<rand>.json",
+          "--strict-mcp-config",
+          "--setting-sources",
+          "user",
+          "--allowedTools",
+          {
+            "allowed": "db537f57369c258f",
+            "count": 398,
+            "notFromClaim": [],
+            "dropped": []
+          },
+          "--disallowedTools",
+          {
+            "disallowed": "fbf2d6beab7685a0",
+            "count": 73,
+            "notFromClaim": [
+              "Bash(npm test:*)",
+              "Edit(src/**)",
+              "Read(/<case>/runner.json)",
+              "Read(/<case>/home/run-config/**)",
+              "Read(/<case>/home/logs/**)",
+              "Read(/<case>/home/daemon.lock)",
+              "Read(/<case>/home/server-state.json)"
+            ]
+          },
+          "--permission-mode",
+          "dontAsk",
+          "--",
+          "<claim.prompt>"
+        ],
+        "env": {
+          "set": {
+            "AWS_PAGER": "",
+            "DUCKHUNT_RUNNER_CONFIG": "<case>/runner.json",
+            "DUCKHUNT_RUNNER_HOME": "<case>/home",
+            "GIT_TERMINAL_PROMPT": "0"
+          },
+          "removed": [
+            "ANTHROPIC_API_KEY",
+            "CLAUDECODE",
+            "CLAUDE_CODE_SESSION_ID"
+          ]
+        },
+        "mcp": "{\"mcpServers\":{\"duckhunt\":{\"type\":\"http\",\"url\":\"http://duckhunt.test/mcp\",\"headers\":{\"Authorization\":\"Bearer dho_fixture\"}}}}"
+      }
+    ],
+    "runs": {
+      "71": {
+        "progress": [
+          "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":1}"
+        ],
+        "feed": [
+          {
+            "kind": "system",
+            "body": "origin/main@<sha>",
+            "seq": 1
+          },
+          {
+            "kind": "text",
+            "body": "miro el repo",
+            "seq": 2
+          },
+          {
+            "kind": "tool",
+            "tool": "Read",
+            "body": "README.md",
+            "seq": 3
+          }
+        ],
+        "status": [
+          "{\"status\":\"done\",\"toolCalls\":1,\"costUsd\":0.5,\"numTurns\":2,\"sessionId\":\"sess-new\",\"model\":\"claude-opus-5-5\",\"result\":\"hecho\",\"segment\":1}"
+        ]
+      }
+    },
+    "left": {
+      "runConfig": [],
+      "worktrees": [
+        "conv-71"
+      ],
+      "exclude": [
+        "/.duckhunt/"
+      ]
+    }
+  },
   "claim-kits/prompt-read-target-anchor": {
     "spawns": [
       {
@@ -5469,6 +5798,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-55-<rand>.json",
           "--strict-mcp-config",
@@ -5563,6 +5893,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-63-<rand>.json",
           "--strict-mcp-config",
@@ -5659,8 +5990,9 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
-          "<case>/home/run-config/mcp-96-<rand>.json",
+          "<case>/home/run-config/mcp-100-<rand>.json",
           "--strict-mcp-config",
           "--setting-sources",
           "user",
@@ -5707,7 +6039,7 @@
       }
     ],
     "runs": {
-      "96": {
+      "100": {
         "progress": [
           "{\"toolCalls\":0,\"workdir\":\"scratch · sin repo mapeado\",\"segment\":1}"
         ],
@@ -5748,14 +6080,15 @@
   "claim-kits/routing-moved-fallback": {
     "spawns": [
       {
-        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-95",
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-99",
         "argv": [
           "-p",
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
-          "<case>/home/run-config/mcp-95-<rand>.json",
+          "<case>/home/run-config/mcp-99-<rand>.json",
           "--strict-mcp-config",
           "--setting-sources",
           "user",
@@ -5802,7 +6135,7 @@
       }
     ],
     "runs": {
-      "95": {
+      "99": {
         "progress": [
           "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":2}"
         ],
@@ -5832,7 +6165,7 @@
     "left": {
       "runConfig": [],
       "worktrees": [
-        "conv-95"
+        "conv-99"
       ],
       "exclude": [
         "/.duckhunt/"
@@ -5842,14 +6175,15 @@
   "claim-kits/routing-relogin-resume": {
     "spawns": [
       {
-        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-94",
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-98",
         "argv": [
           "-p",
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
-          "<case>/home/run-config/mcp-94-<rand>.json",
+          "<case>/home/run-config/mcp-98-<rand>.json",
           "--strict-mcp-config",
           "--allowedTools",
           {
@@ -5890,7 +6224,7 @@
       }
     ],
     "runs": {
-      "94": {
+      "98": {
         "progress": [
           "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":2}"
         ],
@@ -5920,7 +6254,7 @@
     "left": {
       "runConfig": [],
       "worktrees": [
-        "conv-94"
+        "conv-98"
       ],
       "exclude": [
         "/.duckhunt/"
@@ -5930,14 +6264,15 @@
   "claim-kits/rule-prompt-edit-world-after-yes": {
     "spawns": [
       {
-        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-136",
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-140",
         "argv": [
           "-p",
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
-          "<case>/home/run-config/mcp-136-<rand>.json",
+          "<case>/home/run-config/mcp-140-<rand>.json",
           "--strict-mcp-config",
           "--allowedTools",
           {
@@ -5978,7 +6313,7 @@
       }
     ],
     "runs": {
-      "136": {
+      "140": {
         "progress": [
           "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":2}"
         ],
@@ -6008,7 +6343,7 @@
     "left": {
       "runConfig": [],
       "worktrees": [
-        "conv-136"
+        "conv-140"
       ],
       "exclude": [
         "/.duckhunt/"
@@ -6018,14 +6353,15 @@
   "claim-kits/rule-prompt-edit": {
     "spawns": [
       {
-        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-134",
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-138",
         "argv": [
           "-p",
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
-          "<case>/home/run-config/mcp-134-<rand>.json",
+          "<case>/home/run-config/mcp-138-<rand>.json",
           "--strict-mcp-config",
           "--allowedTools",
           {
@@ -6064,7 +6400,7 @@
       }
     ],
     "runs": {
-      "134": {
+      "138": {
         "progress": [
           "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":1}"
         ],
@@ -6094,7 +6430,7 @@
     "left": {
       "runConfig": [],
       "worktrees": [
-        "conv-134"
+        "conv-138"
       ],
       "exclude": [
         "/.duckhunt/"
@@ -6110,8 +6446,9 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
-          "<case>/home/run-config/mcp-130-<rand>.json",
+          "<case>/home/run-config/mcp-134-<rand>.json",
           "--strict-mcp-config",
           "--setting-sources",
           "user",
@@ -6158,7 +6495,7 @@
       }
     ],
     "runs": {
-      "130": {
+      "134": {
         "progress": [
           "{\"toolCalls\":0,\"workdir\":\"scratch · sin repo\",\"segment\":1}"
         ],
@@ -6194,14 +6531,15 @@
   "claim-kits/rule-prompt-read-world-after-yes": {
     "spawns": [
       {
-        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-135",
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-139",
         "argv": [
           "-p",
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
-          "<case>/home/run-config/mcp-135-<rand>.json",
+          "<case>/home/run-config/mcp-139-<rand>.json",
           "--strict-mcp-config",
           "--setting-sources",
           "user",
@@ -6250,7 +6588,7 @@
       }
     ],
     "runs": {
-      "135": {
+      "139": {
         "progress": [
           "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":2}"
         ],
@@ -6280,7 +6618,7 @@
     "left": {
       "runConfig": [],
       "worktrees": [
-        "conv-135"
+        "conv-139"
       ],
       "exclude": [
         "/.duckhunt/"
@@ -6290,14 +6628,15 @@
   "claim-kits/rule-prompt-read": {
     "spawns": [
       {
-        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-133",
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-137",
         "argv": [
           "-p",
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
-          "<case>/home/run-config/mcp-133-<rand>.json",
+          "<case>/home/run-config/mcp-137-<rand>.json",
           "--strict-mcp-config",
           "--setting-sources",
           "user",
@@ -6344,7 +6683,7 @@
       }
     ],
     "runs": {
-      "133": {
+      "137": {
         "progress": [
           "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":1}"
         ],
@@ -6374,7 +6713,7 @@
     "left": {
       "runConfig": [],
       "worktrees": [
-        "conv-133"
+        "conv-137"
       ],
       "exclude": [
         "/.duckhunt/"
@@ -6390,8 +6729,9 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
-          "<case>/home/run-config/mcp-132-<rand>.json",
+          "<case>/home/run-config/mcp-136-<rand>.json",
           "--strict-mcp-config",
           "--setting-sources",
           "user",
@@ -6438,7 +6778,7 @@
       }
     ],
     "runs": {
-      "132": {
+      "136": {
         "progress": [
           "{\"toolCalls\":0,\"workdir\":\"scratch · sin repo\",\"segment\":1}"
         ],
@@ -6474,14 +6814,15 @@
   "claim-kits/rule-prompt-target-edit": {
     "spawns": [
       {
-        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-131",
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-135",
         "argv": [
           "-p",
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
-          "<case>/home/run-config/mcp-131-<rand>.json",
+          "<case>/home/run-config/mcp-135-<rand>.json",
           "--strict-mcp-config",
           "--allowedTools",
           {
@@ -6520,7 +6861,7 @@
       }
     ],
     "runs": {
-      "131": {
+      "135": {
         "progress": [
           "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":1}"
         ],
@@ -6550,7 +6891,7 @@
     "left": {
       "runConfig": [],
       "worktrees": [
-        "conv-131"
+        "conv-135"
       ],
       "exclude": [
         "/.duckhunt/"
@@ -6566,6 +6907,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-25-<rand>.json",
           "--strict-mcp-config",
@@ -6658,14 +7000,15 @@
   "claim-kits/template-act-after-form": {
     "spawns": [
       {
-        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-140",
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-144",
         "argv": [
           "-p",
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
-          "<case>/home/run-config/mcp-140-<rand>.json",
+          "<case>/home/run-config/mcp-144-<rand>.json",
           "--strict-mcp-config",
           "--setting-sources",
           "user",
@@ -6716,7 +7059,7 @@
       }
     ],
     "runs": {
-      "140": {
+      "144": {
         "progress": [
           "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":2}"
         ],
@@ -6746,7 +7089,7 @@
     "left": {
       "runConfig": [],
       "worktrees": [
-        "conv-140"
+        "conv-144"
       ],
       "exclude": [
         "/.duckhunt/"
@@ -6762,6 +7105,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-20-<rand>.json",
           "--strict-mcp-config",
@@ -6860,6 +7204,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-24-<rand>.json",
           "--strict-mcp-config",
@@ -6958,6 +7303,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-21-<rand>.json",
           "--strict-mcp-config",
@@ -7054,6 +7400,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-9-<rand>.json",
           "--strict-mcp-config",
@@ -7148,6 +7495,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-8-<rand>.json",
           "--strict-mcp-config",
@@ -7242,6 +7590,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-27-<rand>.json",
           "--strict-mcp-config",
@@ -7338,6 +7687,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-17-<rand>.json",
           "--strict-mcp-config",
@@ -7417,6 +7767,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-1-<rand>.json",
           "--strict-mcp-config",
@@ -7513,6 +7864,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-2-<rand>.json",
           "--strict-mcp-config",
@@ -7607,6 +7959,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-3-<rand>.json",
           "--strict-mcp-config",
@@ -7701,6 +8054,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-29-<rand>.json",
           "--strict-mcp-config",
@@ -7797,6 +8151,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-7-<rand>.json",
           "--strict-mcp-config",
@@ -7874,6 +8229,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-4-<rand>.json",
           "--strict-mcp-config",
@@ -7968,6 +8324,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-5-<rand>.json",
           "--strict-mcp-config",
@@ -8064,6 +8421,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-6-<rand>.json",
           "--strict-mcp-config",
@@ -8158,6 +8516,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-10-<rand>.json",
           "--strict-mcp-config",
@@ -8250,6 +8609,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-19-<rand>.json",
           "--strict-mcp-config",
@@ -8346,6 +8706,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-16-<rand>.json",
           "--strict-mcp-config",
@@ -8442,6 +8803,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-13-<rand>.json",
           "--strict-mcp-config",
@@ -8538,6 +8900,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-30-<rand>.json",
           "--strict-mcp-config",
@@ -8634,6 +8997,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-15-<rand>.json",
           "--strict-mcp-config",
@@ -8730,6 +9094,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-14-<rand>.json",
           "--strict-mcp-config",
@@ -8826,6 +9191,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-11-<rand>.json",
           "--strict-mcp-config",
@@ -8923,6 +9289,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-26-<rand>.json",
           "--strict-mcp-config",
@@ -9015,14 +9382,15 @@
   "claim-kits/template-rule-memory-off": {
     "spawns": [
       {
-        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-137",
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-141",
         "argv": [
           "-p",
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
-          "<case>/home/run-config/mcp-137-<rand>.json",
+          "<case>/home/run-config/mcp-141-<rand>.json",
           "--strict-mcp-config",
           "--setting-sources",
           "user",
@@ -9071,7 +9439,7 @@
       }
     ],
     "runs": {
-      "137": {
+      "141": {
         "progress": [
           "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":1}"
         ],
@@ -9101,7 +9469,7 @@
     "left": {
       "runConfig": [],
       "worktrees": [
-        "conv-137"
+        "conv-141"
       ],
       "exclude": [
         "/.duckhunt/"
@@ -9111,14 +9479,15 @@
   "claim-kits/template-similar-runs": {
     "spawns": [
       {
-        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-139",
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-143",
         "argv": [
           "-p",
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
-          "<case>/home/run-config/mcp-139-<rand>.json",
+          "<case>/home/run-config/mcp-143-<rand>.json",
           "--strict-mcp-config",
           "--setting-sources",
           "user",
@@ -9165,7 +9534,7 @@
       }
     ],
     "runs": {
-      "139": {
+      "143": {
         "progress": [
           "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":1}"
         ],
@@ -9195,7 +9564,104 @@
     "left": {
       "runConfig": [],
       "worktrees": [
-        "conv-139"
+        "conv-143"
+      ],
+      "exclude": [
+        "/.duckhunt/"
+      ]
+    }
+  },
+  "claim-kits/template-subagents": {
+    "spawns": [
+      {
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-69",
+        "argv": [
+          "-p",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--forward-subagent-text",
+          "--mcp-config",
+          "<case>/home/run-config/mcp-69-<rand>.json",
+          "--strict-mcp-config",
+          "--setting-sources",
+          "user",
+          "--allowedTools",
+          {
+            "allowed": "5aaf37de40332a1b",
+            "count": 321,
+            "notFromClaim": [],
+            "dropped": []
+          },
+          "--disallowedTools",
+          {
+            "disallowed": "7634e33af6150004",
+            "count": 76,
+            "notFromClaim": [
+              "Bash(npm test:*)",
+              "Edit(src/**)",
+              "Read(/<case>/runner.json)",
+              "Read(/<case>/home/run-config/**)",
+              "Read(/<case>/home/logs/**)",
+              "Read(/<case>/home/daemon.lock)",
+              "Read(/<case>/home/server-state.json)"
+            ]
+          },
+          "--permission-mode",
+          "dontAsk",
+          "--",
+          "<claim.prompt>"
+        ],
+        "env": {
+          "set": {
+            "AWS_DEFAULT_REGION": "eu-west-1",
+            "AWS_PAGER": "",
+            "AWS_PROFILE": "okt-prod",
+            "DUCKHUNT_RUNNER_CONFIG": "<case>/runner.json",
+            "DUCKHUNT_RUNNER_HOME": "<case>/home",
+            "GIT_TERMINAL_PROMPT": "0"
+          },
+          "removed": [
+            "ANTHROPIC_API_KEY",
+            "CLAUDECODE",
+            "CLAUDE_CODE_SESSION_ID"
+          ]
+        },
+        "mcp": "{\"mcpServers\":{\"duckhunt\":{\"type\":\"http\",\"url\":\"http://duckhunt.test/mcp\",\"headers\":{\"Authorization\":\"Bearer dho_fixture\"}}}}"
+      }
+    ],
+    "runs": {
+      "69": {
+        "progress": [
+          "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":1}"
+        ],
+        "feed": [
+          {
+            "kind": "system",
+            "body": "origin/main@<sha>",
+            "seq": 1
+          },
+          {
+            "kind": "text",
+            "body": "miro el repo",
+            "seq": 2
+          },
+          {
+            "kind": "tool",
+            "tool": "Read",
+            "body": "README.md",
+            "seq": 3
+          }
+        ],
+        "status": [
+          "{\"status\":\"done\",\"toolCalls\":1,\"costUsd\":0.5,\"numTurns\":2,\"sessionId\":\"sess-new\",\"model\":\"claude-opus-5-5\",\"result\":\"hecho\",\"segment\":1}"
+        ]
+      }
+    },
+    "left": {
+      "runConfig": [],
+      "worktrees": [
+        "conv-69"
       ],
       "exclude": [
         "/.duckhunt/"
@@ -9211,6 +9677,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-12-<rand>.json",
           "--strict-mcp-config",
@@ -9305,6 +9772,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-18-<rand>.json",
           "--strict-mcp-config",
@@ -9401,6 +9869,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-22-<rand>.json",
           "--strict-mcp-config",
@@ -9499,6 +9968,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-23-<rand>.json",
           "--strict-mcp-config",
@@ -9595,6 +10065,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-28-<rand>.json",
           "--strict-mcp-config",
@@ -9693,6 +10164,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-901-<rand>.json",
           "--strict-mcp-config",
@@ -9785,6 +10257,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-902-<rand>.json",
           "--strict-mcp-config",
@@ -9879,6 +10352,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-903-<rand>.json",
           "--strict-mcp-config",
@@ -9972,6 +10446,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-904-<rand>.json",
           "--strict-mcp-config",
@@ -10077,6 +10552,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-905-<rand>.json",
           "--strict-mcp-config",
@@ -10172,6 +10648,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-906-<rand>.json",
           "--strict-mcp-config",
@@ -10268,6 +10745,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-907-<rand>.json",
           "--strict-mcp-config",
@@ -10380,6 +10858,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-909-<rand>.json",
           "--strict-mcp-config",
@@ -10425,6 +10904,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-909-<rand>.json",
           "--strict-mcp-config",
@@ -10531,6 +11011,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-910-<rand>.json",
           "--strict-mcp-config",
@@ -10586,6 +11067,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-910-<rand>.json",
           "--strict-mcp-config",
@@ -10686,6 +11168,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-911-<rand>.json",
           "--strict-mcp-config",
@@ -10731,6 +11214,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-912-<rand>.json",
           "--strict-mcp-config",
@@ -10846,6 +11330,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-913-<rand>.json",
           "--strict-mcp-config",
@@ -11243,6 +11728,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-914-<rand>.json",
           "--strict-mcp-config",
@@ -11343,6 +11829,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-915-<rand>.json",
           "--strict-mcp-config",
@@ -11425,6 +11912,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-916-<rand>.json",
           "--strict-mcp-config",
@@ -11516,6 +12004,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-917-<rand>.json",
           "--strict-mcp-config",
@@ -11574,6 +12063,7 @@
           "--output-format",
           "stream-json",
           "--verbose",
+          "--forward-subagent-text",
           "--mcp-config",
           "<case>/home/run-config/mcp-917-<rand>.json",
           "--strict-mcp-config",
