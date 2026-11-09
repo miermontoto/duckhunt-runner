@@ -40,6 +40,8 @@ export const OPTIONAL_FLAGS = [
   '--forward-subagent-text',
   // t#636, fase 2: stdin en stream-json, el proceso vivo atiende el buzón (capability `live_input`).
   '--input-format',
+  // t#636, fase 3: el cli devuelve el mensaje de stdin al tomarlo (el acuse; capability `live_turns`).
+  '--replay-user-messages',
 ] as const;
 export type OptionalFlag = (typeof OPTIONAL_FLAGS)[number];
 
@@ -156,6 +158,8 @@ export interface StreamLine {
   message?: { content?: StreamContent[] | string };
   // t#636: la tool call de la que cuelga un mensaje hecho dentro de un subagente (null o ausente = el agente principal).
   parent_tool_use_id?: unknown;
+  // t#636, fase 3: un mensaje de stdin que el cli devuelve al tomarlo (--replay-user-messages).
+  isReplay?: unknown;
   // system task_started / task_progress / task_notification (subagentes, workflows y comandos en segundo plano).
   task_id?: unknown;
   task_type?: unknown;

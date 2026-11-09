@@ -61,6 +61,8 @@ export function announcedCapabilities(kit: MachineKit): RunnerCapability[] {
     ...(prompt && kit.supported.has('--forward-subagent-text') ? [RUNNER_CAPABILITY.subagents] : []),
     // el buzón del proceso vivo (t#636, fase 2): con prompt y un cli con stdin en stream-json.
     ...(prompt && kit.supported.has('--input-format') ? [RUNNER_CAPABILITY.liveInput] : []),
+    // hablar con el run mientras corre (t#636, fase 3): además, un cli que acusa los mensajes de stdin.
+    ...(prompt && kit.supported.has('--input-format') && kit.supported.has('--replay-user-messages') ? [RUNNER_CAPABILITY.liveTurns] : []),
     // autonomía de las conversaciones en edición (t#527): con prompt y un cli que acepta --permission-prompt-tool;
     // bypass además fuera de root (el cli lo rechaza).
     ...(autonomy ? [RUNNER_CAPABILITY.autonomy] : []),

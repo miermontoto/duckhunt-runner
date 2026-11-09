@@ -85,5 +85,8 @@ export const RUNNER_CAPABILITY = {
   // t#636, fase 2 (live.ts): con el bloque `live` del claim lanza claude con stdin en stream-json, lo mantiene abierto
   // mientras queden tareas en segundo plano y atiende el buzón del run (parar una tarea). sin ella el claim no lleva la clave.
   liveInput: 'live_input',
+  // t#636, fase 3 (live.ts): con live_input, `live.turns`: el buzón trae mensajes de la persona, que el proceso toma en vivo
+  // (--replay-user-messages como acuse), y cada `result` cierra un turno dentro del mismo proceso (POST …/turn).
+  liveTurns: 'live_turns',
 } as const;
 export type RunnerCapability = (typeof RUNNER_CAPABILITY)[keyof typeof RUNNER_CAPABILITY];
