@@ -78,5 +78,9 @@ export const RUNNER_CAPABILITY = {
   // t#597 (changes.ts, rewind.ts): con multi_repo, el diff de cada turno y volver atrás con los ficheros también en los
   // repos adicionales (`changes.extraRepos`, `restore.extras`, `extraStarts` en el status). sin ella, solo el principal.
   extraRepoChanges: 'extra_repo_changes',
+  // t#636 (toolset.ts, events.ts): lanza claude con --forward-subagent-text y sube el árbol del run (toolUseId,
+  // parentToolUseId y los eventos `task` de subagentes, workflows y comandos en segundo plano); renderiza `subagents` y
+  // `workflows` del toolset. sin ella el toolset no lleva esas claves y las listas, el cable de siempre.
+  subagents: 'subagents',
 } as const;
 export type RunnerCapability = (typeof RUNNER_CAPABILITY)[keyof typeof RUNNER_CAPABILITY];

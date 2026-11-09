@@ -36,6 +36,8 @@ export const OPTIONAL_FLAGS = [
   '--model',
   // t#597: los repos adicionales de una conversación como directorios de trabajo (capability `multi_repo`).
   '--add-dir',
+  // t#636: lo que dicen los subagentes, con su parent_tool_use_id (capability `subagents`).
+  '--forward-subagent-text',
 ] as const;
 export type OptionalFlag = (typeof OPTIONAL_FLAGS)[number];
 
@@ -129,6 +131,8 @@ export interface StreamContent {
   text?: string;
   name?: string;
   input?: unknown;
+  // id de la tool call (tool_use): el padre de lo que haga un subagente que lance (t#636).
+  id?: string;
 }
 
 export interface StreamLine {
@@ -148,6 +152,16 @@ export interface StreamLine {
   skills?: unknown;
   plugins?: unknown;
   message?: { content?: StreamContent[] | string };
+  // t#636: la tool call de la que cuelga un mensaje hecho dentro de un subagente (null o ausente = el agente principal).
+  parent_tool_use_id?: unknown;
+  // system task_started / task_progress / task_notification (subagentes, workflows y comandos en segundo plano).
+  task_id?: unknown;
+  task_type?: unknown;
+  tool_use_id?: unknown;
+  status?: unknown;
+  description?: unknown;
+  summary?: unknown;
+  workflow_name?: unknown;
 }
 
 function num(v: unknown): number | null {
@@ -185,7 +199,9 @@ export function consumeStreamLine(state: StreamState, line: string): StreamLine 
   }
   if (ev.type === 'assistant') {
     state.sawAssistant = true;
-    if (typeof ev.uuid === 'string' && RUN_MESSAGE_UUID_RE.test(ev.uuid)) state.lastAssistantUuid = ev.uuid;
+    // el punto de retomar es del agente principal (t#636): el uuid de un mensaje de un subagente no es de la sesión.
+    const main = ev.parent_tool_use_id === undefined || ev.parent_tool_use_id === null;
+    if (main && typeof ev.uuid === 'string' && RUN_MESSAGE_UUID_RE.test(ev.uuid)) state.lastAssistantUuid = ev.uuid;
     const content = ev.message?.content;
     const uses = Array.isArray(content) ? content.filter((c) => c?.type === 'tool_use') : [];
     state.toolCalls += uses.length;

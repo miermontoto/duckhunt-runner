@@ -116,3 +116,47 @@ test('tools de una sesión de navegador: el selector, la tecla, la acción o el 
   // el resto, el genérico: la url sin query.
   assert.equal(summarizeToolUse(b('navigate'), { url: 'https://acme.atlassian.net/x?token=1' }, ctx), 'url=https://acme.atlassian.net/x?…');
 });
+
+test('subagentes (t#636): cada tool call lleva su id, y lo hecho dentro de un subagente el de su padre', () => {
+  const main = feedEventsFromStream(assistant([{ type: 'tool_use', id: 'toolu_01A', name: 'Agent', input: { description: 'busca la caída', prompt: 'mira los logs…' } }]), ctx);
+  assert.deepEqual(main, [{ kind: 'tool', tool: 'Agent', body: 'busca la caída', toolUseId: 'toolu_01A' }]);
+  const sub = feedEventsFromStream(
+    { ...assistant([{ type: 'text', text: 'miro los logs' }, { type: 'tool_use', id: 'toolu_01B', name: 'Grep', input: { pattern: 'ERROR' } }]), parent_tool_use_id: 'toolu_01A' },
+    ctx,
+  );
+  assert.deepEqual(sub, [
+    { kind: 'text', body: 'miro los logs', parentToolUseId: 'toolu_01A' },
+    { kind: 'tool', tool: 'Grep', body: 'ERROR', toolUseId: 'toolu_01B', parentToolUseId: 'toolu_01A' },
+  ]);
+  // un id con otra forma no viaja: el evento sale igual, sin él.
+  assert.deepEqual(feedEventsFromStream({ ...assistant([{ type: 'tool_use', id: 'a b', name: 'Glob', input: { pattern: '*.ts' } }]), parent_tool_use_id: '../x' }, ctx), [
+    { kind: 'tool', tool: 'Glob', body: '*.ts' },
+  ]);
+});
+
+test('tareas (t#636): sus hitos salen como eventos task con su tipo, su estado y lo que dicen, saneado', () => {
+  const key = 'AKIA' + 'ABCDEFGHIJKLMNOP';
+  assert.deepEqual(feedEventsFromStream({ type: 'system', subtype: 'task_started', task_id: 'a01', tool_use_id: 'toolu_01A', task_type: 'local_agent', description: 'Count .txt files' }, ctx), [
+    { kind: 'task', body: 'Count .txt files', task: { id: 'a01', type: 'agent', status: 'running' }, toolUseId: 'toolu_01A' },
+  ]);
+  assert.deepEqual(
+    feedEventsFromStream({ type: 'system', subtype: 'task_progress', task_id: 'w1', task_type: 'local_workflow', workflow_name: 'count-txt', description: 'Count: count-txt', summary: 'x' }, ctx),
+    [{ kind: 'task', body: 'Count: count-txt', task: { id: 'w1', type: 'workflow', status: 'running', name: 'count-txt' } }],
+  );
+  // al acabar, el resumen solo de un workflow (saneado); el de un subagente o un comando, nunca (puede ser su salida).
+  const wf = feedEventsFromStream({ type: 'system', subtype: 'task_notification', task_id: 'w1', task_type: 'local_workflow', status: 'completed', summary: `encontré ${key} en /home/u/dev/app/.duckhunt/worktrees/conv-88/src/a.ts` }, ctx);
+  assert.deepEqual(wf, [{ kind: 'task', body: `encontré ${SECRET_MASK} en ./src/a.ts`, task: { id: 'w1', type: 'workflow', status: 'completed' } }]);
+  assert.equal(feedEventsFromStream({ type: 'system', subtype: 'task_notification', task_id: 'a01', task_type: 'local_agent', status: 'completed', summary: 'el resultado entero' }, ctx)[0]?.body, '');
+  assert.equal(feedEventsFromStream({ type: 'system', subtype: 'task_notification', task_id: 'b1', task_type: 'local_bash', status: 'completed', summary: 'salida del comando', description: 'x' }, ctx)[0]?.body, '');
+  assert.equal(feedEventsFromStream({ type: 'system', subtype: 'task_notification', task_id: 'b2', task_type: 'local_bash', status: 'stopped' }, ctx)[0]?.task?.status, 'stopped');
+  assert.equal(feedEventsFromStream({ type: 'system', subtype: 'task_notification', task_id: 'b2', status: 'failed' }, ctx)[0]?.task?.status, 'failed');
+  // sin un id de tarea que pueda viajar, nada; task_updated y el resto de system, tampoco.
+  assert.deepEqual(feedEventsFromStream({ type: 'system', subtype: 'task_started', description: 'x' }, ctx), []);
+  assert.deepEqual(feedEventsFromStream({ type: 'system', subtype: 'task_updated', task_id: 'a01' }, ctx), []);
+});
+
+test('Workflow (t#636): su línea es su nombre, nunca el script', () => {
+  assert.equal(summarizeToolUse('Workflow', { script: "export const meta = { name: 'review-changes', description: 'x' }\nawait agent('secreto')" }, ctx), 'review-changes');
+  assert.equal(summarizeToolUse('Workflow', { name: 'deep-review' }, ctx), 'deep-review');
+  assert.equal(summarizeToolUse('Workflow', { script: 'await agent("x")' }, ctx), '');
+});

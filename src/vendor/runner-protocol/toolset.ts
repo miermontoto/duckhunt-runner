@@ -22,6 +22,11 @@
 //   buscada de cada run de lectura sin cuenta taparía las de verdad.
 // - vcsPush = el run puede empujar y tocar remotos (false = el deny de push y remotos de un prompt de regla
 //   desatendido en edición por debajo del tier world).
+// - subagents y workflows (t#636): solo a un daemon con la capability `subagents` (sin ella no viajan las claves). con
+//   subagents el run lanza subagentes y para sus tareas (Agent, TaskStop) y nunca alcanza otras sesiones de la máquina
+//   (ListAgents y SendMessage negadas: con ellas un run que lee texto ajeno podría escribir a una sesión con más acceso);
+//   con workflows, además Workflow (solo una conversación con alguien detrás). un subagente o un agente de workflow
+//   hereda los permisos del run (verificado con el cli 2.1.319), así que no abren nada que el run no tenga.
 
 import type { AgentAutonomy } from './autonomy.js';
 
@@ -77,6 +82,10 @@ export interface ToolsetV1 {
   // reglas que la persona aprobó «siempre aquí» en la conversación: ids de --allowedTools del backend (claude code),
   // al final del allow. solo con `autonomy`.
   approvals?: string[];
+  // t#636, solo con la capability `subagents` (ver cabecera): lanzar subagentes y parar sus tareas.
+  subagents?: boolean;
+  // t#636, con subagents: lanzar workflows (solo una conversación con alguien detrás).
+  workflows?: boolean;
 }
 
 /** diferencias explicadas por una decisión, no por un fallo del render (ver cabecera). */

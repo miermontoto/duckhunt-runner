@@ -102,3 +102,13 @@ test('modelo reportado: sin init, la clave de modelUsage con más coste (no la p
   assert.equal(reportedModel(null, undefined), null);
   assert.equal(reportedModel('claude-opus-5-5', {}), 'claude-opus-5-5');
 });
+
+test('el punto de retomar es del agente principal: un mensaje de un subagente no lo mueve (t#636)', () => {
+  const state = newStreamState();
+  const main = '11111111-1111-4111-8111-111111111111';
+  consumeStreamLine(state, line({ type: 'assistant', uuid: main, message: { content: [{ type: 'tool_use', id: 'toolu_01A', name: 'Agent' }] } }));
+  consumeStreamLine(state, line({ type: 'assistant', uuid: '22222222-2222-4222-8222-222222222222', parent_tool_use_id: 'toolu_01A', message: { content: [{ type: 'text', text: 'sub' }] } }));
+  assert.equal(state.lastAssistantUuid, main);
+  assert.equal(state.toolCalls, 1, 'las tool calls cuentan igual');
+});
+
