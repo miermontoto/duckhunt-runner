@@ -59,6 +59,21 @@ export class HttpTransport {
     return this.send(pathname, body, await this.auth.token());
   }
 
+  /** GET autenticado (t#636: el buzón, un long-poll): un 401 refresca y reintenta una vez; `timeoutMs` cubre la espera. */
+  async get(pathname: string, timeoutMs: number, signal?: AbortSignal): Promise<Response> {
+    const once = async (token: string): Promise<Response> =>
+      fetch(`${this.current.baseUrl}${this.options.apiPath}${pathname}`, {
+        method: 'GET',
+        headers: { ...this.options.headers, Authorization: `Bearer ${token}` },
+        signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
+      });
+    const token = await this.auth.token();
+    const first = await once(token);
+    if (first.status !== HTTP_UNAUTHORIZED) return first;
+    this.auth.invalidate(token);
+    return once(await this.auth.token());
+  }
+
   /** POST sin reintento: para desvincular, un 401 ya es la respuesta (la credencial no valía). */
   async postOnce(pathname: string, body?: unknown): Promise<Response> {
     return this.send(pathname, body, await this.auth.token());

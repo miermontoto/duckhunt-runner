@@ -23,6 +23,7 @@ export * from './claim.js';
 export * from './errors.js';
 export * from './events.js';
 export * from './limits.js';
+export * from './live.js';
 export * from './resources.js';
 export * from './rewind.js';
 export * from './slash-commands.js';

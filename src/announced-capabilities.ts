@@ -59,6 +59,8 @@ export function announcedCapabilities(kit: MachineKit): RunnerCapability[] {
     // subagentes y workflows (t#636): con prompt y un cli que reenvía lo de los subagentes con su padre. no depende de la
     // versión del cli: va antes de las que sí (autonomía, rewind), que siguen al final.
     ...(prompt && kit.supported.has('--forward-subagent-text') ? [RUNNER_CAPABILITY.subagents] : []),
+    // el buzón del proceso vivo (t#636, fase 2): con prompt y un cli con stdin en stream-json.
+    ...(prompt && kit.supported.has('--input-format') ? [RUNNER_CAPABILITY.liveInput] : []),
     // autonomía de las conversaciones en edición (t#527): con prompt y un cli que acepta --permission-prompt-tool;
     // bypass además fuera de root (el cli lo rechaza).
     ...(autonomy ? [RUNNER_CAPABILITY.autonomy] : []),

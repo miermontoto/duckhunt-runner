@@ -38,6 +38,8 @@ export const OPTIONAL_FLAGS = [
   '--add-dir',
   // t#636: lo que dicen los subagentes, con su parent_tool_use_id (capability `subagents`).
   '--forward-subagent-text',
+  // t#636, fase 2: stdin en stream-json, el proceso vivo atiende el buzón (capability `live_input`).
+  '--input-format',
 ] as const;
 export type OptionalFlag = (typeof OPTIONAL_FLAGS)[number];
 

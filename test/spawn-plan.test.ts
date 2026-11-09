@@ -105,9 +105,10 @@ browsers.forEach(([, s]) => {
   st.cookies.push({ name: 'rotated', value: 'nuevo', domain: 'acme.atlassian.net', path: '/', expires: -1 });
   fs.writeFileSync(s.env.ODYSEA_STATE_FILE, JSON.stringify(st));
 });
-fs.appendFileSync(path.join(caseDir, 'spawns.jsonl'), JSON.stringify({ argv: args, cwd: process.cwd(), env: process.env, mcp: fs.readFileSync(mcpFile, 'utf8'), ...(copies.length > 0 ? { copies } : {}) }) + '\\n');
-const prompt = args[args.length - 1];
+const live = args.includes('--input-format');
+const record = (stdinPrompt) => fs.appendFileSync(path.join(caseDir, 'spawns.jsonl'), JSON.stringify({ argv: args, cwd: process.cwd(), env: process.env, mcp: fs.readFileSync(mcpFile, 'utf8'), ...(stdinPrompt !== undefined ? { stdinPrompt } : {}), ...(copies.length > 0 ? { copies } : {}) }) + '\\n');
 const resume = args.includes('--resume') ? args[args.indexOf('--resume') + 1] : null;
+let prompt = '';
 const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
 const finish = () => {
   if (resume === 'gone') { process.stderr.write('No conversation found with session ID: gone\\n'); process.exit(1); }
@@ -125,12 +126,55 @@ const finish = () => {
   if (prompt.includes('FAIL')) { out({ type: 'result', subtype: 'error_during_execution', is_error: true, result: 'roto', session_id: sid }); process.exit(1); }
   out({ type: 'result', subtype: 'success', is_error: false, result: 'hecho', total_cost_usd: 0.5, num_turns: 2, session_id: sid });
 };
-const hold = /HOLD:(\\S+)/.exec(prompt);
-if (!hold) finish();
-else {
-  fs.writeFileSync(hold[1] + '.started', '');
-  const wait = () => (fs.existsSync(hold[1]) ? finish() : setTimeout(wait, ${HOLD_POLL_MS}));
-  wait();
+const main = (p) => {
+  prompt = p;
+  const hold = /HOLD:(\\S+)/.exec(prompt);
+  if (!hold) finish();
+  else {
+    fs.writeFileSync(hold[1] + '.started', '');
+    const wait = () => (fs.existsSync(hold[1]) ? finish() : setTimeout(wait, ${HOLD_POLL_MS}));
+    wait();
+  }
+};
+// t#636, fase 2: con stdin vivo el prompt es el primer mensaje. BG: deja un subagente en segundo plano tras su result y
+// espera a que lo paren (control_request stop_task); el daemon cierra stdin tras el result que ya no deja tareas.
+const background = () => {
+  out({ type: 'system', subtype: 'init', session_id: 'sess-new', model: 'claude-opus-5-5' });
+  out({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'toolu_bg', name: 'Agent', input: { description: 'en segundo plano', run_in_background: true } }] } });
+  out({ type: 'system', subtype: 'task_started', task_id: 'bgtask1', tool_use_id: 'toolu_bg', task_type: 'local_agent', description: 'en segundo plano' });
+  out({ type: 'result', subtype: 'success', is_error: false, result: 'lanzado', total_cost_usd: 0.2, num_turns: 1, session_id: 'sess-new' });
+};
+if (!live) {
+  record();
+  main(args[args.length - 1]);
+} else {
+  let buf = '';
+  let first = true;
+  const onLine = (msg) => {
+    if (first) {
+      first = false;
+      record(msg.message.content);
+      if (msg.message.content.includes('BG:')) background();
+      else main(msg.message.content);
+      return;
+    }
+    if (msg.type === 'control_request' && msg.request && msg.request.subtype === 'stop_task') {
+      out({ type: 'control_response', response: { subtype: 'success', request_id: msg.request_id, response: {} } });
+      out({ type: 'system', subtype: 'task_notification', task_id: msg.request.task_id, status: 'stopped' });
+      out({ type: 'assistant', message: { content: [{ type: 'text', text: 'la tarea se paró' }] } });
+      out({ type: 'result', subtype: 'success', is_error: false, result: 'parada', total_cost_usd: 0.7, num_turns: 3, session_id: 'sess-new' });
+    }
+  };
+  process.stdin.on('data', (d) => {
+    buf += d;
+    let k;
+    while ((k = buf.indexOf('\\n')) >= 0) {
+      const line = buf.slice(0, k);
+      buf = buf.slice(k + 1);
+      onLine(JSON.parse(line));
+    }
+  });
+  process.stdin.on('end', () => process.exit(0));
 }
 `;
   fs.writeFileSync(path.join(bin, 'claude'), script, { mode: 0o755 });
@@ -212,6 +256,8 @@ function syntheticCases(): Case[] {
     { name: 'synthetic/rewind-fork', raw: withRun(edit, { id: 916, sessionId: 'sess-new', resumeAt: REWIND_AT }) },
     { name: 'synthetic/rewind-fork-gone-fallback', raw: withRun(read, { id: 917, sessionId: 'gone', resumeAt: REWIND_AT }, { fallbackPrompt: 'empieza de cero' }) },
     { name: 'synthetic/rewind-restore-head-moved', raw: withRun(edit, { id: 918 }, { restore: { tree: 'a'.repeat(40), head: 'b'.repeat(40) } }) },
+    // t#636, fase 2: stdin vivo; un subagente en segundo plano retiene el proceso hasta que el buzón lo para.
+    { name: 'synthetic/live-background-stop', raw: withRun(edit, { id: Number(LIVE_STOP_RUN) }, { prompt: 'BG: reparte en segundo plano', live: { waitMs: 1000 } }) },
   ];
 }
 
@@ -237,11 +283,15 @@ interface Spawn {
   cwd: string;
   env: Record<string, string>;
   mcp: string;
+  // t#636: con stdin vivo, el prompt que llegó como primer mensaje.
+  stdinPrompt?: string;
 }
 
 // argv legible: las listas de tools como hash + lo que el daemon añadió por su cuenta; el prompt por su origen.
 function argvPlan(argv: string[], claim: ClaimResponse, norm: (s: string) => string): unknown[] {
-  const promptAt = argv.indexOf('--') + 1;
+  // con stdin vivo (t#636) no hay `--`: el prompt va por stdin y su plan aparte.
+  const dashAt = argv.indexOf('--');
+  const promptAt = dashAt < 0 ? -1 : dashAt + 1;
   return argv.map((a, i) => {
     if (i === promptAt) return a === claim.prompt ? '<claim.prompt>' : a === claim.fallbackPrompt ? '<claim.fallbackPrompt>' : `<prompt ${sha(norm(a))}>`;
     if (argv[i - 1] === '--allowedTools') {
@@ -278,9 +328,13 @@ interface Recorded {
   // fuera del plan dorado: el diff de cada turno (t#514) y el orden de lo que llega del run.
   changes?: string[];
   order?: string[];
+  // t#636: el buzón ya dio su orden de parar.
+  inboxServed?: boolean;
 }
 
 const BASE_HOST = 'duckhunt.test';
+// el run del caso del buzón (t#636): el único al que el server falso le manda parar una tarea.
+const LIVE_STOP_RUN = '919';
 const realFetch = globalThis.fetch;
 const servers = new Map<string, Map<string, Recorded>>();
 
@@ -296,6 +350,12 @@ function installFetch(): void {
     runs.set(runId!, rec);
     const body = String(init?.body);
     if (what === 'heartbeat') return Response.json({ status: 'running', cancel: false });
+    // t#636: el buzón de un proceso vivo, una orden de parar la tarea del caso BG: por run; luego vacío.
+    if (what === 'inbox') {
+      if (rec.inboxServed || runId !== LIVE_STOP_RUN) return Response.json({ commands: [] });
+      rec.inboxServed = true;
+      return Response.json({ commands: [{ id: 'cmd-1', kind: 'stop_task', taskId: 'bgtask1' }] });
+    }
     if (what === 'progress') rec.progress.push(body);
     // el feed se aplana: cuántos lotes salen depende del reloj, los eventos no.
     if (what === 'events') rec.feed.push(...((JSON.parse(body) as { events: unknown[] }).events ?? []));
@@ -366,10 +426,13 @@ async function runCase(c: Case): Promise<unknown> {
   const norm = normalizer(dir);
   const spawnsFile = path.join(dir, 'spawns.jsonl');
   const spawns = (fs.existsSync(spawnsFile) ? fs.readFileSync(spawnsFile, 'utf8').trim().split('\n') : []).map((l) => JSON.parse(l) as Spawn);
-  const claimFor = (s: Spawn): ClaimResponse => claims.find((cl) => s.mcp.includes(cl.mcp.token) && (s.argv.at(-1) === cl.prompt || s.argv.at(-1) === cl.fallbackPrompt)) ?? claims[0]!;
+  const promptOf = (s: Spawn): string | undefined => s.stdinPrompt ?? s.argv.at(-1);
+  const claimFor = (s: Spawn): ClaimResponse => claims.find((cl) => s.mcp.includes(cl.mcp.token) && (promptOf(s) === cl.prompt || promptOf(s) === cl.fallbackPrompt)) ?? claims[0]!;
+  const stdinPlan = (s: Spawn, cl: ClaimResponse): object =>
+    s.stdinPrompt === undefined ? {} : { stdin: s.stdinPrompt === cl.prompt ? '<claim.prompt>' : s.stdinPrompt === cl.fallbackPrompt ? '<claim.fallbackPrompt>' : `<prompt ${sha(norm(s.stdinPrompt))}>` };
   const orderedRuns = [...new Set(claims.map((cl) => cl.run.id))];
   return {
-    spawns: spawns.map((s) => ({ cwd: norm(s.cwd), argv: argvPlan(s.argv, claimFor(s), norm), env: envPlan(s.env, norm), mcp: norm(s.mcp) })),
+    spawns: spawns.map((s) => ({ cwd: norm(s.cwd), argv: argvPlan(s.argv, claimFor(s), norm), ...stdinPlan(s, claimFor(s)), env: envPlan(s.env, norm), mcp: norm(s.mcp) })),
     runs: Object.fromEntries(
       orderedRuns.map((id) => {
         const rec = runs.get(id) ?? { progress: [], feed: [], status: [] };

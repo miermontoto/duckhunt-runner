@@ -82,5 +82,8 @@ export const RUNNER_CAPABILITY = {
   // parentToolUseId y los eventos `task` de subagentes, workflows y comandos en segundo plano); renderiza `subagents` y
   // `workflows` del toolset. sin ella el toolset no lleva esas claves y las listas, el cable de siempre.
   subagents: 'subagents',
+  // t#636, fase 2 (live.ts): con el bloque `live` del claim lanza claude con stdin en stream-json, lo mantiene abierto
+  // mientras queden tareas en segundo plano y atiende el buzón del run (parar una tarea). sin ella el claim no lleva la clave.
+  liveInput: 'live_input',
 } as const;
 export type RunnerCapability = (typeof RUNNER_CAPABILITY)[keyof typeof RUNNER_CAPABILITY];
