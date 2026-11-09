@@ -18,7 +18,13 @@ import type { RepoChoice, RepoIssue } from '../resources/repo/health.js';
 import type { KeptWorktree, RunnerBlock } from '../server-state.js';
 import type { StatusReport } from '../status-report.js';
 import type { SlashUploadOutcome } from '../slash-commands.js';
-import type { RunChangesReport, RunnerSlashCommands, RunInboxCommand } from '../vendor/runner-protocol/index.js';
+import type {
+  RunChangesReport,
+  RunnerSlashCommands,
+  RunInboxCommand,
+  RunTurnBody,
+  RunDeliveredBody,
+} from '../vendor/runner-protocol/index.js';
 import type { Exposure, ToolsetCeiling } from './types.js';
 
 export const PROTOCOL = {
@@ -114,6 +120,10 @@ export interface Platform {
   /** el buzón del proceso vivo (t#636, live.ts): long-poll de las órdenes de la persona. [] = venció sin ninguna; null = el
    *  run ya no las acepta (deja de pedir). solo las plataformas cuyo claim trae `live` (hoy duckhunt-42); lanza en error de red. */
   inbox?(runId: string, seg: RunSegment, waitMs: number, signal: AbortSignal): Promise<RunInboxCommand[] | null>;
+  /** t#636, fase 3: parte el turno dentro del proceso vivo. el segmento nuevo, o null si el server no lo partió. nunca lanza. */
+  turn?(runId: string, body: RunTurnBody): Promise<{ segment: number } | null>;
+  /** t#636, fase 3: acusa mensajes tomados a mitad de un turno. nunca lanza. */
+  delivered?(runId: string, body: RunDeliveredBody): Promise<void>;
   /** el diff del turno (t#514), antes de `result`. solo las plataformas cuyo claim trae el bloque `changes` (hoy
    *  duckhunt-42); nunca lanza: lo que no llega, el hilo no lo enseña. */
   changes?(runId: string, report: RunChangesReport, seg: RunSegment): Promise<void>;

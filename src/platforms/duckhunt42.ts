@@ -31,6 +31,8 @@ import {
   RUN_INBOX_COMMANDS_MAX,
   RUN_INBOX_KIND,
   type RunInboxCommand,
+  type RunTurnBody,
+  type RunDeliveredBody,
 } from '../vendor/runner-protocol/index.js';
 import { HttpTransport } from './http-transport.js';
 import { credentialStore } from './credentials.js';
@@ -68,10 +70,15 @@ const HTTP_CONFLICT = 409;
 const INBOX_SLACK_MS = 10_000;
 // id de una orden del buzón (también el request_id del control_request): opaco y acotado.
 const INBOX_ID_RE = /^[A-Za-z0-9_-]{1,100}$/;
+// un mensaje (fase 3) viaja con un uuid (el cli lo exige) y su texto acotado.
+const INBOX_MESSAGE_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+const INBOX_MESSAGE_MAX_CHARS = 100_000;
 const isInboxCommand = (v: unknown): v is RunInboxCommand => {
   if (typeof v !== 'object' || v === null) return false;
   const c = v as Record<string, unknown>;
-  return c.kind === RUN_INBOX_KIND.stopTask && typeof c.id === 'string' && INBOX_ID_RE.test(c.id) && typeof c.taskId === 'string' && AGENT_RUN_EVENT_ID_RE.test(c.taskId);
+  if (typeof c.id !== 'string') return false;
+  if (c.kind === RUN_INBOX_KIND.stopTask) return INBOX_ID_RE.test(c.id) && typeof c.taskId === 'string' && AGENT_RUN_EVENT_ID_RE.test(c.taskId);
+  return c.kind === RUN_INBOX_KIND.message && INBOX_MESSAGE_ID_RE.test(c.id) && typeof c.text === 'string' && c.text.length > 0 && c.text.length <= INBOX_MESSAGE_MAX_CHARS;
 };
 const HTTP_TOO_MANY = 429;
 const HTTP_SERVER_ERROR = 500;
@@ -188,6 +195,30 @@ export class Duckhunt42Platform implements Platform {
     if (!res.ok) return [];
     const body = (await res.json().catch(() => null)) as { commands?: unknown } | null;
     return Array.isArray(body?.commands) ? body.commands.filter(isInboxCommand).slice(0, RUN_INBOX_COMMANDS_MAX) : [];
+  }
+
+  // cambio de turno dentro del proceso vivo (t#636, fase 3): el segmento nuevo, o null si el server no lo partió (el
+  // proceso sigue hablando con el de antes; el cierre lo cuenta todo como un turno).
+  async turn(runId: string, body: RunTurnBody): Promise<{ segment: number } | null> {
+    const res = await this.transport.post(`/runs/${runId}/turn`, body).catch((err: Error) => {
+      console.error(`[runner] cambio de turno del run ${runId} sin entregar: ${err.message}`);
+      return null;
+    });
+    if (!res || !res.ok) {
+      if (res) console.error(`[runner] cambio de turno del run ${runId} rechazado: ${await failureReason(res)}`);
+      return null;
+    }
+    const out = (await res.json().catch(() => null)) as { segment?: unknown } | null;
+    return typeof out?.segment === 'number' && Number.isInteger(out.segment) && out.segment > body.segment ? { segment: out.segment } : null;
+  }
+
+  // mensajes tomados a mitad de un turno (t#636, fase 3): un intento; lo no acusado lo entrega el siguiente claim.
+  async delivered(runId: string, body: RunDeliveredBody): Promise<void> {
+    const res = await this.transport.post(`/runs/${runId}/delivered`, body).catch((err: Error) => {
+      console.error(`[runner] acuse de mensajes del run ${runId} sin entregar: ${err.message}`);
+      return null;
+    });
+    if (res && !res.ok) console.error(`[runner] acuse de mensajes del run ${runId} rechazado: ${await failureReason(res)}`);
   }
 
   // el diff del turno (t#514): un intento, sin reintento ni excepción (un 409 = el run ya se cerró).

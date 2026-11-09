@@ -94,6 +94,8 @@ export interface ClaudeArgsInput {
   readOnlyDirsDeny?: readonly string[];
   // t#636, fase 2 (live-session.ts): el prompt va por stdin en stream-json, no tras `--`.
   liveInput?: boolean;
+  // t#636, fase 3: además toma mensajes en vivo y parte sus turnos (solo con liveInput).
+  liveTurns?: boolean;
 }
 
 /** flags sin los que el cli no puede cumplir un prompt run (el daemon solo anuncia `prompt` si los tiene todos). */
@@ -153,6 +155,8 @@ export function buildClaudeArgs(i: ClaudeArgsInput): string[] {
     '--output-format',
     'stream-json',
     ...(i.liveInput ? ['--input-format', 'stream-json'] : []),
+    // t#636, fase 3: el acuse de los mensajes que la persona manda en vivo.
+    ...(i.liveTurns ? ['--replay-user-messages'] : []),
     ...(has('--verbose') ? ['--verbose'] : []),
     // t#636: lo que dicen los subagentes, con su padre (el feed lo anida); sin el flag el cli solo manda sus tool calls.
     ...(has('--forward-subagent-text') ? ['--forward-subagent-text'] : []),

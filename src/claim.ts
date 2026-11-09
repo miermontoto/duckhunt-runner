@@ -409,7 +409,8 @@ function eventsConfig(v: unknown): EventsConfig | null {
 function liveConfig(v: unknown): LegacyClaimLive | null {
   if (!isObj(v)) return null;
   const wait = posInt(v.waitMs);
-  return wait === null ? null : { waitMs: Math.min(wait, RUN_INBOX_WAIT_MS) };
+  // t#636, fase 3: `turns` solo cuenta como true.
+  return wait === null ? null : { waitMs: Math.min(wait, RUN_INBOX_WAIT_MS), ...(v.turns === true ? { turns: true as const } : {}) };
 }
 
 function changesConfig(v: unknown): LegacyClaimChanges | null {

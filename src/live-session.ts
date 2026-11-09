@@ -9,6 +9,11 @@
 //   evento en LIVE_SILENCE_MAX_MS con el agente parado (una tarea que nunca avisa), también: nada retiene el segmento
 //   más allá de eso salvo el timeout de siempre.
 // - las escrituras a un stdin ya cerrado (el proceso salió) se descartan: el error del pipe no tumba el daemon.
+// fase 3 (hablar mientras corre): un mensaje de la persona se escribe con su id como uuid y el cli lo devuelve al tomarlo
+// (--replay-user-messages): ese es el acuse. tomado con el agente parado (tras un `result`) abre un turno nuevo
+// (onTurnStart con sus ids); tomado a mitad de un turno entra en él (onDelivered). el cli despierta solo al acabar algo en
+// segundo plano: también es un turno nuevo, sin mensajes. un mensaje escrito y aún sin acuse retiene stdin abierto igual
+// que una tarea: el cli lo tomará tras su `result`.
 
 import type { Writable } from 'node:stream';
 import type { StreamLine } from './claude.js';
@@ -24,6 +29,16 @@ export interface LiveTimers {
   silenceMaxMs: number;
 }
 
+/** lo que el daemon hace en cada límite de turno dentro del proceso (fase 3). */
+export interface LiveTurnHooks {
+  // el agente principal cerró un turno con este `result`.
+  onTurnEnd(ev: StreamLine): void;
+  // empieza un turno nuevo en el mismo proceso; `delivered` = los mensajes que lo abren (ninguno si lo despertó el cli).
+  onTurnStart(delivered: string[]): void;
+  // mensajes tomados a mitad de un turno (entran en él).
+  onDelivered(ids: string[]): void;
+}
+
 const DEFAULT_TIMERS: LiveTimers = { wakeGraceMs: LIVE_WAKE_GRACE_MS, silenceMaxMs: LIVE_SILENCE_MAX_MS };
 
 /** un mensaje de usuario del stream-json de entrada del cli. */
@@ -34,6 +49,10 @@ const isMain = (ev: StreamLine): boolean => ev.parent_tool_use_id === undefined 
 /** el stdin de un proceso de claude vivo (ver cabecera). */
 export class LiveSession {
   private readonly running = new Set<string>();
+  // mensajes de la persona escritos en stdin y aún sin acuse (fase 3).
+  private readonly awaiting = new Set<string>();
+  // hubo un `result` y el turno siguiente aún no empezó: el próximo que empiece parte el segmento.
+  private turnClosed = false;
   // el agente principal acabó su turno (último `result`) y no ha vuelto a hablar.
   private idle = false;
   private ended = false;
@@ -43,6 +62,7 @@ export class LiveSession {
   constructor(
     private readonly stdin: Writable,
     private readonly timers: LiveTimers = DEFAULT_TIMERS,
+    private readonly hooks: LiveTurnHooks | null = null,
   ) {
     stdin.on('error', () => {
       // EPIPE: el proceso ya cerró su stdin; lo que quedaba por escribir ya no tiene a quién.
@@ -72,13 +92,18 @@ export class LiveSession {
       if (ev.subtype === 'task_started') this.running.add(ev.task_id);
       if (ev.subtype === 'task_notification') this.running.delete(ev.task_id);
     }
-    if (ev.type === 'assistant' && isMain(ev)) {
-      this.idle = false;
-      this.clear();
+    // el acuse de un mensaje de la persona (fase 3): abre turno si el agente estaba parado; si no, entra en el suyo.
+    if (ev.type === 'user' && ev.isReplay === true && typeof ev.uuid === 'string' && this.awaiting.delete(ev.uuid)) {
+      if (this.idle) this.startTurn([ev.uuid]);
+      else this.hooks?.onDelivered([ev.uuid]);
     }
+    // el agente principal vuelve a hablar tras un `result` sin mensaje que lo abra: lo despertó el cli.
+    if (ev.type === 'assistant' && isMain(ev) && this.idle) this.startTurn([]);
     if (ev.type === 'result') {
       this.idle = true;
-      if (this.running.size === 0 || ev.is_error === true) {
+      this.turnClosed = true;
+      this.hooks?.onTurnEnd(ev);
+      if ((this.running.size === 0 && this.awaiting.size === 0) || ev.is_error === true) {
         this.end();
         return;
       }
@@ -86,11 +111,28 @@ export class LiveSession {
     if (this.idle) this.armWhileIdle();
   }
 
-  /** una orden del buzón. false si stdin ya está cerrado (nadie la atenderá). */
+  /** una orden del buzón. false si stdin ya está cerrado (nadie la atenderá) o es un mensaje sin hooks de turno. */
   command(cmd: RunInboxCommand): boolean {
-    if (this.ended || cmd.kind !== RUN_INBOX_KIND.stopTask) return false;
-    this.write(`${JSON.stringify({ type: 'control_request', request_id: cmd.id, request: { subtype: 'stop_task', task_id: cmd.taskId } })}\n`);
+    if (this.ended) return false;
+    if (cmd.kind === RUN_INBOX_KIND.stopTask) {
+      this.write(`${JSON.stringify({ type: 'control_request', request_id: cmd.id, request: { subtype: 'stop_task', task_id: cmd.taskId } })}\n`);
+      return true;
+    }
+    if (this.hooks === null) return false;
+    this.awaiting.add(cmd.id);
+    // un mensaje retiene stdin abierto hasta su acuse: ni la gracia ni el silencio lo cierran mientras tanto.
+    this.clear();
+    this.write(`${JSON.stringify({ type: 'user', uuid: cmd.id, message: { role: 'user', content: cmd.text } })}\n`);
     return true;
+  }
+
+  // un turno nuevo dentro del proceso (fase 3): el agente deja de estar parado y, si el anterior cerró, parte el segmento.
+  private startTurn(delivered: string[]): void {
+    this.idle = false;
+    this.clear();
+    if (!this.turnClosed) return;
+    this.turnClosed = false;
+    this.hooks?.onTurnStart(delivered);
   }
 
   /** cierra stdin: el cli acaba y sale. idempotente. */
@@ -101,9 +143,11 @@ export class LiveSession {
     this.stdin.end();
   }
 
-  // con el agente parado: sin tareas, la gracia para despertar; con ellas, el tope de silencio (cada evento lo rearma).
+  // con el agente parado: sin tareas, la gracia para despertar; con ellas, el tope de silencio (cada evento lo rearma). un
+  // mensaje sin acuse lo retiene: el cli lo tomará.
   private armWhileIdle(): void {
     this.clear();
+    if (this.awaiting.size > 0) return;
     if (this.running.size === 0) this.wakeTimer = setTimeout(() => this.end(), this.timers.wakeGraceMs);
     else this.silenceTimer = setTimeout(() => this.end(), this.timers.silenceMaxMs);
   }

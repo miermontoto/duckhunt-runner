@@ -154,8 +154,16 @@ if (!live) {
     if (first) {
       first = false;
       record(msg.message.content);
-      if (msg.message.content.includes('BG:')) background();
+      if (msg.message.content.includes('BG:') || msg.message.content.includes('BGMSG:')) background();
       else main(msg.message.content);
+      return;
+    }
+    if (msg.type === 'user' && msg.uuid) {
+      // fase 3: el acuse del mensaje; con él el agente despierta, acaba lo de fondo y cierra el turno nuevo.
+      out({ type: 'user', isReplay: true, uuid: msg.uuid, message: msg.message });
+      out({ type: 'assistant', message: { content: [{ type: 'text', text: 'leo tu mensaje' }] } });
+      out({ type: 'system', subtype: 'task_notification', task_id: 'bgtask1', status: 'completed' });
+      out({ type: 'result', subtype: 'success', is_error: false, result: 'segundo turno', total_cost_usd: 0.9, num_turns: 1, session_id: 'sess-new' });
       return;
     }
     if (msg.type === 'control_request' && msg.request && msg.request.subtype === 'stop_task') {
@@ -258,6 +266,8 @@ function syntheticCases(): Case[] {
     { name: 'synthetic/rewind-restore-head-moved', raw: withRun(edit, { id: 918 }, { restore: { tree: 'a'.repeat(40), head: 'b'.repeat(40) } }) },
     // t#636, fase 2: stdin vivo; un subagente en segundo plano retiene el proceso hasta que el buzón lo para.
     { name: 'synthetic/live-background-stop', raw: withRun(edit, { id: Number(LIVE_STOP_RUN) }, { prompt: 'BG: reparte en segundo plano', live: { waitMs: 1000 } }) },
+    // t#636, fase 3: un mensaje en vivo con el agente parado parte el turno en el mismo proceso.
+    { name: 'synthetic/live-message-turn', raw: withRun(edit, { id: Number(LIVE_MESSAGE_RUN), segment: 1 }, { prompt: 'BGMSG: reparte', live: { waitMs: 1000, turns: true } }) },
   ];
 }
 
@@ -330,11 +340,16 @@ interface Recorded {
   order?: string[];
   // t#636: el buzón ya dio su orden de parar.
   inboxServed?: boolean;
+  // t#636, fase 3: los cambios de turno y acuses del proceso vivo.
+  turns?: string[];
 }
 
 const BASE_HOST = 'duckhunt.test';
 // el run del caso del buzón (t#636): el único al que el server falso le manda parar una tarea.
 const LIVE_STOP_RUN = '919';
+// el del caso del mensaje en vivo (t#636, fase 3) y su id (un uuid, como los de pending_input).
+const LIVE_MESSAGE_RUN = '920';
+const LIVE_MESSAGE_ID = '22222222-2222-4222-8222-222222222222';
 const realFetch = globalThis.fetch;
 const servers = new Map<string, Map<string, Recorded>>();
 
@@ -352,9 +367,20 @@ function installFetch(): void {
     if (what === 'heartbeat') return Response.json({ status: 'running', cancel: false });
     // t#636: el buzón de un proceso vivo, una orden de parar la tarea del caso BG: por run; luego vacío.
     if (what === 'inbox') {
-      if (rec.inboxServed || runId !== LIVE_STOP_RUN) return Response.json({ commands: [] });
+      if (rec.inboxServed || (runId !== LIVE_STOP_RUN && runId !== LIVE_MESSAGE_RUN)) return Response.json({ commands: [] });
       rec.inboxServed = true;
-      return Response.json({ commands: [{ id: 'cmd-1', kind: 'stop_task', taskId: 'bgtask1' }] });
+      return Response.json({
+        commands: [runId === LIVE_STOP_RUN ? { id: 'cmd-1', kind: 'stop_task', taskId: 'bgtask1' } : { id: LIVE_MESSAGE_ID, kind: 'message', text: 'y mira también los tests' }],
+      });
+    }
+    // t#636, fase 3: el cambio de turno en el mismo proceso (se guarda en el plan) y el acuse a mitad de turno.
+    if (what === 'turn') {
+      rec.turns = [...(rec.turns ?? []), body];
+      return Response.json({ segment: (JSON.parse(body) as { segment: number }).segment + 1 });
+    }
+    if (what === 'delivered') {
+      rec.turns = [...(rec.turns ?? []), body];
+      return Response.json({ ok: true });
     }
     if (what === 'progress') rec.progress.push(body);
     // el feed se aplana: cuántos lotes salen depende del reloj, los eventos no.
@@ -436,7 +462,15 @@ async function runCase(c: Case): Promise<unknown> {
     runs: Object.fromEntries(
       orderedRuns.map((id) => {
         const rec = runs.get(id) ?? { progress: [], feed: [], status: [] };
-        return [id, { progress: rec.progress.map(norm), feed: rec.feed.map((e) => JSON.parse(norm(JSON.stringify(e))) as unknown), status: rec.status.map(norm) }];
+        return [
+          id,
+          {
+            progress: rec.progress.map(norm),
+            feed: rec.feed.map((e) => JSON.parse(norm(JSON.stringify(e))) as unknown),
+            status: rec.status.map(norm),
+            ...(rec.turns ? { turns: rec.turns.map(norm) } : {}),
+          },
+        ];
       }),
     ),
     // lo que queda en disco tras el run: run-config vacío (mcp-config y aws vacía borrados), worktrees conservados.

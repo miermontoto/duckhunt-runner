@@ -75,3 +75,61 @@ test('si el principal no despierta tras su última tarea, o la tarea no avisa nu
   await new Promise((r) => setTimeout(r, 60));
   assert.equal(silent.open, false, 'el tope de silencio venció');
 });
+
+// fase 3: mensajes de la persona y límites de turno dentro del proceso.
+function hooks() {
+  const calls: string[] = [];
+  return {
+    calls,
+    hooks: {
+      onTurnEnd: () => calls.push('end'),
+      onTurnStart: (ids: string[]) => calls.push(`start:${ids.join(',')}`),
+      onDelivered: (ids: string[]) => calls.push(`delivered:${ids.join(',')}`),
+    },
+  };
+}
+const MSG = '22222222-2222-4222-8222-222222222222';
+const replay = (uuid: string): StreamLine => ({ type: 'user', isReplay: true, uuid, message: { content: 'x' } });
+
+test('un mensaje con el agente parado abre un turno; a mitad de turno entra en él; sin acuse retiene stdin', () => {
+  const s = stdin();
+  const h = hooks();
+  const live = new LiveSession(s.stream, { wakeGraceMs: 10_000, silenceMaxMs: 10_000 }, h.hooks);
+  live.start('mira');
+  live.observe(started('bg1'));
+  live.observe(result());
+  assert.equal(live.command({ id: MSG, kind: 'message', text: 'y los tests' }), true);
+  assert.deepEqual(s.lines().at(-1), { type: 'user', uuid: MSG, message: { role: 'user', content: 'y los tests' } });
+  live.observe(replay(MSG));
+  live.observe(said());
+  assert.deepEqual(h.calls, ['end', `start:${MSG}`], 'tomado con el agente parado: turno nuevo, una vez');
+  // a mitad de turno: entra en el turno en curso.
+  const other = '33333333-3333-4333-8333-333333333333';
+  live.command({ id: other, kind: 'message', text: 'otra cosa' });
+  live.observe(replay(other));
+  assert.deepEqual(h.calls.at(-1), `delivered:${other}`);
+  // un mensaje sin acuse retiene stdin aunque no quede ninguna tarea.
+  const late = '44444444-4444-4444-8444-444444444444';
+  live.observe(notified('bg1'));
+  live.command({ id: late, kind: 'message', text: 'tarde' });
+  live.observe(result());
+  assert.equal(live.open, true);
+  live.observe(replay(late));
+  live.observe(result());
+  assert.equal(live.open, false);
+});
+
+test('el cli que despierta al principal tras lo de fondo abre un turno sin mensajes; sin hooks, un mensaje no se escribe', () => {
+  const s = stdin();
+  const h = hooks();
+  const live = new LiveSession(s.stream, { wakeGraceMs: 10_000, silenceMaxMs: 10_000 }, h.hooks);
+  live.observe(started('bg1'));
+  live.observe(result());
+  live.observe(notified('bg1'));
+  live.observe(said('toolu_sub'));
+  assert.deepEqual(h.calls, ['end'], 'lo de un subagente no lo despierta');
+  live.observe(said());
+  assert.deepEqual(h.calls, ['end', 'start:']);
+  const plain = new LiveSession(stdin().stream, { wakeGraceMs: 10_000, silenceMaxMs: 10_000 });
+  assert.equal(plain.command({ id: MSG, kind: 'message', text: 'x' }), false);
+});

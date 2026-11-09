@@ -147,9 +147,9 @@ import {
 import { derivedMachineId, ensureMachineId, ensureMachineSecret } from './machine.js';
 import { browserVaultDeny, otherPlatformsDeny, otherScratchDeny, secretPathsDeny } from './secret-paths.js';
 import { CLAIM_OUTCOME } from './server-state.js';
-import { consumeStreamLine, detectClaude, newStreamState, supportsPermissionPromptTool, supportsRewind, type ClaudeInfo } from './claude.js';
+import { consumeStreamLine, detectClaude, newStreamState, supportsPermissionPromptTool, supportsRewind, type ClaudeInfo, reportedModel, type StreamLine, type StreamState } from './claude.js';
 import { buildClaudeArgs, claudeRunEnv } from './claude-args.js';
-import { LiveSession } from './live-session.js';
+import { LiveSession, type LiveTurnHooks } from './live-session.js';
 import { announcedCapabilities } from './announced-capabilities.js';
 import { mirroredDeny, READ_MIRRORED_TOOLS, settingsFilesFor, WRITE_TOOLS } from './user-permissions.js';
 import { canBypassPermissions, EVENTS_DEFAULTS, PROMPT_PROFILE, RUN_ISOLATION, RUN_KIND, type ClaimResponse } from './claim.js';
@@ -189,7 +189,7 @@ import { credentialStore } from './platforms/credentials.js';
 import { PLATFORM_FACTORIES } from './platforms/factories.js';
 import { Scheduler } from './platforms/scheduler.js';
 import { PLATFORM_STATE, PlatformSupervisor, type SupervisorHooks } from './platforms/supervisor.js';
-import { REWIND_RESTORE_ERROR, RUNNER_LABEL_MAX_CHARS, type LegacyClaimChanges, type RunChangesReport, type ToolsetShadow, type RunInboxCommand } from './vendor/runner-protocol/index.js';
+import { REWIND_RESTORE_ERROR, RUNNER_LABEL_MAX_CHARS, type LegacyClaimChanges, type RunChangesReport, type ToolsetShadow, type RunInboxCommand, type RunTurnReport } from './vendor/runner-protocol/index.js';
 import { shadowOf } from './toolset/shadow.js';
 import { intersectToolset } from './toolset/intersect.js';
 import { v0Announce } from './platforms/v0.js';
@@ -218,6 +218,45 @@ const STDERR_TAIL_MAX_CHARS = 4000;
 const SHUTDOWN_GRACE_MS = 20_000;
 const EXIT_CODE_SIGINT = 130;
 const EXIT_CODE_SIGTERM = 143;
+// el turno en curso de un proceso vivo (t#636, fase 3): su foto de inicio y lo que contó el `result` que lo cerró.
+interface TurnStart {
+  changesFrom: string | null;
+  extraFrom: Awaited<ReturnType<typeof extraSnapshots>>;
+  start: { startTree?: string; startHead?: string; extraStarts?: Array<{ repo: string; tree: string; head: string }> };
+}
+interface TurnEnded {
+  // las tool calls del proceso al cerrarlo: la base del turno siguiente.
+  toolCallsTotal: number;
+  report: RunTurnReport;
+}
+interface TurnState extends TurnStart {
+  toolCallsAt: number;
+  ended: TurnEnded | null;
+  // los cambios de turno van en fila: uno no empieza hasta que acaba el anterior.
+  chain: Promise<void>;
+}
+// el tope del texto final de un turno (el mismo que el del status en el server).
+const TURN_RESULT_MAX_CHARS = 20_000;
+const finite = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+/** lo que un `result` cuenta de su turno (t#636, fase 3): el total de la sesión, sus vueltas y las tool calls desde `toolCallsAt`. */
+function turnEndedOf(ev: StreamLine, stream: StreamState, toolCallsAt: number): TurnEnded {
+  const cost = finite(ev.total_cost_usd);
+  const turns = finite(ev.num_turns);
+  const model = reportedModel(stream.initModel, ev.modelUsage);
+  return {
+    toolCallsTotal: stream.toolCalls,
+    report: {
+      ...(cost !== undefined ? { costUsd: cost } : {}),
+      ...(turns !== undefined ? { numTurns: turns } : {}),
+      toolCalls: Math.max(0, stream.toolCalls - toolCallsAt),
+      ...(stream.sessionId ? { sessionId: stream.sessionId } : {}),
+      ...(model ? { model } : {}),
+      ...(typeof ev.result === 'string' ? { result: ev.result.slice(0, TURN_RESULT_MAX_CHARS) } : {}),
+      ...(stream.lastAssistantUuid ? { lastMessageUuid: stream.lastAssistantUuid } : {}),
+    },
+  };
+}
+
 // pausa entre long-polls del buzón cuando uno vuelve vacío antes de tiempo (error de red, server que no espera).
 const INBOX_RETRY_MS = 2_000;
 // espera que se corta al abortar (el proceso salió).
@@ -1231,7 +1270,9 @@ export class RunnerDaemon {
     // mapear, aws_strict) lo pone el recurso aws (resources/aws.ts) y se suelta al cerrar el segmento.
     const env = { ...scrubEnv(process.env), AWS_PAGER: '' };
     // identidad del proceso en cada llamada del run (servers anteriores a los segmentos: nada).
-    const seg = run.segment !== null ? { segment: run.segment } : {};
+    // mutable (t#636, fase 3): al partir un turno dentro del proceso pasa al segmento nuevo, y el latido, el feed y el buzón
+    // lo leen en cada llamada.
+    const seg: RunSegment = run.segment !== null ? { segment: run.segment } : {};
     const heartbeat = this.startHeartbeat(sup, lease, claim.heartbeatMs, seg);
     const feed = claim.events?.enabled ? new EventUploader((events) => sup.platform.events(run.id, events, seg), claim.events, tag) : null;
     // toolset_v1 en sombra: viaja en todo status de este segmento (nada si el claim no lo trajo).
@@ -1287,16 +1328,26 @@ export class RunnerDaemon {
     const lockWaitMs = Date.now() - lockStart;
     // volver atrás con los ficheros (t#564, ver cabecera): antes de la foto del turno y con el cwd ya tomado.
     const restoreError = claim.restore ? await this.restoreFiles(claim, res, note) : null;
-    // diff del turno (t#514, turn-changes.ts): la foto de antes, ya con el turno del cwd tomado.
-    const changesFrom = restoreError === null && claim.changes && res.cwd.checkout ? await snapshotTree(res.cwd.dir, res.env) : null;
-    // y su HEAD (t#564): con la foto, el punto al que podrá volver este turno.
-    const startHead = changesFrom !== null ? await headOf(res.cwd.dir, res.env) : null;
-    // los de los repos adicionales (t#597), si el claim pide su diff.
-    const extraFrom = changesFrom !== null && claim.changes?.extraRepos ? await extraSnapshots(res) : [];
-    const start =
-      changesFrom !== null && startHead !== null
-        ? { startTree: changesFrom, startHead, ...(extraFrom.length > 0 ? { extraStarts: extraFrom.map(({ repo, tree, head }) => ({ repo, tree, head })) } : {}) }
-        : {};
+    // diff del turno (t#514, turn-changes.ts): la foto de antes, ya con el turno del cwd tomado. y su HEAD (t#564): con la
+    // foto, el punto al que podrá volver este turno. los de los repos adicionales (t#597), si el claim pide su diff.
+    const snapshotStart = async (): Promise<TurnStart> => {
+      const changesFrom = claim.changes && res.cwd.checkout ? await snapshotTree(res.cwd.dir, res.env) : null;
+      const startHead = changesFrom !== null ? await headOf(res.cwd.dir, res.env) : null;
+      const extraFrom = changesFrom !== null && claim.changes?.extraRepos ? await extraSnapshots(res) : [];
+      const start =
+        changesFrom !== null && startHead !== null
+          ? { startTree: changesFrom, startHead, ...(extraFrom.length > 0 ? { extraStarts: extraFrom.map(({ repo, tree, head }) => ({ repo, tree, head })) } : {}) }
+          : {};
+      return { changesFrom, extraFrom, start };
+    };
+    // el turno en curso (t#636, fase 3: un proceso vivo puede partir sus turnos): su foto de inicio, las tool calls con las
+    // que empezó y lo que contó el `result` que lo cerró, hasta que el siguiente empiece.
+    const turn: TurnState = {
+      ...(restoreError === null ? await snapshotStart() : { changesFrom: null, extraFrom: [], start: {} }),
+      toolCallsAt: 0,
+      ended: null,
+      chain: Promise.resolve(),
+    };
     // mcp-config con el token per-run (run-mcp-config.ts: 0600 en un directorio 0700; se borra al terminar).
     let mcpFile: string | null = null;
     let report: StatusReport;
@@ -1308,7 +1359,34 @@ export class RunnerDaemon {
       resourceMcp = await res.mcp();
       // la tool de permisos (t#527) junto a los de los recursos: res_<tipo>_<clave> nunca choca con su nombre.
       mcpFile = writeRunMcpConfig(run.id, claim.mcp, sup.id, claim.extraMcp, { ...permissionMcpServers(claim), ...resourceMcp.servers });
-      ({ report, attempt } = await this.runAttempts(sup, withResourceTools(claim, resourceMcp), lease, res, mcpFile, feed, ctx, note));
+      // los límites de turno dentro del proceso (t#636, fase 3): con `live.turns` y un cli que acusa los mensajes de stdin.
+      const liveTurns = claim.live?.turns === true && this.claude.supported.has('--input-format') && this.claude.supported.has('--replay-user-messages');
+      const turns = liveTurns
+        ? (stream: StreamState): LiveTurnHooks => ({
+            onTurnEnd: (ev) => {
+              turn.ended = turnEndedOf(ev, stream, turn.toolCallsAt);
+            },
+            onTurnStart: (delivered) => {
+              // lo del turno que acaba se toma YA: el `result` del siguiente puede llegar antes de que el cambio en fila
+              // corra, y lo pisaría. la base de tool calls del turno nuevo, también ya.
+              const ended = turn.ended;
+              const base = turn.toolCallsAt;
+              turn.ended = null;
+              if (ended !== null) turn.toolCallsAt = ended.toolCallsTotal;
+              turn.chain = turn.chain
+                .then(() => this.rollTurn(sup, claim, res, seg, turn, snapshotStart, ended, base, delivered))
+                .catch((err: Error) => console.error(`${log} ${tag}: cambio de turno: ${err.message}`));
+            },
+            onDelivered: (ids) => {
+              if (seg.segment !== undefined) void sup.platform.delivered?.(run.id, { segment: seg.segment, ids });
+            },
+          })
+        : null;
+      ({ report, attempt } = await this.runAttempts(sup, withResourceTools(claim, resourceMcp), lease, res, mcpFile, feed, ctx, note, seg, { turns, toolCallsAt: () => turn.toolCallsAt }));
+      // un cambio de turno en vuelo termina antes del cierre: el informe es del último turno.
+      await turn.chain;
+      // las tool calls del último turno (el proceso las cuenta desde que empezó).
+      if (turn.toolCallsAt > 0 && report.toolCalls !== undefined) report = { ...report, toolCalls: Math.max(0, report.toolCalls - turn.toolCallsAt) };
     } catch (err) {
       report = { status: 'failed', error: err === restoreError || resourceMcp !== null ? (err as Error).message : legacyResourceError(err) };
     } finally {
@@ -1327,8 +1405,8 @@ export class RunnerDaemon {
     }
     // la foto de después y su diff, antes de soltar los recursos (el worktree puede borrarse) y con el cwd aún tomado; los
     // de los repos adicionales detrás, con los topes que queden (t#597).
-    const primaryChanges = changesFrom !== null && claim.changes ? await turnChanges(res.cwd.dir, res.env, changesFrom, claim.changes) : null;
-    const changes = claim.changes ? await withExtraChanges(primaryChanges, extraFrom, claim.changes, res.env) : primaryChanges;
+    const primaryChanges = turn.changesFrom !== null && claim.changes ? await turnChanges(res.cwd.dir, res.env, turn.changesFrom, claim.changes) : null;
+    const changes = claim.changes ? await withExtraChanges(primaryChanges, turn.extraFrom, claim.changes, res.env) : primaryChanges;
     // los recursos se sueltan (el worktree se marca o se borra) ANTES de reportar: ver cabecera. y con sus
     // turnos aún tomados: un recurso exclusivo se suelta entero antes de que lo reciba el siguiente run.
     // un recurso que no se pudo preparar: nada se lanzó, se suelta todo como aborted (sin devolver nada al vault).
@@ -1341,7 +1419,7 @@ export class RunnerDaemon {
     const code =
       restoreError !== null ? AUDIT_OUTCOME.runnerError : resourceMcp === null ? AUDIT_OUTCOME.resourceUnavailable : outcomeCode(report.status, attempt && attemptFacts(attempt));
     audited({ lockWaitMs, materialized: res.resources, report, toolsByName: attempt?.stream.toolsByName ?? {}, code });
-    await sup.platform.result(run.id, { ...report, ...start, ...withShadow, ...seg });
+    await sup.platform.result(run.id, { ...report, ...turn.start, ...withShadow, ...seg });
     console.log(`${log} ${tag} terminado (${report.status}${report.error ? `: ${report.error}` : ''})`);
     void this.syncSlashCommands(sup);
   }
@@ -1455,6 +1533,8 @@ export class RunnerDaemon {
     feed: EventUploader | null,
     ctx: FeedContext,
     note: (text: string) => void,
+    seg: RunSegment,
+    turnsOf: { turns: ((stream: StreamState) => LiveTurnHooks) | null; toolCallsAt: () => number },
   ): Promise<{ report: StatusReport; attempt: Attempt }> {
     const { run } = claim;
     // settings leídos por run (pueden cambiar con el daemon vivo): lectura solo carga los de usuario y
@@ -1501,16 +1581,17 @@ export class RunnerDaemon {
         addDirs: res.addDirs.map((a) => a.dir),
         readOnlyDirsDeny: readOnlyDeny,
         liveInput: live !== null,
+        liveTurns: live !== null && turnsOf.turns !== null,
       });
     // reanudar o no lo decide el server: manda sessionId solo cuando hay sesión que retomar.
     const resume = run.sessionId;
-    const liveOf = (prompt: string) => (live ? { prompt, waitMs: live.waitMs } : null);
-    let attempt = await this.spawnClaude(sup, claim, lease, args(claim.prompt, resume), res, feed, ctx, liveOf(claim.prompt));
+    const liveOf = (prompt: string) => (live ? { prompt, waitMs: live.waitMs, turns: turnsOf.turns } : null);
+    let attempt = await this.spawnClaude(sup, claim, lease, args(claim.prompt, resume), res, feed, ctx, seg, turnsOf.toolCallsAt, liveOf(claim.prompt));
     let resumed: boolean | undefined = resume ? true : undefined;
     if (resume && attempt.killedBy === null && attempt.exitCode !== 0 && !attempt.stream.sawAssistant && claim.fallbackPrompt) {
       console.log(`${this.tagOf(sup)} run ${run.id}: la sesión ${resume} no se pudo reanudar`);
       note('la sesión anterior no se pudo reanudar en este runner: reintento desde cero');
-      attempt = await this.spawnClaude(sup, claim, lease, args(claim.fallbackPrompt, null), res, feed, ctx, liveOf(claim.fallbackPrompt));
+      attempt = await this.spawnClaude(sup, claim, lease, args(claim.fallbackPrompt, null), res, feed, ctx, seg, turnsOf.toolCallsAt, liveOf(claim.fallbackPrompt));
       resumed = false;
     }
     return { report: reportFor(attempt, resumed), attempt };
@@ -1528,10 +1609,11 @@ export class RunnerDaemon {
     res: MaterializedRun,
     feed: EventUploader | null,
     ctx: FeedContext,
-    live: { prompt: string; waitMs: number } | null = null,
+    seg: RunSegment,
+    toolCallsAt: () => number,
+    live: { prompt: string; waitMs: number; turns: ((stream: StreamState) => LiveTurnHooks) | null } | null = null,
   ): Promise<Attempt> {
     const runId = claim.run.id;
-    const seg = claim.run.segment !== null ? { segment: claim.run.segment } : {};
     if (lease.killedBy) return Promise.resolve({ exitCode: null, killedBy: lease.killedBy, stream: newStreamState(), stderrTail: '' });
     return new Promise((resolve) => {
       const stream = newStreamState();
@@ -1570,7 +1652,7 @@ export class RunnerDaemon {
       };
       lease.attach(child, kill);
 
-      const session = live && child.stdin ? new LiveSession(child.stdin) : null;
+      const session = live && child.stdin ? new LiveSession(child.stdin, undefined, live.turns?.(stream) ?? null) : null;
       const inboxAbort = new AbortController();
       if (session && live) {
         session.start(live.prompt);
@@ -1595,8 +1677,10 @@ export class RunnerDaemon {
       let lastProgressAt = Date.now();
       const progress = setInterval(() => {
         const now = Date.now();
-        if (stream.toolCalls === reportedToolCalls || now - lastProgressAt < PROGRESS_MIN_INTERVAL_MS) return;
-        reportedToolCalls = stream.toolCalls;
+        // las del turno en curso (t#636, fase 3: el proceso puede haber partido turnos).
+        const turnCalls = stream.toolCalls - toolCallsAt();
+        if (turnCalls === reportedToolCalls || now - lastProgressAt < PROGRESS_MIN_INTERVAL_MS) return;
+        reportedToolCalls = turnCalls;
         lastProgressAt = now;
         this.postProgress(sup, runId, reportedToolCalls, seg);
       }, PROGRESS_TICK_MS);
@@ -1628,6 +1712,45 @@ export class RunnerDaemon {
         resolve({ exitCode: code, killedBy, stream, stderrTail: stderrTail.join('\n').slice(-STDERR_TAIL_MAX_CHARS) });
       });
     });
+  }
+
+  // parte el turno dentro del proceso vivo (t#636, fase 3): el diff del que acaba con su segmento, la foto del que empieza y
+  // POST …/turn; con el segmento nuevo, el latido, el feed y el buzón siguen con él. el server que no lo parte (null) deja
+  // todo como estaba: el cierre lo contará como un solo turno.
+  private async rollTurn(
+    sup: PlatformSupervisor,
+    claim: ClaimResponse,
+    res: MaterializedRun,
+    seg: RunSegment,
+    turn: TurnState,
+    snapshotStart: () => Promise<TurnStart>,
+    ended: TurnEnded | null,
+    base: number,
+    delivered: string[],
+  ): Promise<void> {
+    const runId = claim.run.id;
+    const from = seg.segment;
+    if (ended === null || from === undefined || !sup.platform.turn) {
+      turn.toolCallsAt = base;
+      if (delivered.length > 0 && from !== undefined) await sup.platform.delivered?.(runId, { segment: from, ids: delivered });
+      return;
+    }
+    if (turn.changesFrom !== null && claim.changes) {
+      const primary = await turnChanges(res.cwd.dir, res.env, turn.changesFrom, claim.changes);
+      const changes = await withExtraChanges(primary, turn.extraFrom, claim.changes, res.env);
+      if (changes !== null) await sup.platform.changes?.(runId, changes, seg);
+    }
+    const next = await snapshotStart();
+    const out = await sup.platform.turn(runId, { segment: from, report: { ...ended.report, ...turn.start }, delivered });
+    // sin partir (un server que no lo acepta): todo cuenta como un turno, también sus tool calls.
+    if (out === null) {
+      turn.toolCallsAt = base;
+      return;
+    }
+    seg.segment = out.segment;
+    turn.changesFrom = next.changesFrom;
+    turn.extraFrom = next.extraFrom;
+    turn.start = next.start;
   }
 
   // el buzón del proceso vivo (t#636, fase 2): long-poll mientras stdin siga abierto; cada orden va al proceso. un fallo de
