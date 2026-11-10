@@ -1,7 +1,7 @@
 // diff de cada turno (t#514) contra repos git reales en un tmpdir: la foto no toca el índice del usuario y respeta
 // .gitignore, el diff cuenta lo creado con la shell, renombrados y binarios, y los topes dejan ficheros sin cuerpo
-// (o fuera) sin romper el patch ni pasar de patchMaxChars, también con varios repos adicionales. más el parseo del
-// bloque `changes` del claim y la capability anunciada.
+// (o fuera) sin romper el patch ni pasar de patchMaxChars, también con varios repos adicionales; un salto de HEAD a
+// otra rama no cuenta la distancia entre ramas. más el parseo del bloque `changes` del claim y la capability anunciada.
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -14,7 +14,7 @@ import { parseClaim } from '../src/claim.js';
 import { withExtraChanges } from '../src/daemon.js';
 import { scrubEnv } from '../src/scrub-env.js';
 import { maskDiffChunk, maskDiffSecrets, maskSecrets, SECRET_MASK } from '../src/secret-mask.js';
-import { budgetPatch, cutPatchAtFile, parseNameStatus, parseNumstat, snapshotTree, turnChanges } from '../src/turn-changes.js';
+import { budgetPatch, cutPatchAtFile, parseNameStatus, parseNumstat, startSnapshot, turnChanges } from '../src/turn-changes.js';
 import {
   RUN_CHANGES_FILE_PATCH_MAX_CHARS,
   RUN_CHANGES_FILES_MAX,
@@ -59,7 +59,7 @@ test('la foto y el diff de un turno: lo creado con la shell, renombrados, binari
   fs.writeFileSync(path.join(dir, 'staged.ts'), 'x\n');
   git(dir, 'add', 'staged.ts');
   const indexBefore = git(dir, 'diff', '--cached', '--name-only');
-  const from = await snapshotTree(dir, env);
+  const from = await startSnapshot(dir, env);
   assert.ok(from);
 
   fs.writeFileSync(path.join(dir, 'login.ts'), 'const a = 2;\nexport { a };\n');
@@ -85,12 +85,12 @@ test('la foto y el diff de un turno: lo creado con la shell, renombrados, binari
   assert.match(report.patch, /^diff --git a\/old\.ts b\/new name\.ts$/m, 'rutas sin comillas: la web casa la cabecera');
   assert.doesNotMatch(report.patch, /\.env|hunter2|sk-ant-/, 'ni lo ignorado ni el secreto');
   assert.equal(git(dir, 'diff', '--cached', '--name-only'), indexBefore, 'el índice del usuario sigue igual');
-  assert.equal(await turnChanges(dir, env, (await snapshotTree(dir, env))!, LIMITS), null, 'sin cambios, nada que subir');
+  assert.equal(await turnChanges(dir, env, (await startSnapshot(dir, env))!, LIMITS), null, 'sin cambios, nada que subir');
 });
 
 test('una ruta no es código: un secreto en el nombre de un fichero sale enmascarado, en la lista y en el diff', async () => {
   const dir = repo();
-  const from = await snapshotTree(dir, env);
+  const from = await startSnapshot(dir, env);
   assert.ok(from);
   fs.mkdirSync(path.join(dir, 'dumps'));
   fs.writeFileSync(path.join(dir, 'dumps', 'token=abc123def.txt'), 'x\n');
@@ -102,7 +102,7 @@ test('una ruta no es código: un secreto en el nombre de un fichero sale enmasca
 
 test('topes: un fichero enorme o fuera del presupuesto viaja con su cabecera sola; filesMax corta la lista', async () => {
   const dir = repo();
-  const from = (await snapshotTree(dir, env))!;
+  const from = (await startSnapshot(dir, env))!;
   fs.writeFileSync(path.join(dir, 'big.lock'), 'x\n'.repeat(5000));
   fs.writeFileSync(path.join(dir, 'login.ts'), 'const a = 3;\nexport { a };\n');
   const report = (await turnChanges(dir, env, from, { filesMax: 1, filePatchMaxChars: 1000, patchMaxChars: 2000 }))!;
@@ -163,14 +163,14 @@ test('budgetPatch: lo que no cabe se queda fuera y un fichero posterior más cor
 test('repos adicionales: el informe del principal más varios adicionales no pasa de filesMax ni de patchMaxChars', async () => {
   const FILES_PER_REPO = 30;
   const dirs = [repo(), repo(), repo(), repo()];
-  const froms = await Promise.all(dirs.map((d) => snapshotTree(d, env)));
+  const froms = await Promise.all(dirs.map((d) => startSnapshot(d, env)));
   dirs.forEach((d) =>
     Array.from({ length: FILES_PER_REPO }, (_, i) => fs.writeFileSync(path.join(d, `fichero-${String(i).padStart(2, '0')}.ts`), `export const n = ${i};\n`.repeat(5))),
   );
   const limits = { filesMax: 70, filePatchMaxChars: 1000, patchMaxChars: 4000 };
   const [main, ...extras] = dirs;
   const primary = await turnChanges(main!, env, froms[0]!, limits);
-  const report = await withExtraChanges(primary, extras.map((dir, i) => ({ repo: `acme/lib-${i}`, dir, tree: froms[i + 1]! })), limits, env);
+  const report = await withExtraChanges(primary, extras.map((dir, i) => ({ repo: `acme/lib-${i}`, dir, ...froms[i + 1]! })), limits, env);
   assert.ok(report);
   assert.equal(report.files.length, limits.filesMax);
   assert.ok(report.patch.length <= limits.patchMaxChars, `${report.patch.length} > ${limits.patchMaxChars}`);
@@ -188,12 +188,12 @@ test('repos adicionales: el informe del principal más varios adicionales no pas
 
 test('repos adicionales: un adicional sin sitio en la lista no añade ficheros ni patch, y cuenta en filesTotal', async () => {
   const [main, extra] = [repo(), repo()];
-  const [fromMain, fromExtra] = await Promise.all([snapshotTree(main, env), snapshotTree(extra, env)]);
+  const [fromMain, fromExtra] = await Promise.all([startSnapshot(main, env), startSnapshot(extra, env)]);
   fs.writeFileSync(path.join(main, 'uno.ts'), 'export const a = 1;\n');
   fs.writeFileSync(path.join(extra, 'otro.ts'), 'export const b = 2;\n');
   const limits = { filesMax: 1, filePatchMaxChars: 1000, patchMaxChars: 4000 };
   const primary = await turnChanges(main, env, fromMain!, limits);
-  const report = await withExtraChanges(primary, [{ repo: 'acme/lib', dir: extra, tree: fromExtra! }], limits, env);
+  const report = await withExtraChanges(primary, [{ repo: 'acme/lib', dir: extra, ...fromExtra! }], limits, env);
   assert.deepEqual(report?.files.map((f) => f.path), ['uno.ts']);
   assert.equal(report?.filesTotal, 2);
   assert.ok(!report?.patch.includes('otro.ts'), 'su patch no lo encontraría nadie');
@@ -201,7 +201,7 @@ test('repos adicionales: un adicional sin sitio en la lista no añade ficheros n
 
 test('un patch más largo que el buffer de git no deja el turno sin diff: lista entera, lo que cabe y el resto sin cuerpo', async () => {
   const dir = repo();
-  const from = await snapshotTree(dir, env);
+  const from = await startSnapshot(dir, env);
   fs.writeFileSync(path.join(dir, 'a.ts'), 'export const a = 1;\n');
   // 70 MB en líneas de texto (más que GIT_MAX_BUFFER): el patch se corta dentro de este fichero, antes de z.ts.
   fs.writeFileSync(path.join(dir, 'big.txt'), `${'x'.repeat(99)}\n`.repeat(700_000));
@@ -285,11 +285,87 @@ test('la foto no pierde una edición del mismo tamaño en el mismo segundo que e
   fs.utimesSync(file, second, second);
   git(dir, 'add', 'login.ts');
   fs.utimesSync(path.join(dir, '.git', 'index'), second, second);
-  const from = (await snapshotTree(dir, env))!;
+  const from = (await startSnapshot(dir, env))!;
   fs.writeFileSync(file, 'const a = 9;\nexport { a };\n');
   fs.utimesSync(file, second, second);
   const report = await turnChanges(dir, env, from, LIMITS);
   assert.deepEqual(report?.files.map((f) => f.path), ['login.ts']);
+});
+
+// un commit fechado respecto a ahora: en el pasado ya existía al hacer la foto; en el futuro, lo hizo el turno.
+const BEFORE_TURN_S = -60;
+const IN_TURN_S = 60;
+function commitAt(dir: string, offsetS: number, message: string): void {
+  git(dir, 'add', '-A');
+  execFileSync('git', ['commit', '-q', '-m', message], {
+    cwd: dir,
+    env: { ...env, GIT_COMMITTER_DATE: `@${Math.floor(Date.now() / 1000) + offsetS} +0000` },
+  });
+}
+const statusPaths = (report: Awaited<ReturnType<typeof turnChanges>>): string[][] | undefined => report?.files.map((f) => [f.status, f.path]);
+
+test('un cambio de rama en el turno no cuenta la distancia entre ramas: solo lo que el turno commitea o deja sin commitear', async () => {
+  const dir = repo();
+  git(dir, 'checkout', '-q', '-b', 'otra');
+  Array.from({ length: 20 }, (_, i) => fs.writeFileSync(path.join(dir, `ajeno-${i}.ts`), `export const n = ${i};\n`));
+  commitAt(dir, BEFORE_TURN_S, 'ajeno');
+  git(dir, 'checkout', '-q', 'main');
+  // lo que dejó sin commitear el turno anterior: viaja con el checkout y no es de este turno.
+  fs.writeFileSync(path.join(dir, 'old.ts'), 'uno\ndos\n');
+  const from = (await startSnapshot(dir, env))!;
+
+  git(dir, 'checkout', '-q', '-b', 'fix', 'otra');
+  fs.writeFileSync(path.join(dir, 'login.ts'), 'const a = 2;\nexport { a };\n');
+  commitAt(dir, IN_TURN_S, 'fix');
+  fs.writeFileSync(path.join(dir, 'nuevo.ts'), 'x\n');
+  assert.deepEqual(statusPaths(await turnChanges(dir, env, from, LIMITS)), [
+    ['M', 'login.ts'],
+    ['A', 'nuevo.ts'],
+  ]);
+});
+
+test('lo que el turno anterior dejó sin commitear y este commitea sobre un upstream más nuevo no cuenta otra vez', async () => {
+  const dir = repo();
+  git(dir, 'checkout', '-q', '-b', 'up');
+  fs.writeFileSync(path.join(dir, 'u.ts'), 'u\n');
+  commitAt(dir, BEFORE_TURN_S, 'upstream');
+  git(dir, 'checkout', '-q', 'main');
+  fs.writeFileSync(path.join(dir, 'login.ts'), 'const a = 2;\nexport { a };\n');
+  const from = (await startSnapshot(dir, env))!;
+
+  git(dir, 'stash', '-q');
+  git(dir, 'reset', '-q', '--hard', 'up');
+  git(dir, 'stash', 'pop', '-q');
+  commitAt(dir, IN_TURN_S, 'fix');
+  assert.equal(await turnChanges(dir, env, from, LIMITS), null, 'ni u.ts (upstream) ni login.ts (ya estaba)');
+});
+
+test('HEAD que se mueve por su propia línea sigue con la foto: un reset atrás cuenta lo deshecho, un commit encima lo suyo', async () => {
+  const dir = repo();
+  fs.writeFileSync(path.join(dir, 'c.ts'), 'c\n');
+  commitAt(dir, BEFORE_TURN_S, 'c');
+  const from = (await startSnapshot(dir, env))!;
+  git(dir, 'reset', '-q', '--hard', 'HEAD~1');
+  assert.deepEqual(statusPaths(await turnChanges(dir, env, from, LIMITS)), [['D', 'c.ts']]);
+
+  const next = (await startSnapshot(dir, env))!;
+  fs.writeFileSync(path.join(dir, 'login.ts'), 'const a = 2;\nexport { a };\n');
+  commitAt(dir, IN_TURN_S, 'turno');
+  assert.deepEqual(statusPaths(await turnChanges(dir, env, next, LIMITS)), [['M', 'login.ts']]);
+});
+
+test('si lo que había sin commitear choca con la rama nueva, la base es el commit de esa rama', async () => {
+  const dir = repo();
+  git(dir, 'checkout', '-q', '-b', 'otra');
+  fs.writeFileSync(path.join(dir, 'login.ts'), 'const a = 5;\nexport { a };\n');
+  commitAt(dir, BEFORE_TURN_S, 'otra');
+  git(dir, 'checkout', '-q', 'main');
+  fs.writeFileSync(path.join(dir, 'login.ts'), 'const a = 7;\nexport { a };\n');
+  const from = (await startSnapshot(dir, env))!;
+
+  git(dir, 'checkout', '-q', '-f', 'otra');
+  fs.writeFileSync(path.join(dir, 'z.ts'), 'z\n');
+  assert.deepEqual(statusPaths(await turnChanges(dir, env, from, LIMITS)), [['A', 'z.ts']]);
 });
 
 test('maskDiffSecrets: un literal largo o sin cerrar, y un identificador que lleva la palabra', () => {
