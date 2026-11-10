@@ -16,7 +16,15 @@
 //   `repo` (la clave del claim) y, en el patch, con las rutas de su cabecera bajo el repo (`diff --git a/<repo>/<ruta>
 //   b/<repo>/<ruta>`: extraRepoPatchPath), así dos repos con la misma ruta no se confunden. los topes son del informe
 //   entero (el principal primero).
-// non-goals: el diff acumulado de la conversación (el hilo suma los turnos) y el cable v0 (su claim no lo lleva).
+// - diff neto de la conversación (t#642, RUNNER_CAPABILITY.runChanges): con `changes.run` en el claim, al cerrar cada
+//   segmento el daemon sube además el diff de la foto BASE de la conversación al final, con `scope: run` (el server lo
+//   guarda aparte: una fila por run, la última sustituye a la anterior). base = `run.since`, la foto del primer segmento
+//   de edición que reportó su `startTree` desde ESTA máquina; sin `since` (es el primer turno de edición, el server aún
+//   no tiene ninguna foto), la del primer turno del proceso. la base pasa por la misma corrección de un salto de HEAD
+//   que la de un turno (`at` = cuándo se hizo esa foto). un tree base que ya no está en el repo (un gc) no sube nada; un
+//   diff vacío sube un informe sin ficheros (lo hecho se deshizo). la base de otra máquina no viaja: allí sus trees no
+//   existen y el server conserva el último informe.
+// non-goals: el cable v0 (su claim no lo lleva).
 
 // estado de un fichero en el turno (letras de `git diff --name-status`, sin el % de similitud).
 export const RUN_CHANGE_STATUS = {
@@ -40,6 +48,26 @@ export const RUN_CHANGES_PATCH_MAX_CHARS = 256_000;
 // patch crudo más largo que esto se rechaza (400): el daemon ya recorta al presupuesto.
 export const RUN_CHANGES_PATCH_HARD_MAX_CHARS = 512_000;
 
+/** la foto de un repo adicional con la que empezó la conversación (t#642): su clave, su tree y su HEAD. */
+export interface RunDiffExtraBase {
+  repo: string;
+  tree: string;
+  head: string;
+}
+
+/** la foto con la que empezó la conversación en esta máquina (t#642): tree, HEAD, cuándo (ms) y la de cada adicional. */
+export interface RunDiffBase {
+  tree: string;
+  head: string;
+  at: number;
+  extras?: RunDiffExtraBase[];
+}
+
+/** el diff neto de la conversación (t#642, solo a un daemon con run_changes): sin `since`, la base es la del proceso. */
+export interface LegacyClaimRunChanges {
+  since?: RunDiffBase;
+}
+
 /** topes del diff de un turno que el server pide en el claim (solo a un daemon con turn_changes, perfil edit y repo). */
 export interface LegacyClaimChanges {
   filesMax: number;
@@ -47,7 +75,13 @@ export interface LegacyClaimChanges {
   patchMaxChars: number;
   // t#597: también los repos adicionales del run (solo a un daemon con extra_repo_changes y si el run los tiene).
   extraRepos?: true;
+  // t#642: también el diff neto de la conversación, con los mismos topes.
+  run?: LegacyClaimRunChanges;
 }
+
+/** qué cubre un informe de cambios: el turno (por defecto) o la conversación entera (t#642). */
+export const RUN_CHANGES_SCOPE = { turn: 'turn', run: 'run' } as const;
+export type RunChangesScope = (typeof RUN_CHANGES_SCOPE)[keyof typeof RUN_CHANGES_SCOPE];
 
 /** la ruta de un fichero de un repo adicional en las cabeceras del patch (t#597): bajo la clave de su repo. */
 export const extraRepoPatchPath = (repo: string, path: string): string => `${repo}/${path}`;
@@ -73,4 +107,6 @@ export interface RunChangesReport {
   // diff unificado de git (sin color ni diff externo); los ficheros sin cuerpo, solo su cabecera.
   patch: string;
   segment?: number;
+  // t#642: ausente = el turno.
+  scope?: RunChangesScope;
 }

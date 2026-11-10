@@ -1,7 +1,8 @@
 // diff de cada turno (t#514) contra repos git reales en un tmpdir: la foto no toca el índice del usuario y respeta
 // .gitignore, el diff cuenta lo creado con la shell, renombrados y binarios, y los topes dejan ficheros sin cuerpo
 // (o fuera) sin romper el patch ni pasar de patchMaxChars, también con varios repos adicionales; un salto de HEAD a
-// otra rama no cuenta la distancia entre ramas. más el parseo del bloque `changes` del claim y la capability anunciada.
+// otra rama no cuenta la distancia entre ramas. más el parseo del bloque `changes` del claim y la capability anunciada, y
+// el diff neto de la conversación (t#642): desde su foto base, vacío si se deshizo y nada si la base ya no está.
 
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
@@ -11,15 +12,16 @@ import path from 'node:path';
 import { after, test } from 'node:test';
 import { announcedCapabilities } from '../src/announced-capabilities.js';
 import { parseClaim } from '../src/claim.js';
-import { withExtraChanges } from '../src/daemon.js';
+import { runDiffFrom, runDiffReport, withExtraChanges } from '../src/daemon.js';
 import { scrubEnv } from '../src/scrub-env.js';
 import { maskDiffChunk, maskDiffSecrets, maskSecrets, SECRET_MASK } from '../src/secret-mask.js';
-import { budgetPatch, cutPatchAtFile, parseNameStatus, parseNumstat, startSnapshot, turnChanges } from '../src/turn-changes.js';
+import { budgetPatch, cutPatchAtFile, EMPTY_CHANGES, parseNameStatus, parseNumstat, runChanges, startSnapshot, turnChanges } from '../src/turn-changes.js';
 import {
   RUN_CHANGES_FILE_PATCH_MAX_CHARS,
   RUN_CHANGES_FILES_MAX,
   RUN_CHANGES_PATCH_HARD_MAX_CHARS,
   RUN_CHANGES_PATCH_MAX_CHARS,
+  RUN_CHANGES_SCOPE,
   RUNNER_CAPABILITY,
 } from '../src/vendor/runner-protocol/index.js';
 
@@ -401,4 +403,72 @@ test('el claim: el bloque changes se lee con los topes del protocolo como techo;
   const { changes: _dropped, ...without } = base;
   assert.equal(parseClaim(without).changes, undefined);
   assert.ok(announcedCapabilities({ hasAws: false, supported: new Set() }).includes(RUNNER_CAPABILITY.turnChanges));
+});
+
+const TREE = 'a'.repeat(40);
+const HEAD = 'b'.repeat(40);
+
+test('el claim: changes.run se lee con su base; una base sin forma deja el claim sin diff neto, nunca lo tumba', () => {
+  const base = JSON.parse(fs.readFileSync(new URL('../../test/fixtures/claims/prompt-edit-turn-changes.json', import.meta.url), 'utf8')) as Record<string, unknown>;
+  const changes = base.changes as Record<string, unknown>;
+  const read = (run: unknown) => parseClaim({ ...base, changes: { ...changes, run } }).changes?.run;
+  assert.deepEqual(read({}), {}, 'sin since: la base es la del proceso');
+  const since = { tree: TREE, head: HEAD, at: 1_700_000_000_000 };
+  assert.deepEqual(read({ since }), { since });
+  assert.deepEqual(read({ since: { ...since, extras: [{ repo: 'acme/web', tree: TREE, head: HEAD }, { repo: 'acme/x', tree: '--upload-pack=x', head: HEAD }] } }), {
+    since: { ...since, extras: [{ repo: 'acme/web', tree: TREE, head: HEAD }] },
+  });
+  assert.equal(read({ since: { ...since, tree: '--output=/tmp/x' } }), undefined, 'un tree que no es un objeto git no llega a git');
+  assert.equal(read({ since: { tree: TREE, head: HEAD } }), undefined, 'sin su hora');
+  assert.equal(read('sí'), undefined);
+  assert.ok(announcedCapabilities({ hasAws: false, supported: new Set() }).includes(RUNNER_CAPABILITY.runChanges));
+});
+
+test('diff neto: de la foto base al final, con la rama saltada; vacío si se deshizo; nada si el gc se llevó la base', async () => {
+  const dir = repo();
+  git(dir, 'checkout', '-q', '-b', 'otra');
+  Array.from({ length: 10 }, (_, i) => fs.writeFileSync(path.join(dir, `ajeno-${i}.ts`), `export const n = ${i};\n`));
+  commitAt(dir, BEFORE_TURN_S, 'ajeno');
+  git(dir, 'checkout', '-q', 'main');
+  const base = (await startSnapshot(dir, env))!;
+
+  // turno 1: cambio de rama y una edición; turno 2: otra edición encima.
+  git(dir, 'checkout', '-q', '-b', 'fix', 'otra');
+  fs.writeFileSync(path.join(dir, 'login.ts'), 'const a = 2;\nexport { a };\n');
+  commitAt(dir, IN_TURN_S, 'fix');
+  fs.writeFileSync(path.join(dir, 'nuevo.ts'), 'x\n');
+  const net = await runChanges(dir, env, base, LIMITS);
+  assert.deepEqual(statusPaths(net), [
+    ['M', 'login.ts'],
+    ['A', 'nuevo.ts'],
+  ]);
+
+  // lo deshecho no queda: el informe vacío lo dice.
+  fs.rmSync(path.join(dir, 'nuevo.ts'));
+  fs.writeFileSync(path.join(dir, 'login.ts'), 'const a = 1;\nexport { a };\n');
+  assert.deepEqual(await runChanges(dir, env, base, LIMITS), EMPTY_CHANGES);
+
+  // una base que ya no está en el repo: sin informe (el server conserva el último).
+  assert.equal(await runChanges(dir, env, { ...base, tree: 'c'.repeat(40) }, LIMITS), null);
+});
+
+test('diff neto en el daemon: la base del claim (o la del primer turno) y el informe con scope run y sus adicionales', async () => {
+  const [main, extra] = [repo(), repo()];
+  const first = { changesFrom: (await startSnapshot(main, env))!, extraFrom: [{ repo: 'acme/lib', dir: extra, ...(await startSnapshot(extra, env))!, head: git(extra, 'rev-parse', 'HEAD') }], start: {} };
+  const res = { cwd: { dir: main, checkout: true }, addDirs: [{ key: 'acme/lib', dir: extra, checkout: true }] } as unknown as Parameters<typeof runDiffFrom>[1];
+  assert.equal(runDiffFrom({ changes: LIMITS }, res, first), null, 'sin changes.run, nada');
+  const own = runDiffFrom({ changes: { ...LIMITS, run: {} } }, res, first);
+  assert.equal(own?.primary, first.changesFrom, 'sin since: la del primer turno del proceso');
+  const since = { tree: first.changesFrom.tree, head: first.changesFrom.head!, at: first.changesFrom.at, extras: [{ repo: 'acme/lib', tree: first.extraFrom[0]!.tree, head: first.extraFrom[0]!.head }, { repo: 'acme/otro', tree: TREE, head: HEAD }] };
+  const fromClaim = runDiffFrom({ changes: { ...LIMITS, run: { since } } }, res, first);
+  assert.deepEqual(fromClaim?.extras.map((x) => [x.repo, x.dir]), [['acme/lib', extra]], 'un adicional que este run no tiene se queda fuera');
+
+  fs.writeFileSync(path.join(main, 'uno.ts'), 'export const a = 1;\n');
+  fs.writeFileSync(path.join(extra, 'otro.ts'), 'export const b = 2;\n');
+  const report = await runDiffReport(main, fromClaim!, LIMITS, env);
+  assert.equal(report?.scope, RUN_CHANGES_SCOPE.run);
+  assert.deepEqual(report?.files.map((f) => [f.repo ?? null, f.path]), [
+    [null, 'uno.ts'],
+    ['acme/lib', 'otro.ts'],
+  ]);
 });

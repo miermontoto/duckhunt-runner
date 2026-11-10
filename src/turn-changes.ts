@@ -33,6 +33,10 @@
 //   informe: sus ficheros llevan `repo` y sus cabeceras van bajo él (`a/<repo>/<ruta>`, extraRepoPatchPath del
 //   protocolo). los topes son del informe entero: el principal primero y cada adicional con lo que quede
 //   (combineChanges); el que ya no cabe en la lista solo suma a filesTotal.
+// - diff neto de la conversación (t#642, con `changes.run`): el mismo diff, desde la foto BASE de la conversación (la de
+//   `run.since` o la del primer turno del proceso) al final del segmento, con la misma corrección de un salto de HEAD
+//   (turnBase) y los mismos topes. un tree base que el gc ya se llevó no sube nada (el server conserva el último); sin
+//   cambios sube un informe vacío: lo hecho se deshizo y el server lo tiene que saber.
 
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
@@ -66,6 +70,7 @@ const STATUSES: ReadonlySet<string> = new Set(Object.values(RUN_CHANGE_STATUS));
 const NOT_ANCESTOR_EXIT = 1;
 const MERGE_CONFLICT_EXIT = 1;
 const MS_PER_SECOND = 1000;
+const GIT_TREE_TYPE = 'tree';
 // el diff de git sin nada de la config del usuario que cambie su forma o lance programas (ver cabecera).
 const diffArgs = (repo: string | null): string[] => {
   const prefix = repo === null ? '' : extraRepoPatchPath(repo, '');
@@ -119,6 +124,16 @@ export async function headOf(dir: string, env: NodeJS.ProcessEnv): Promise<strin
   } catch (err) {
     console.error(`[runner] HEAD del árbol de trabajo ilegible: ${(err as Error).message}`);
     return null;
+  }
+}
+
+/** ¿el objeto `id` sigue en el repo y es un tree? (una foto vieja puede habérsela llevado el gc). */
+export async function isTree(dir: string, env: NodeJS.ProcessEnv, id: string): Promise<boolean> {
+  try {
+    return (await git(dir, ['cat-file', '-t', id], env)).trim() === GIT_TREE_TYPE;
+  } catch {
+    // cat-file sale con error si el objeto no existe: es la respuesta, no un fallo.
+    return false;
   }
 }
 
@@ -285,6 +300,24 @@ export async function turnChanges(
 ): Promise<RunChangesReport | null> {
   const to = await snapshotTree(dir, env);
   return to === null ? null : diffTrees(dir, env, await turnBase(dir, env, from), to, limits, repo);
+}
+
+/** un informe sin ficheros: el diff neto de una conversación cuyos cambios se deshicieron. */
+export const EMPTY_CHANGES: RunChangesReport = { files: [], filesTotal: 0, patch: '' };
+
+/** el diff neto de la conversación desde su foto base (ver cabecera); null = la base ya no está en el repo. */
+export async function runChanges(
+  dir: string,
+  env: NodeJS.ProcessEnv,
+  base: TurnStartSnapshot,
+  limits: LegacyClaimChanges,
+  repo: string | null = null,
+): Promise<RunChangesReport | null> {
+  if (!(await isTree(dir, env, base.tree))) {
+    console.error(`[runner] la foto base de la conversación ya no está en el repo (${base.tree.slice(0, 12)}): sin diff neto`);
+    return null;
+  }
+  return (await turnChanges(dir, env, base, limits, repo)) ?? EMPTY_CHANGES;
 }
 
 /** los topes que le quedan a un repo adicional tras lo que ya ocupa el informe (ver cabecera). */

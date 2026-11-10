@@ -54,6 +54,9 @@ export function announcedCapabilities(kit: MachineKit): RunnerCapability[] {
     ...(kit.browser && kit.toolsetRender !== false ? [RUNNER_CAPABILITY.browser] : []),
     // el diff de cada turno (t#514, turn-changes.ts): solo lo calcula si el claim trae el bloque `changes`.
     RUNNER_CAPABILITY.turnChanges,
+    // el diff neto de la conversación (t#642, turn-changes.ts::runChanges): solo lo calcula si el claim trae `changes.run`.
+    // no depende del cli: va antes de las que sí.
+    RUNNER_CAPABILITY.runChanges,
     // varios repos por conversación (t#597): con prompt y un cli que acepta --add-dir; con ellos, su diff y su vuelta atrás.
     ...(prompt && kit.supported.has('--add-dir') ? [RUNNER_CAPABILITY.multiRepo, RUNNER_CAPABILITY.extraRepoChanges] : []),
     // subagentes y workflows (t#636): con prompt y un cli que reenvía lo de los subagentes con su padre. no depende de la

@@ -83,6 +83,8 @@ import {
   type AgentRunIsolation,
   type AgentRunSeed,
   type LegacyClaimChanges,
+  type LegacyClaimRunChanges,
+  type RunDiffExtraBase,
   type LegacyClaimExtraRepo,
   type LegacyClaimPermissions,
   type LegacyClaimRestore,
@@ -422,7 +424,25 @@ function changesConfig(v: unknown): LegacyClaimChanges | null {
     patchMaxChars: capped(v.patchMaxChars, RUN_CHANGES_PATCH_MAX_CHARS),
     // t#597: también los repos adicionales (solo `true` cuenta).
     ...(v.extraRepos === true ? { extraRepos: true as const } : {}),
+    ...runChangesBlock(v.run),
   };
+}
+
+// ¿un tree y un HEAD con forma de objeto git? (van como argumentos de git: nada que empiece por `-`).
+const gitPair = (o: Obj): o is Obj & { tree: string; head: string } =>
+  typeof o.tree === 'string' && typeof o.head === 'string' && GIT_OBJECT_ID_RE.test(o.tree) && GIT_OBJECT_ID_RE.test(o.head);
+const isExtraBase = (v: unknown): v is RunDiffExtraBase => isObj(v) && typeof v.repo === 'string' && v.repo !== '' && gitPair(v);
+
+// t#642: el diff neto de la conversación. `run` vale como objeto; su `since`, con tree y head de objeto git y su hora (un
+// adicional sin forma se queda fuera). un since mal formado deja el claim sin diff neto: nunca lo tumba.
+function runChangesBlock(v: unknown): { run?: LegacyClaimRunChanges } {
+  if (!isObj(v)) return {};
+  if (v.since === undefined) return { run: {} };
+  const since = v.since;
+  const at = isObj(since) ? posInt(since.at) : null;
+  if (!isObj(since) || !gitPair(since) || at === null) return {};
+  const extras = Array.isArray(since.extras) ? since.extras.filter(isExtraBase).map(({ repo, tree, head }) => ({ repo, tree, head })) : [];
+  return { run: { since: { tree: since.tree, head: since.head, at, ...(extras.length > 0 ? { extras } : {}) } } };
 }
 
 // el nivel de autonomía del claim (ver cabecera): ausente o null = ninguno; uno desconocido invalida el claim.

@@ -157,7 +157,7 @@ import { EventUploader } from './event-uploader.js';
 import { clip, feedEventsFromStream, systemEvent, type FeedContext } from './feed.js';
 import { scrubEnv } from './scrub-env.js';
 import { reportFor, type Attempt, type KillReason, type StatusReport } from './status-report.js';
-import { combineChanges, remainingLimits, startSnapshot, turnChanges, type TurnStartSnapshot } from './turn-changes.js';
+import { combineChanges, remainingLimits, runChanges, startSnapshot, turnChanges, type TurnStartSnapshot } from './turn-changes.js';
 import { assertRestorable, restoreTree } from './rewind-files.js';
 import { sameRepoKey } from './repo-key.js';
 import { AuditLog, AUDIT_OUTCOME, claimedRecord, closedRecord, DAY_MS, nextMidnight, outcomeCode, pruneAudit, rejectedRecord, retentionDays, toolsetSummary, type AttemptFacts, type AuditSubject, type ClaimedRecord } from './audit.js';
@@ -189,7 +189,7 @@ import { credentialStore } from './platforms/credentials.js';
 import { PLATFORM_FACTORIES } from './platforms/factories.js';
 import { Scheduler } from './platforms/scheduler.js';
 import { PLATFORM_STATE, PlatformSupervisor, type SupervisorHooks } from './platforms/supervisor.js';
-import { REWIND_RESTORE_ERROR, RUNNER_LABEL_MAX_CHARS, type LegacyClaimChanges, type RunChangesReport, type ToolsetShadow, type RunInboxCommand, type RunTurnReport } from './vendor/runner-protocol/index.js';
+import { REWIND_RESTORE_ERROR, RUN_CHANGES_SCOPE, RUNNER_LABEL_MAX_CHARS, type LegacyClaimChanges, type RunChangesReport, type ToolsetShadow, type RunInboxCommand, type RunTurnReport } from './vendor/runner-protocol/index.js';
 import { shadowOf } from './toolset/shadow.js';
 import { intersectToolset } from './toolset/intersect.js';
 import { v0Announce } from './platforms/v0.js';
@@ -231,7 +231,14 @@ interface TurnEnded {
   toolCallsTotal: number;
   report: RunTurnReport;
 }
+// la foto base del diff neto de la conversación (t#642): la del principal y la de cada repo adicional.
+interface RunDiffFrom {
+  primary: TurnStartSnapshot;
+  extras: ExtraStart[];
+}
 interface TurnState extends TurnStart {
+  // fija en todo el proceso (los turnos que parte no la cambian); null = el claim no pide el diff neto.
+  runFrom: RunDiffFrom | null;
   toolCallsAt: number;
   ended: TurnEnded | null;
   // los cambios de turno van en fila: uno no empieza hasta que acaba el anterior.
@@ -327,6 +334,31 @@ async function extraSnapshots(res: MaterializedRun): Promise<ExtraStart[]> {
     if (snap !== null && snap.head !== null) out.push({ repo: a.key, dir: a.dir, ...snap, head: snap.head });
   }
   return out;
+}
+
+/** la base del diff neto (t#642, turn-changes.ts): la de `changes.run.since` (cada adicional en su worktree de este run) o,
+ *  sin ella, la del primer turno del proceso; null = el claim no lo pide o el cwd no es un checkout. */
+export function runDiffFrom(claim: Pick<ClaimResponse, 'changes'>, res: Pick<MaterializedRun, 'cwd' | 'addDirs'>, first: TurnStart): RunDiffFrom | null {
+  const run = claim.changes?.run;
+  if (!run || !res.cwd.checkout) return null;
+  if (!run.since) return first.changesFrom !== null ? { primary: first.changesFrom, extras: first.extraFrom } : null;
+  const { tree, head, at, extras = [] } = run.since;
+  const dirs = new Map(res.addDirs.filter((d) => d.checkout).map((d) => [d.key, d.dir]));
+  return {
+    primary: { tree, head, at },
+    extras: extras.flatMap((x) => {
+      const dir = dirs.get(x.repo);
+      return dir ? [{ repo: x.repo, dir, tree: x.tree, head: x.head, at }] : [];
+    }),
+  };
+}
+
+/** el diff neto de la conversación con el de sus adicionales detrás, con scope run (t#642); null = su base ya no está. */
+export async function runDiffReport(dir: string, from: RunDiffFrom, limits: LegacyClaimChanges, env: NodeJS.ProcessEnv): Promise<RunChangesReport | null> {
+  const primary = await runChanges(dir, env, from.primary, limits);
+  if (primary === null) return null;
+  const all = (await withExtraChanges(primary, from.extras, limits, env)) ?? primary;
+  return { ...all, scope: RUN_CHANGES_SCOPE.run };
 }
 
 /** el diff del turno con el de cada repo adicional detrás, cada uno con los topes que le dejan los anteriores (t#597,
@@ -1346,8 +1378,11 @@ export class RunnerDaemon {
     };
     // el turno en curso (t#636, fase 3: un proceso vivo puede partir sus turnos): su foto de inicio, las tool calls con las
     // que empezó y lo que contó el `result` que lo cerró, hasta que el siguiente empiece.
+    const first: TurnStart = restoreError === null ? await snapshotStart() : { changesFrom: null, extraFrom: [], start: {} };
     const turn: TurnState = {
-      ...(restoreError === null ? await snapshotStart() : { changesFrom: null, extraFrom: [], start: {} }),
+      ...first,
+      // el diff neto (t#642): su base no cambia en todo el proceso.
+      runFrom: restoreError === null ? runDiffFrom(claim, res, first) : null,
       toolCallsAt: 0,
       ended: null,
       chain: Promise.resolve(),
@@ -1411,6 +1446,8 @@ export class RunnerDaemon {
     // de los repos adicionales detrás, con los topes que queden (t#597).
     const primaryChanges = turn.changesFrom !== null && claim.changes ? await turnChanges(res.cwd.dir, res.env, turn.changesFrom, claim.changes) : null;
     const changes = claim.changes ? await withExtraChanges(primaryChanges, turn.extraFrom, claim.changes, res.env) : primaryChanges;
+    // y el diff neto de la conversación (t#642), por lo mismo antes de soltar el worktree.
+    const runDiff = turn.runFrom !== null && claim.changes ? await runDiffReport(res.cwd.dir, turn.runFrom, claim.changes, res.env) : null;
     // los recursos se sueltan (el worktree se marca o se borra) ANTES de reportar: ver cabecera. y con sus
     // turnos aún tomados: un recurso exclusivo se suelta entero antes de que lo reciba el siguiente run.
     // un recurso que no se pudo preparar: nada se lanzó, se suelta todo como aborted (sin devolver nada al vault).
@@ -1420,6 +1457,7 @@ export class RunnerDaemon {
     await feed?.close();
     // tras el feed y antes del cierre: con el run aún corriendo, el server lo acepta (ver turn-changes.ts).
     if (changes !== null) await sup.platform.changes?.(run.id, changes, seg);
+    if (runDiff !== null) await sup.platform.changes?.(run.id, runDiff, seg);
     const code =
       restoreError !== null ? AUDIT_OUTCOME.runnerError : resourceMcp === null ? AUDIT_OUTCOME.resourceUnavailable : outcomeCode(report.status, attempt && attemptFacts(attempt));
     audited({ lockWaitMs, materialized: res.resources, report, toolsByName: attempt?.stream.toolsByName ?? {}, code });
@@ -1743,6 +1781,10 @@ export class RunnerDaemon {
       const primary = await turnChanges(res.cwd.dir, res.env, turn.changesFrom, claim.changes);
       const changes = await withExtraChanges(primary, turn.extraFrom, claim.changes, res.env);
       if (changes !== null) await sup.platform.changes?.(runId, changes, seg);
+    }
+    if (turn.runFrom !== null && claim.changes) {
+      const runDiff = await runDiffReport(res.cwd.dir, turn.runFrom, claim.changes, res.env);
+      if (runDiff !== null) await sup.platform.changes?.(runId, runDiff, seg);
     }
     const next = await snapshotStart();
     const out = await sup.platform.turn(runId, { segment: from, report: { ...ended.report, ...turn.start }, delivered });

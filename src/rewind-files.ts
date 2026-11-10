@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { headOf, snapshotTree } from './turn-changes.js';
+import { headOf, isTree, snapshotTree } from './turn-changes.js';
 import type { LegacyClaimRestore } from './vendor/runner-protocol/index.js';
 
 const execFileP = promisify(execFile);
@@ -24,21 +24,10 @@ const execFileP = promisify(execFile);
 const GIT_TIMEOUT_MS = 60_000;
 const GIT_MAX_BUFFER = 64 * 1024 * 1024;
 const TMP_PREFIX = 'duckhunt-rewind-';
-const GIT_TREE_TYPE = 'tree';
 
 async function git(cwd: string, args: string[], env: NodeJS.ProcessEnv): Promise<string> {
   const { stdout } = await execFileP('git', args, { cwd, env, timeout: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER, encoding: 'utf-8' });
   return stdout;
-}
-
-// ¿el objeto `id` sigue en el repo y es un tree?
-async function isTree(dir: string, env: NodeJS.ProcessEnv, id: string): Promise<boolean> {
-  try {
-    return (await git(dir, ['cat-file', '-t', id], env)).trim() === GIT_TREE_TYPE;
-  } catch {
-    // cat-file sale con error si el objeto no existe: es la respuesta, no un fallo.
-    return false;
-  }
 }
 
 // rutas (relativas) que hay en `now` y no en `then`: lo creado desde la foto.
