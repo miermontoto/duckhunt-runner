@@ -6,6 +6,15 @@
 // - la foto es un tree de git hecho con un índice TEMPORAL (copia del real → `add -A` → `write-tree`): cuenta lo que
 //   el agente creó o cambió con Bash o con un generador, respeta .gitignore (un .env ignorado nunca sale) y nunca
 //   toca el índice del usuario ni su rama. deja objetos sueltos en el repo, que su gc se lleva.
+// - la base del diff es la foto del inicio salvo que HEAD salte a OTRA línea en el turno (checkout de otra rama, pull,
+//   reset o rebase sobre un commit ajeno): contra la foto, la distancia entre las dos ramas contaba como trabajo del
+//   turno (un `checkout -b x origin/y` daba 3000 ficheros por 4 editados). entonces la base es la foto llevada con
+//   `merge-tree` (base: el HEAD del inicio) al primer commit de la nueva HEAD, por su primer padre, que ya existía al
+//   hacerla (fecha de commit <= la de la foto): cuenta lo que el turno commitea encima y lo que deja sin commitear, y lo
+//   que traía sin commitear de antes no cuenta otra vez. un salto por su propia línea (commits encima, reset hacia
+//   atrás) sigue con la foto. si merge-tree choca (conflicto) o el git es antiguo y no acepta árboles, se usa ese commit
+//   solo. non-goal: lo que trae un merge hecho en el turno sigue contando; un rebase cuenta otra vez los commits de la
+//   rama, porque los rehace.
 // - el diff no depende de la config de git del usuario: prefijos a/ b/ fijos, sin color, sin diff externo ni
 //   textconv (lanzarían programas suyos) y rutas sin comillas (core.quotePath=false): la web busca cada fichero
 //   por su cabecera `diff --git a/<ruta> b/<ruta>`.
@@ -53,6 +62,10 @@ const TMP_PREFIX = 'duckhunt-turn-';
 const RACY_MARGIN_MS = 1000;
 const FILE_HEADER = 'diff --git ';
 const STATUSES: ReadonlySet<string> = new Set(Object.values(RUN_CHANGE_STATUS));
+// salidas de git que son una respuesta, no un fallo: `merge-base --is-ancestor` (no lo es) y `merge-tree` (conflicto).
+const NOT_ANCESTOR_EXIT = 1;
+const MERGE_CONFLICT_EXIT = 1;
+const MS_PER_SECOND = 1000;
 // el diff de git sin nada de la config del usuario que cambie su forma o lance programas (ver cabecera).
 const diffArgs = (repo: string | null): string[] => {
   const prefix = repo === null ? '' : extraRepoPatchPath(repo, '');
@@ -96,6 +109,65 @@ export async function snapshotTree(dir: string, env: NodeJS.ProcessEnv): Promise
     return null;
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
+  }
+}
+
+/** HEAD de `dir` (el commit), o null si git falla (sin commits, no es un repo). */
+export async function headOf(dir: string, env: NodeJS.ProcessEnv): Promise<string | null> {
+  try {
+    return (await git(dir, ['rev-parse', '--verify', 'HEAD'], env)).trim() || null;
+  } catch (err) {
+    console.error(`[runner] HEAD del árbol de trabajo ilegible: ${(err as Error).message}`);
+    return null;
+  }
+}
+
+/** la foto del inicio de un turno: su tree, su HEAD (null = repo sin commits) y cuándo se hizo (ms). */
+export interface TurnStartSnapshot {
+  tree: string;
+  head: string | null;
+  at: number;
+}
+
+/** la foto del inicio de un turno de `dir` con su HEAD y su hora (la base de turnBase). null = git falló. */
+export async function startSnapshot(dir: string, env: NodeJS.ProcessEnv): Promise<TurnStartSnapshot | null> {
+  // la hora va antes de la foto: un commit de ese mismo segundo ya existía al empezar.
+  const at = Date.now();
+  const tree = await snapshotTree(dir, env);
+  return tree === null ? null : { tree, head: await headOf(dir, env), at };
+}
+
+// ¿`a` es `b` o un antecesor suyo?
+async function isAncestor(dir: string, env: NodeJS.ProcessEnv, a: string, b: string): Promise<boolean> {
+  return git(dir, ['merge-base', '--is-ancestor', a, b], env).then(
+    () => true,
+    (err: Error & { code?: unknown }) => {
+      if (err.code === NOT_ANCESTOR_EXIT) return false;
+      throw err;
+    },
+  );
+}
+
+/** la base contra la que se compara el final del turno (ver cabecera): la foto del inicio, o esa foto llevada al commit
+ *  ajeno al que saltó HEAD. nunca lanza: un git que falla deja la foto del inicio. */
+export async function turnBase(dir: string, env: NodeJS.ProcessEnv, start: TurnStartSnapshot): Promise<string> {
+  const end = start.head === null ? null : await headOf(dir, env);
+  if (start.head === null || end === null || end === start.head) return start.tree;
+  try {
+    const until = `--until=${Math.floor(start.at / MS_PER_SECOND)}`;
+    const onto = (await git(dir, ['rev-list', '-1', '--first-parent', until, end], env)).trim();
+    if (onto === '' || (await isAncestor(dir, env, onto, start.head))) return start.tree;
+    const mergeArgs = ['merge-tree', '--write-tree', '--no-messages', `--merge-base=${start.head}`, onto, start.tree];
+    return await git(dir, mergeArgs, env).then(
+      (out) => out.split('\n', 1)[0]!.trim() || `${onto}^{tree}`,
+      (err: Error & { code?: unknown }) => {
+        if (err.code !== MERGE_CONFLICT_EXIT) console.error(`[runner] la foto del inicio no pasa a ${onto}: ${err.message}`);
+        return `${onto}^{tree}`;
+      },
+    );
+  } catch (err) {
+    console.error(`[runner] base del diff del turno ilegible, queda la foto del inicio: ${(err as Error).message}`);
+    return start.tree;
   }
 }
 
@@ -203,16 +275,16 @@ export async function diffTrees(
   }
 }
 
-/** foto del final del turno + su diff contra la del principio (`repo` = el de un repo adicional, ver diffTrees). */
+/** foto del final del turno + su diff contra su base (turnBase; `repo` = el de un repo adicional, ver diffTrees). */
 export async function turnChanges(
   dir: string,
   env: NodeJS.ProcessEnv,
-  from: string,
+  from: TurnStartSnapshot,
   limits: LegacyClaimChanges,
   repo: string | null = null,
 ): Promise<RunChangesReport | null> {
   const to = await snapshotTree(dir, env);
-  return to === null ? null : diffTrees(dir, env, from, to, limits, repo);
+  return to === null ? null : diffTrees(dir, env, await turnBase(dir, env, from), to, limits, repo);
 }
 
 /** los topes que le quedan a un repo adicional tras lo que ya ocupa el informe (ver cabecera). */

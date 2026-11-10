@@ -13,10 +13,10 @@ import { announcedCapabilities } from '../src/announced-capabilities.js';
 import { buildClaudeArgs } from '../src/claude-args.js';
 import { consumeStreamLine, newStreamState, OPTIONAL_FLAGS, supportsRewind } from '../src/claude.js';
 import { parseClaim } from '../src/claim.js';
-import { headOf, restoreTree } from '../src/rewind-files.js';
+import { restoreTree } from '../src/rewind-files.js';
 import { reportFor } from '../src/status-report.js';
 import { scrubEnv } from '../src/scrub-env.js';
-import { snapshotTree } from '../src/turn-changes.js';
+import { headOf, snapshotTree } from '../src/turn-changes.js';
 import { REWIND_CLI_MIN_VERSION, RUNNER_CAPABILITY } from '../src/vendor/runner-protocol/index.js';
 
 const UUID = '8f14e45f-ceea-467a-9bb4-1f6c2d1e0a77';

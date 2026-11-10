@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { snapshotTree } from './turn-changes.js';
+import { headOf, snapshotTree } from './turn-changes.js';
 import type { LegacyClaimRestore } from './vendor/runner-protocol/index.js';
 
 const execFileP = promisify(execFile);
@@ -29,16 +29,6 @@ const GIT_TREE_TYPE = 'tree';
 async function git(cwd: string, args: string[], env: NodeJS.ProcessEnv): Promise<string> {
   const { stdout } = await execFileP('git', args, { cwd, env, timeout: GIT_TIMEOUT_MS, maxBuffer: GIT_MAX_BUFFER, encoding: 'utf-8' });
   return stdout;
-}
-
-/** HEAD de `dir` (el commit), o null si git falla (sin commits, no es un repo). */
-export async function headOf(dir: string, env: NodeJS.ProcessEnv): Promise<string | null> {
-  try {
-    return (await git(dir, ['rev-parse', '--verify', 'HEAD'], env)).trim() || null;
-  } catch (err) {
-    console.error(`[runner] HEAD del árbol de trabajo ilegible: ${(err as Error).message}`);
-    return null;
-  }
 }
 
 // ¿el objeto `id` sigue en el repo y es un tree?

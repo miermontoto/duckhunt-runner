@@ -157,8 +157,8 @@ import { EventUploader } from './event-uploader.js';
 import { clip, feedEventsFromStream, systemEvent, type FeedContext } from './feed.js';
 import { scrubEnv } from './scrub-env.js';
 import { reportFor, type Attempt, type KillReason, type StatusReport } from './status-report.js';
-import { combineChanges, remainingLimits, snapshotTree, turnChanges } from './turn-changes.js';
-import { assertRestorable, headOf, restoreTree } from './rewind-files.js';
+import { combineChanges, remainingLimits, startSnapshot, turnChanges, type TurnStartSnapshot } from './turn-changes.js';
+import { assertRestorable, restoreTree } from './rewind-files.js';
 import { sameRepoKey } from './repo-key.js';
 import { AuditLog, AUDIT_OUTCOME, claimedRecord, closedRecord, DAY_MS, nextMidnight, outcomeCode, pruneAudit, rejectedRecord, retentionDays, toolsetSummary, type AttemptFacts, type AuditSubject, type ClaimedRecord } from './audit.js';
 import { mergeShellVerdicts, readShellGuard, readShellLog, readShellNote } from './read-shell-guard.js';
@@ -219,9 +219,11 @@ const SHUTDOWN_GRACE_MS = 20_000;
 const EXIT_CODE_SIGINT = 130;
 const EXIT_CODE_SIGTERM = 143;
 // el turno en curso de un proceso vivo (t#636, fase 3): su foto de inicio y lo que contó el `result` que lo cerró.
+// la foto del inicio de un repo adicional (t#597): sin HEAD no se fotografía (su vuelta atrás lo necesita).
+type ExtraStart = { repo: string; dir: string } & TurnStartSnapshot & { head: string };
 interface TurnStart {
-  changesFrom: string | null;
-  extraFrom: Awaited<ReturnType<typeof extraSnapshots>>;
+  changesFrom: TurnStartSnapshot | null;
+  extraFrom: ExtraStart[];
   start: { startTree?: string; startHead?: string; extraStarts?: Array<{ repo: string; tree: string; head: string }> };
 }
 interface TurnEnded {
@@ -318,12 +320,11 @@ const localPart = (cfg: StoredConfig): LocalConfig => {
 
 // la foto y el HEAD de cada repo adicional del run (t#597) al empezar el turno; uno que no se puede fotografiar se queda
 // fuera (su diff y su vuelta atrás no estarán). i/o secuencial: git, uno tras otro.
-async function extraSnapshots(res: MaterializedRun): Promise<Array<{ repo: string; dir: string; tree: string; head: string }>> {
-  const out: Array<{ repo: string; dir: string; tree: string; head: string }> = [];
+async function extraSnapshots(res: MaterializedRun): Promise<ExtraStart[]> {
+  const out: ExtraStart[] = [];
   for (const a of res.addDirs.filter((d) => d.checkout)) {
-    const tree = await snapshotTree(a.dir, res.env);
-    const head = tree !== null ? await headOf(a.dir, res.env) : null;
-    if (tree !== null && head !== null) out.push({ repo: a.key, dir: a.dir, tree, head });
+    const snap = await startSnapshot(a.dir, res.env);
+    if (snap !== null && snap.head !== null) out.push({ repo: a.key, dir: a.dir, ...snap, head: snap.head });
   }
   return out;
 }
@@ -333,7 +334,7 @@ async function extraSnapshots(res: MaterializedRun): Promise<Array<{ repo: strin
  *  por lo mismo. */
 export async function withExtraChanges(
   primary: RunChangesReport | null,
-  extras: ReadonlyArray<{ repo: string; dir: string; tree: string }>,
+  extras: ReadonlyArray<{ repo: string; dir: string } & TurnStartSnapshot>,
   limits: LegacyClaimChanges,
   env: NodeJS.ProcessEnv,
 ): Promise<RunChangesReport | null> {
@@ -342,7 +343,7 @@ export async function withExtraChanges(
     const left = remainingLimits(limits, combined);
     // sin sitio en la lista solo cuenta en filesTotal: el patch de un fichero que no sale en ella no lo encontraría nadie.
     const room = left.filesMax === 0 ? { ...left, patchMaxChars: 0 } : left;
-    combined = combineChanges([combined, await turnChanges(x.dir, env, x.tree, room, x.repo)]);
+    combined = combineChanges([combined, await turnChanges(x.dir, env, x, room, x.repo)]);
   }
   return combined;
 }
@@ -1331,12 +1332,15 @@ export class RunnerDaemon {
     // diff del turno (t#514, turn-changes.ts): la foto de antes, ya con el turno del cwd tomado. y su HEAD (t#564): con la
     // foto, el punto al que podrá volver este turno. los de los repos adicionales (t#597), si el claim pide su diff.
     const snapshotStart = async (): Promise<TurnStart> => {
-      const changesFrom = claim.changes && res.cwd.checkout ? await snapshotTree(res.cwd.dir, res.env) : null;
-      const startHead = changesFrom !== null ? await headOf(res.cwd.dir, res.env) : null;
+      const changesFrom = claim.changes && res.cwd.checkout ? await startSnapshot(res.cwd.dir, res.env) : null;
       const extraFrom = changesFrom !== null && claim.changes?.extraRepos ? await extraSnapshots(res) : [];
       const start =
-        changesFrom !== null && startHead !== null
-          ? { startTree: changesFrom, startHead, ...(extraFrom.length > 0 ? { extraStarts: extraFrom.map(({ repo, tree, head }) => ({ repo, tree, head })) } : {}) }
+        changesFrom !== null && changesFrom.head !== null
+          ? {
+              startTree: changesFrom.tree,
+              startHead: changesFrom.head,
+              ...(extraFrom.length > 0 ? { extraStarts: extraFrom.map(({ repo, tree, head }) => ({ repo, tree, head })) } : {}),
+            }
           : {};
       return { changesFrom, extraFrom, start };
     };
