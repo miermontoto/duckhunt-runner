@@ -88,5 +88,9 @@ export const RUNNER_CAPABILITY = {
   // t#636, fase 3 (live.ts): con live_input, `live.turns`: el buzón trae mensajes de la persona, que el proceso toma en vivo
   // (--replay-user-messages como acuse), y cada `result` cierra un turno dentro del mismo proceso (POST …/turn).
   liveTurns: 'live_turns',
+  // t#642 (changes.ts::LegacyClaimRunChanges): con turn_changes, `changes.run`: al cerrar cada segmento sube además el
+  // diff NETO de la conversación (de la foto de `run.since`, o de la del primer turno de su proceso, al final), con
+  // `scope: run`. sin ella el claim no lleva la clave.
+  runChanges: 'run_changes',
 } as const;
 export type RunnerCapability = (typeof RUNNER_CAPABILITY)[keyof typeof RUNNER_CAPABILITY];

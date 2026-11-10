@@ -43,10 +43,10 @@ test('capacidades: model solo si el cli lista --model; prompt y las suyas solo c
     announcedCapabilities({ hasAws: true, supported: supportedFlags(help), ...over });
   const full = caps(HELP);
   assert.ok(full.includes('model'));
-  assert.deepEqual(full.slice(-4), ['model', 'toolset_v1', 'toolset_render', 'turn_changes'], 'al final: las de antes no cambian de orden');
+  assert.deepEqual(full.slice(-5), ['model', 'toolset_v1', 'toolset_render', 'turn_changes', 'run_changes'], 'al final: las de antes no cambian de orden');
   assert.ok(['aws', 'prompt', 'read_shell', 'native_memory', 'events', 'checkout', 'repo_edit', 'secret_paths', 'seed_budget', 'aws_strict', 'worktree_report', 'logout'].every((c) => full.includes(c)));
-  // sin --model, exactamente lo que anunciaba 0.11.0 más toolset_v1 y toolset_render (t#495, M5) y turn_changes (t#514)
-  // al final.
+  // sin --model, exactamente lo que anunciaba 0.11.0 más toolset_v1 y toolset_render (t#495, M5), turn_changes (t#514) y
+  // run_changes (t#642) al final.
   assert.deepEqual(caps(withoutModel), [
     'aws',
     'prompt',
@@ -63,6 +63,7 @@ test('capacidades: model solo si el cli lista --model; prompt y las suyas solo c
     'toolset_v1',
     'toolset_render',
     'turn_changes',
+    'run_changes',
   ]);
   // el interruptor del flip (defaults.toolsetRender: false): las de la sombra, sin toolset_render.
   assert.deepEqual(caps(HELP, { toolsetRender: false }), full.filter((c) => c !== 'toolset_render'));
