@@ -39,6 +39,9 @@ const AUDIT_DIR_MODE = 0o700;
 // vivos). es de la máquina, no de una plataforma: cada plataforma ve las claves que se le exponen.
 const BROWSER_VAULT_SUBDIR = 'browser-vault';
 const BROWSER_VAULT_DIR_MODE = 0o700;
+// homes de agente por conversación (t#440): <runnerHome>/backends/, aún sin estructurar. se declara aquí para
+// negarlo a los runs de lectura antes de que t#440 lo construya (la auth/sesión de los futuros backends).
+const BACKENDS_SUBDIR = 'backends';
 // dentro de un checkout: el directorio del daemon legacy y el de toda otra plataforma.
 const LEGACY_CHECKOUT_DIR = '.duckhunt';
 const CHECKOUT_DIR = '.runner';
@@ -135,6 +138,11 @@ export function auditDir(platform: string): string {
 /** ruta por defecto del vault de sesiones de navegador (<runnerHome>/browser-vault), sin crearlo. */
 export function defaultBrowserVaultPath(): string {
   return path.join(runnerHome(), BROWSER_VAULT_SUBDIR);
+}
+
+/** raíz de los homes de agente por conversación (<runnerHome>/backends), sin crearla (t#440). */
+export function backendsRoot(): string {
+  return path.join(runnerHome(), BACKENDS_SUBDIR);
 }
 
 /** crea (o cierra a 0700) el vault de sesiones de navegador `dir` y lo devuelve. */

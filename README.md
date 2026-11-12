@@ -413,6 +413,15 @@ including a platform added while the daemon runs (from its next step). Once a br
 configured, every run, `edit` included, is also denied the browser vault (see
 [Browser sessions](#browser-sessions-0130-or-later)).
 
+Read runs also deny the credential and session stores of other agent CLIs (Codex, OpenCode, Amp,
+Gemini, Copilot, Goose, Cursor) and the `.jsonl` transcripts of other Claude Code sessions and runs,
+so a read run cannot read another conversation's transcript, even one from another workspace; the
+native-memory `.md` files stay readable. The generic `~`-relative list comes from duckhunt and is
+shared with the server; the daemon adds the real path behind any of these that is a symlink and the
+relocated homes set by `CODEX_HOME`, `XDG_DATA_HOME` (OpenCode data), `OPENCODE_CONFIG_DIR`,
+`GEMINI_CLI_HOME` and `COPILOT_HOME`. It also denies `<runner home>/backends/`, where per-conversation
+agent homes will live.
+
 Checked with Claude Code 2.1.296: `Read`, `Grep` and `Glob` honour these deny rules, through symlinks
 and in recursive searches. The read-only shell approves nothing outside its working directory, and
 inside it honours a denied path named directly but not a recursive read, which is why a committed

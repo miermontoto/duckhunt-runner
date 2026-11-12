@@ -91,3 +91,34 @@ test('una ruta que no cabe en una regla de claude se salta y se dice', () => {
   assert.deepEqual(skipped, [path.join(home, 'aws,raro', 'config')]);
   assert.ok(rules.includes(rule(path.join(home, 'runner.json'))));
 });
+
+test('t#651: realpath de los almacenes de otros clis de agente cuando son symlinks; sin symlink no se repite', () => {
+  const home = path.join(root, 'u4');
+  const dotfiles = path.join(home, 'dotfiles');
+  fs.mkdirSync(path.join(dotfiles, 'codex'), { recursive: true });
+  fs.mkdirSync(path.join(dotfiles, 'opencode'), { recursive: true });
+  fs.mkdirSync(path.join(home, '.config'), { recursive: true });
+  // real, sin symlink: su ruta lógica ya la niega el server, aquí no se repite.
+  fs.mkdirSync(path.join(home, '.gemini'));
+  fs.symlinkSync(path.join(dotfiles, 'codex'), path.join(home, '.codex'));
+  fs.symlinkSync(path.join(dotfiles, 'opencode'), path.join(home, '.config', 'opencode'));
+  process.env.DUCKHUNT_RUNNER_HOME = path.join(home, '.duckhunt-runner');
+  process.env.DUCKHUNT_RUNNER_CONFIG = path.join(home, 'runner.json');
+  const { rules } = secretPathsDeny({}, home);
+  assert.ok(rules.includes(rule(path.join(dotfiles, 'codex'), true)), 'el realpath de ~/.codex');
+  assert.ok(rules.includes(rule(path.join(dotfiles, 'opencode'), true)), 'el realpath de ~/.config/opencode');
+  assert.ok(!rules.includes(rule(path.join(home, '.gemini'), true)), '~/.gemini real no se repite');
+});
+
+test('t#651: los homes reubicados por env de otros clis (CODEX_HOME, XDG_DATA_HOME/opencode) se niegan', () => {
+  const home = path.join(root, 'u5');
+  const codexHome = path.join(home, 'codex-home');
+  const xdg = path.join(home, 'xdg-data');
+  fs.mkdirSync(path.join(xdg, 'opencode'), { recursive: true });
+  fs.mkdirSync(codexHome, { recursive: true });
+  process.env.DUCKHUNT_RUNNER_HOME = path.join(home, '.duckhunt-runner');
+  process.env.DUCKHUNT_RUNNER_CONFIG = path.join(home, 'runner.json');
+  const { rules } = secretPathsDeny({ CODEX_HOME: codexHome, XDG_DATA_HOME: xdg }, home);
+  assert.ok(rules.includes(rule(codexHome, true)), 'CODEX_HOME');
+  assert.ok(rules.includes(rule(path.join(xdg, 'opencode'), true)), 'XDG_DATA_HOME/opencode');
+});

@@ -21,9 +21,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "73f6ad061dc79311",
-            "count": 2,
+            "disallowed": "3768c6ff19cd11e0",
+            "count": 3,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
@@ -108,9 +109,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "73f6ad061dc79311",
-            "count": 2,
+            "disallowed": "3768c6ff19cd11e0",
+            "count": 3,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
@@ -197,8 +199,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -206,7 +208,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -292,8 +295,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -301,7 +304,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -391,8 +395,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "81b845e3facfcf75",
-            "count": 62,
+            "disallowed": "f73e4060b265066c",
+            "count": 81,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -400,7 +404,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -486,8 +491,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "8e9884b41dbd7137",
-            "count": 64,
+            "disallowed": "f7be7a709f92cbd5",
+            "count": 83,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -495,7 +500,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -581,8 +587,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -590,7 +596,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -678,8 +685,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -687,7 +694,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -773,8 +781,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -782,7 +790,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -868,8 +877,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -877,7 +886,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -961,8 +971,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -970,7 +980,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -1058,9 +1069,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "73f6ad061dc79311",
-            "count": 2,
+            "disallowed": "3768c6ff19cd11e0",
+            "count": 3,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
@@ -1148,9 +1160,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "73f6ad061dc79311",
-            "count": 2,
+            "disallowed": "3768c6ff19cd11e0",
+            "count": 3,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
@@ -1235,9 +1248,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "73f6ad061dc79311",
-            "count": 2,
+            "disallowed": "3768c6ff19cd11e0",
+            "count": 3,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
@@ -1322,9 +1336,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "73f6ad061dc79311",
-            "count": 2,
+            "disallowed": "3768c6ff19cd11e0",
+            "count": 3,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
@@ -1412,9 +1427,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "73f6ad061dc79311",
-            "count": 2,
+            "disallowed": "3768c6ff19cd11e0",
+            "count": 3,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
@@ -1504,8 +1520,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -1513,7 +1529,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -1599,8 +1616,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -1608,7 +1625,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -1696,8 +1714,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -1705,7 +1723,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -1791,8 +1810,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -1800,7 +1819,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -1888,8 +1908,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -1897,7 +1917,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -1983,8 +2004,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -1992,7 +2013,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -2080,8 +2102,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -2089,7 +2111,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -2173,8 +2196,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -2182,7 +2205,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -2264,9 +2288,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "73f6ad061dc79311",
-            "count": 2,
+            "disallowed": "3768c6ff19cd11e0",
+            "count": 3,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
@@ -2349,9 +2374,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "73f6ad061dc79311",
-            "count": 2,
+            "disallowed": "3768c6ff19cd11e0",
+            "count": 3,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
@@ -2439,9 +2465,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "3cb7b0e0d1deab53",
-            "count": 4,
+            "disallowed": "9ec24e1a76da2d2b",
+            "count": 5,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
@@ -2527,9 +2554,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "3cb7b0e0d1deab53",
-            "count": 4,
+            "disallowed": "9ec24e1a76da2d2b",
+            "count": 5,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
@@ -2615,8 +2643,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -2624,7 +2652,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -2710,9 +2739,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "73f6ad061dc79311",
-            "count": 2,
+            "disallowed": "3768c6ff19cd11e0",
+            "count": 3,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
@@ -2799,9 +2829,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "73f6ad061dc79311",
-            "count": 2,
+            "disallowed": "3768c6ff19cd11e0",
+            "count": 3,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
@@ -2869,9 +2900,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "73f6ad061dc79311",
-            "count": 2,
+            "disallowed": "3768c6ff19cd11e0",
+            "count": 3,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
@@ -2956,9 +2988,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "73f6ad061dc79311",
-            "count": 2,
+            "disallowed": "3768c6ff19cd11e0",
+            "count": 3,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
@@ -3041,8 +3074,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -3050,7 +3083,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -3136,8 +3170,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -3145,7 +3179,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -3229,9 +3264,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "73f6ad061dc79311",
-            "count": 2,
+            "disallowed": "3768c6ff19cd11e0",
+            "count": 3,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
@@ -3318,8 +3354,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -3327,7 +3363,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -3413,8 +3450,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -3422,7 +3459,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -3508,9 +3546,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "3cb7b0e0d1deab53",
-            "count": 4,
+            "disallowed": "9ec24e1a76da2d2b",
+            "count": 5,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
@@ -3595,9 +3634,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "3cb7b0e0d1deab53",
-            "count": 4,
+            "disallowed": "9ec24e1a76da2d2b",
+            "count": 5,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
@@ -3682,9 +3722,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "73f6ad061dc79311",
-            "count": 2,
+            "disallowed": "3768c6ff19cd11e0",
+            "count": 3,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
@@ -3769,9 +3810,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "73f6ad061dc79311",
-            "count": 2,
+            "disallowed": "3768c6ff19cd11e0",
+            "count": 3,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
@@ -3856,9 +3898,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "73f6ad061dc79311",
-            "count": 2,
+            "disallowed": "3768c6ff19cd11e0",
+            "count": 3,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
@@ -3923,6 +3966,104 @@
       ]
     }
   },
+  "claim-kits/prompt-read-act-after-form-note": {
+    "spawns": [
+      {
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-241",
+        "argv": [
+          "-p",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--forward-subagent-text",
+          "--mcp-config",
+          "<case>/home/run-config/mcp-241-<rand>.json",
+          "--strict-mcp-config",
+          "--setting-sources",
+          "user",
+          "--allowedTools",
+          {
+            "allowed": "1383081e55085e18",
+            "count": 396,
+            "notFromClaim": [],
+            "dropped": []
+          },
+          "--disallowedTools",
+          {
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
+            "notFromClaim": [
+              "Bash(npm test:*)",
+              "Edit(src/**)",
+              "Read(/<case>/runner.json)",
+              "Read(/<case>/home/run-config/**)",
+              "Read(/<case>/home/logs/**)",
+              "Read(/<case>/home/daemon.lock)",
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
+            ]
+          },
+          "--permission-mode",
+          "dontAsk",
+          "--resume",
+          "s1",
+          "--",
+          "<claim.prompt>"
+        ],
+        "env": {
+          "set": {
+            "AWS_PAGER": "",
+            "DUCKHUNT_RUNNER_CONFIG": "<case>/runner.json",
+            "DUCKHUNT_RUNNER_HOME": "<case>/home",
+            "GIT_TERMINAL_PROMPT": "0"
+          },
+          "removed": [
+            "ANTHROPIC_API_KEY",
+            "CLAUDECODE",
+            "CLAUDE_CODE_SESSION_ID"
+          ]
+        },
+        "mcp": "{\"mcpServers\":{\"duckhunt\":{\"type\":\"http\",\"url\":\"http://duckhunt.test/mcp\",\"headers\":{\"Authorization\":\"Bearer dho_fixture\"}}}}"
+      }
+    ],
+    "runs": {
+      "241": {
+        "progress": [
+          "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":2}"
+        ],
+        "feed": [
+          {
+            "kind": "system",
+            "body": "origin/main@<sha>",
+            "seq": 1
+          },
+          {
+            "kind": "text",
+            "body": "miro el repo",
+            "seq": 2
+          },
+          {
+            "kind": "tool",
+            "tool": "Read",
+            "body": "README.md",
+            "seq": 3
+          }
+        ],
+        "status": [
+          "{\"status\":\"done\",\"toolCalls\":1,\"costUsd\":0.5,\"numTurns\":2,\"sessionId\":\"s1\",\"model\":\"claude-opus-5-5\",\"resumed\":true,\"result\":\"hecho\",\"segment\":2}"
+        ]
+      }
+    },
+    "left": {
+      "runConfig": [],
+      "worktrees": [
+        "conv-241"
+      ],
+      "exclude": [
+        "/.duckhunt/"
+      ]
+    }
+  },
   "claim-kits/prompt-read-act-after-form-yes": {
     "spawns": [
       {
@@ -3947,8 +4088,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -3956,7 +4097,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -4044,8 +4186,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -4053,7 +4195,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -4141,8 +4284,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -4150,7 +4293,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -4214,6 +4358,300 @@
       ]
     }
   },
+  "claim-kits/prompt-read-act-after-pick-and-message": {
+    "spawns": [
+      {
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-245",
+        "argv": [
+          "-p",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--forward-subagent-text",
+          "--mcp-config",
+          "<case>/home/run-config/mcp-245-<rand>.json",
+          "--strict-mcp-config",
+          "--setting-sources",
+          "user",
+          "--allowedTools",
+          {
+            "allowed": "1383081e55085e18",
+            "count": 396,
+            "notFromClaim": [],
+            "dropped": []
+          },
+          "--disallowedTools",
+          {
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
+            "notFromClaim": [
+              "Bash(npm test:*)",
+              "Edit(src/**)",
+              "Read(/<case>/runner.json)",
+              "Read(/<case>/home/run-config/**)",
+              "Read(/<case>/home/logs/**)",
+              "Read(/<case>/home/daemon.lock)",
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
+            ]
+          },
+          "--permission-mode",
+          "dontAsk",
+          "--resume",
+          "s1",
+          "--",
+          "<claim.prompt>"
+        ],
+        "env": {
+          "set": {
+            "AWS_PAGER": "",
+            "DUCKHUNT_RUNNER_CONFIG": "<case>/runner.json",
+            "DUCKHUNT_RUNNER_HOME": "<case>/home",
+            "GIT_TERMINAL_PROMPT": "0"
+          },
+          "removed": [
+            "ANTHROPIC_API_KEY",
+            "CLAUDECODE",
+            "CLAUDE_CODE_SESSION_ID"
+          ]
+        },
+        "mcp": "{\"mcpServers\":{\"duckhunt\":{\"type\":\"http\",\"url\":\"http://duckhunt.test/mcp\",\"headers\":{\"Authorization\":\"Bearer dho_fixture\"}}}}"
+      }
+    ],
+    "runs": {
+      "245": {
+        "progress": [
+          "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":2}"
+        ],
+        "feed": [
+          {
+            "kind": "system",
+            "body": "origin/main@<sha>",
+            "seq": 1
+          },
+          {
+            "kind": "text",
+            "body": "miro el repo",
+            "seq": 2
+          },
+          {
+            "kind": "tool",
+            "tool": "Read",
+            "body": "README.md",
+            "seq": 3
+          }
+        ],
+        "status": [
+          "{\"status\":\"done\",\"toolCalls\":1,\"costUsd\":0.5,\"numTurns\":2,\"sessionId\":\"s1\",\"model\":\"claude-opus-5-5\",\"resumed\":true,\"result\":\"hecho\",\"segment\":2}"
+        ]
+      }
+    },
+    "left": {
+      "runConfig": [],
+      "worktrees": [
+        "conv-245"
+      ],
+      "exclude": [
+        "/.duckhunt/"
+      ]
+    }
+  },
+  "claim-kits/prompt-read-act-after-pick-note": {
+    "spawns": [
+      {
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-244",
+        "argv": [
+          "-p",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--forward-subagent-text",
+          "--mcp-config",
+          "<case>/home/run-config/mcp-244-<rand>.json",
+          "--strict-mcp-config",
+          "--setting-sources",
+          "user",
+          "--allowedTools",
+          {
+            "allowed": "1383081e55085e18",
+            "count": 396,
+            "notFromClaim": [],
+            "dropped": []
+          },
+          "--disallowedTools",
+          {
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
+            "notFromClaim": [
+              "Bash(npm test:*)",
+              "Edit(src/**)",
+              "Read(/<case>/runner.json)",
+              "Read(/<case>/home/run-config/**)",
+              "Read(/<case>/home/logs/**)",
+              "Read(/<case>/home/daemon.lock)",
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
+            ]
+          },
+          "--permission-mode",
+          "dontAsk",
+          "--resume",
+          "s1",
+          "--",
+          "<claim.prompt>"
+        ],
+        "env": {
+          "set": {
+            "AWS_PAGER": "",
+            "DUCKHUNT_RUNNER_CONFIG": "<case>/runner.json",
+            "DUCKHUNT_RUNNER_HOME": "<case>/home",
+            "GIT_TERMINAL_PROMPT": "0"
+          },
+          "removed": [
+            "ANTHROPIC_API_KEY",
+            "CLAUDECODE",
+            "CLAUDE_CODE_SESSION_ID"
+          ]
+        },
+        "mcp": "{\"mcpServers\":{\"duckhunt\":{\"type\":\"http\",\"url\":\"http://duckhunt.test/mcp\",\"headers\":{\"Authorization\":\"Bearer dho_fixture\"}}}}"
+      }
+    ],
+    "runs": {
+      "244": {
+        "progress": [
+          "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":2}"
+        ],
+        "feed": [
+          {
+            "kind": "system",
+            "body": "origin/main@<sha>",
+            "seq": 1
+          },
+          {
+            "kind": "text",
+            "body": "miro el repo",
+            "seq": 2
+          },
+          {
+            "kind": "tool",
+            "tool": "Read",
+            "body": "README.md",
+            "seq": 3
+          }
+        ],
+        "status": [
+          "{\"status\":\"done\",\"toolCalls\":1,\"costUsd\":0.5,\"numTurns\":2,\"sessionId\":\"s1\",\"model\":\"claude-opus-5-5\",\"resumed\":true,\"result\":\"hecho\",\"segment\":2}"
+        ]
+      }
+    },
+    "left": {
+      "runConfig": [],
+      "worktrees": [
+        "conv-244"
+      ],
+      "exclude": [
+        "/.duckhunt/"
+      ]
+    }
+  },
+  "claim-kits/prompt-read-act-after-typed-label": {
+    "spawns": [
+      {
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-246",
+        "argv": [
+          "-p",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--forward-subagent-text",
+          "--mcp-config",
+          "<case>/home/run-config/mcp-246-<rand>.json",
+          "--strict-mcp-config",
+          "--setting-sources",
+          "user",
+          "--allowedTools",
+          {
+            "allowed": "1383081e55085e18",
+            "count": 396,
+            "notFromClaim": [],
+            "dropped": []
+          },
+          "--disallowedTools",
+          {
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
+            "notFromClaim": [
+              "Bash(npm test:*)",
+              "Edit(src/**)",
+              "Read(/<case>/runner.json)",
+              "Read(/<case>/home/run-config/**)",
+              "Read(/<case>/home/logs/**)",
+              "Read(/<case>/home/daemon.lock)",
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
+            ]
+          },
+          "--permission-mode",
+          "dontAsk",
+          "--resume",
+          "s1",
+          "--",
+          "<claim.prompt>"
+        ],
+        "env": {
+          "set": {
+            "AWS_PAGER": "",
+            "DUCKHUNT_RUNNER_CONFIG": "<case>/runner.json",
+            "DUCKHUNT_RUNNER_HOME": "<case>/home",
+            "GIT_TERMINAL_PROMPT": "0"
+          },
+          "removed": [
+            "ANTHROPIC_API_KEY",
+            "CLAUDECODE",
+            "CLAUDE_CODE_SESSION_ID"
+          ]
+        },
+        "mcp": "{\"mcpServers\":{\"duckhunt\":{\"type\":\"http\",\"url\":\"http://duckhunt.test/mcp\",\"headers\":{\"Authorization\":\"Bearer dho_fixture\"}}}}"
+      }
+    ],
+    "runs": {
+      "246": {
+        "progress": [
+          "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":2}"
+        ],
+        "feed": [
+          {
+            "kind": "system",
+            "body": "origin/main@<sha>",
+            "seq": 1
+          },
+          {
+            "kind": "text",
+            "body": "miro el repo",
+            "seq": 2
+          },
+          {
+            "kind": "tool",
+            "tool": "Read",
+            "body": "README.md",
+            "seq": 3
+          }
+        ],
+        "status": [
+          "{\"status\":\"done\",\"toolCalls\":1,\"costUsd\":0.5,\"numTurns\":2,\"sessionId\":\"s1\",\"model\":\"claude-opus-5-5\",\"resumed\":true,\"result\":\"hecho\",\"segment\":2}"
+        ]
+      }
+    },
+    "left": {
+      "runConfig": [],
+      "worktrees": [
+        "conv-246"
+      ],
+      "exclude": [
+        "/.duckhunt/"
+      ]
+    }
+  },
   "claim-kits/prompt-read-checkout": {
     "spawns": [
       {
@@ -4238,8 +4676,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -4247,7 +4685,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -4331,8 +4770,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -4340,7 +4779,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -4426,8 +4866,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -4435,7 +4875,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -4521,8 +4962,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -4530,7 +4971,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -4616,8 +5058,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -4625,7 +5067,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -4711,8 +5154,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -4720,7 +5163,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -4789,8 +5233,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -4798,7 +5242,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -4884,8 +5329,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -4893,7 +5338,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -4981,8 +5427,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "8c778bbf83b4c951",
-            "count": 62,
+            "disallowed": "d26bcf588943c83d",
+            "count": 81,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -4990,7 +5436,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -5059,8 +5506,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -5068,7 +5515,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -5154,8 +5602,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -5163,7 +5611,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -5232,8 +5681,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "3e8e556a3ed6870d",
-            "count": 73,
+            "disallowed": "dd4a80094ce30781",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -5241,7 +5690,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -5327,8 +5777,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "8c778bbf83b4c951",
-            "count": 62,
+            "disallowed": "d26bcf588943c83d",
+            "count": 81,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -5336,7 +5786,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -5422,8 +5873,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -5431,7 +5882,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -5513,8 +5965,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -5522,7 +5974,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -5608,8 +6061,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -5617,7 +6070,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -5703,8 +6157,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -5712,7 +6166,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -5798,8 +6253,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -5807,7 +6262,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -5895,8 +6351,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "fbf2d6beab7685a0",
-            "count": 73,
+            "disallowed": "12337972b9636fbd",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -5904,7 +6360,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -5990,8 +6447,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -5999,7 +6456,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -6061,6 +6519,104 @@
       ]
     }
   },
+  "claim-kits/prompt-read-world-after-yes-note": {
+    "spawns": [
+      {
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-242",
+        "argv": [
+          "-p",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--forward-subagent-text",
+          "--mcp-config",
+          "<case>/home/run-config/mcp-242-<rand>.json",
+          "--strict-mcp-config",
+          "--setting-sources",
+          "user",
+          "--allowedTools",
+          {
+            "allowed": "36ec603ad3f24c97",
+            "count": 405,
+            "notFromClaim": [],
+            "dropped": []
+          },
+          "--disallowedTools",
+          {
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
+            "notFromClaim": [
+              "Bash(npm test:*)",
+              "Edit(src/**)",
+              "Read(/<case>/runner.json)",
+              "Read(/<case>/home/run-config/**)",
+              "Read(/<case>/home/logs/**)",
+              "Read(/<case>/home/daemon.lock)",
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
+            ]
+          },
+          "--permission-mode",
+          "dontAsk",
+          "--resume",
+          "s1",
+          "--",
+          "<claim.prompt>"
+        ],
+        "env": {
+          "set": {
+            "AWS_PAGER": "",
+            "DUCKHUNT_RUNNER_CONFIG": "<case>/runner.json",
+            "DUCKHUNT_RUNNER_HOME": "<case>/home",
+            "GIT_TERMINAL_PROMPT": "0"
+          },
+          "removed": [
+            "ANTHROPIC_API_KEY",
+            "CLAUDECODE",
+            "CLAUDE_CODE_SESSION_ID"
+          ]
+        },
+        "mcp": "{\"mcpServers\":{\"duckhunt\":{\"type\":\"http\",\"url\":\"http://duckhunt.test/mcp\",\"headers\":{\"Authorization\":\"Bearer dho_fixture\"}}}}"
+      }
+    ],
+    "runs": {
+      "242": {
+        "progress": [
+          "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":2}"
+        ],
+        "feed": [
+          {
+            "kind": "system",
+            "body": "origin/main@<sha>",
+            "seq": 1
+          },
+          {
+            "kind": "text",
+            "body": "miro el repo",
+            "seq": 2
+          },
+          {
+            "kind": "tool",
+            "tool": "Read",
+            "body": "README.md",
+            "seq": 3
+          }
+        ],
+        "status": [
+          "{\"status\":\"done\",\"toolCalls\":1,\"costUsd\":0.5,\"numTurns\":2,\"sessionId\":\"s1\",\"model\":\"claude-opus-5-5\",\"resumed\":true,\"result\":\"hecho\",\"segment\":2}"
+        ]
+      }
+    },
+    "left": {
+      "runConfig": [],
+      "worktrees": [
+        "conv-242"
+      ],
+      "exclude": [
+        "/.duckhunt/"
+      ]
+    }
+  },
   "claim-kits/prompt-read-world-after-yes": {
     "spawns": [
       {
@@ -6085,8 +6641,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -6094,7 +6650,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -6182,8 +6739,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -6191,7 +6748,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -6278,8 +6836,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -6287,7 +6845,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -6371,9 +6930,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "73f6ad061dc79311",
-            "count": 2,
+            "disallowed": "3768c6ff19cd11e0",
+            "count": 3,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
@@ -6460,9 +7020,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "c790df4974aa4e4b",
-            "count": 4,
+            "disallowed": "ec81e918b97b3e72",
+            "count": 5,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
@@ -6549,9 +7110,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f41480363db435e2",
-            "count": 7,
+            "disallowed": "d2860bcb15564f3c",
+            "count": 8,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
@@ -6638,8 +7200,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -6647,7 +7209,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -6729,8 +7292,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -6738,7 +7301,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -6826,8 +7390,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -6835,7 +7399,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -6921,8 +7486,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -6930,7 +7495,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -7010,9 +7576,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f41480363db435e2",
-            "count": 7,
+            "disallowed": "d2860bcb15564f3c",
+            "count": 8,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
@@ -7099,8 +7666,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -7108,7 +7675,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -7198,8 +7766,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -7207,7 +7775,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -7297,8 +7866,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -7306,7 +7875,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -7396,8 +7966,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -7405,7 +7975,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -7495,8 +8066,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "81b845e3facfcf75",
-            "count": 62,
+            "disallowed": "f73e4060b265066c",
+            "count": 81,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -7504,7 +8075,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -7592,8 +8164,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "8e9884b41dbd7137",
-            "count": 64,
+            "disallowed": "f7be7a709f92cbd5",
+            "count": 83,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -7601,7 +8173,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -7687,8 +8260,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "81b845e3facfcf75",
-            "count": 62,
+            "disallowed": "f73e4060b265066c",
+            "count": 81,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -7696,7 +8269,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -7782,8 +8356,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -7791,7 +8365,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -7879,8 +8454,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -7888,7 +8463,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -7959,8 +8535,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -7968,7 +8544,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -8056,8 +8633,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -8065,7 +8642,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -8151,8 +8729,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -8160,7 +8738,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -8246,8 +8825,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -8255,7 +8834,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -8343,8 +8923,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "8e9884b41dbd7137",
-            "count": 64,
+            "disallowed": "f7be7a709f92cbd5",
+            "count": 83,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -8352,7 +8932,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -8421,8 +9002,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -8430,7 +9011,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -8516,8 +9098,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "7d209012e22d294c",
-            "count": 75,
+            "disallowed": "c6403e087c3b8c4b",
+            "count": 94,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -8525,7 +9107,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -8613,8 +9196,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "8e9884b41dbd7137",
-            "count": 64,
+            "disallowed": "f7be7a709f92cbd5",
+            "count": 83,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -8622,7 +9205,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -8708,8 +9292,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -8717,7 +9301,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -8801,8 +9386,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -8810,7 +9395,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -8898,8 +9484,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -8907,7 +9493,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -8995,8 +9582,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -9004,7 +9591,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -9092,8 +9680,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -9101,7 +9689,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -9189,8 +9778,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -9198,7 +9787,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -9286,8 +9876,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -9295,7 +9885,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -9383,8 +9974,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -9392,7 +9983,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -9481,8 +10073,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -9490,7 +10082,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -9580,8 +10173,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "7d209012e22d294c",
-            "count": 75,
+            "disallowed": "c6403e087c3b8c4b",
+            "count": 94,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -9589,7 +10182,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -9677,8 +10271,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -9686,7 +10280,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -9772,8 +10367,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "7634e33af6150004",
-            "count": 76,
+            "disallowed": "39d8e3656a40e4dd",
+            "count": 95,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -9781,7 +10376,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -9869,8 +10465,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -9878,7 +10474,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -9964,8 +10561,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -9973,7 +10570,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -10037,6 +10635,106 @@
       ]
     }
   },
+  "claim-kits/template-world-after-yes-note": {
+    "spawns": [
+      {
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-243",
+        "argv": [
+          "-p",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--forward-subagent-text",
+          "--mcp-config",
+          "<case>/home/run-config/mcp-243-<rand>.json",
+          "--strict-mcp-config",
+          "--setting-sources",
+          "user",
+          "--allowedTools",
+          {
+            "allowed": "992906757898eb05",
+            "count": 403,
+            "notFromClaim": [],
+            "dropped": []
+          },
+          "--disallowedTools",
+          {
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
+            "notFromClaim": [
+              "Bash(npm test:*)",
+              "Edit(src/**)",
+              "Read(/<case>/runner.json)",
+              "Read(/<case>/home/run-config/**)",
+              "Read(/<case>/home/logs/**)",
+              "Read(/<case>/home/daemon.lock)",
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
+            ]
+          },
+          "--permission-mode",
+          "dontAsk",
+          "--resume",
+          "s1",
+          "--",
+          "<claim.prompt>"
+        ],
+        "env": {
+          "set": {
+            "AWS_DEFAULT_REGION": "eu-west-1",
+            "AWS_PAGER": "",
+            "AWS_PROFILE": "okt-prod",
+            "DUCKHUNT_RUNNER_CONFIG": "<case>/runner.json",
+            "DUCKHUNT_RUNNER_HOME": "<case>/home",
+            "GIT_TERMINAL_PROMPT": "0"
+          },
+          "removed": [
+            "ANTHROPIC_API_KEY",
+            "CLAUDECODE",
+            "CLAUDE_CODE_SESSION_ID"
+          ]
+        },
+        "mcp": "{\"mcpServers\":{\"duckhunt\":{\"type\":\"http\",\"url\":\"http://duckhunt.test/mcp\",\"headers\":{\"Authorization\":\"Bearer dho_fixture\"}}}}"
+      }
+    ],
+    "runs": {
+      "243": {
+        "progress": [
+          "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":2}"
+        ],
+        "feed": [
+          {
+            "kind": "system",
+            "body": "origin/main@<sha>",
+            "seq": 1
+          },
+          {
+            "kind": "text",
+            "body": "miro el repo",
+            "seq": 2
+          },
+          {
+            "kind": "tool",
+            "tool": "Read",
+            "body": "README.md",
+            "seq": 3
+          }
+        ],
+        "status": [
+          "{\"status\":\"done\",\"toolCalls\":1,\"costUsd\":0.5,\"numTurns\":2,\"sessionId\":\"s1\",\"model\":\"claude-opus-5-5\",\"resumed\":true,\"result\":\"hecho\",\"segment\":2}"
+        ]
+      }
+    },
+    "left": {
+      "runConfig": [],
+      "worktrees": [
+        "conv-243"
+      ],
+      "exclude": [
+        "/.duckhunt/"
+      ]
+    }
+  },
   "claim-kits/template-world-after-yes": {
     "spawns": [
       {
@@ -10061,8 +10759,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -10070,7 +10768,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -10160,8 +10859,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "81b845e3facfcf75",
-            "count": 62,
+            "disallowed": "f73e4060b265066c",
+            "count": 81,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -10169,7 +10868,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -10257,8 +10957,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -10266,7 +10966,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -10354,8 +11055,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "b6e5ed6ecf489fbd",
-            "count": 8,
+            "disallowed": "e28dc34c8ca88d74",
+            "count": 9,
             "notFromClaim": [
               "Edit(src/**)",
               "Write(docs/**)",
@@ -10363,7 +11064,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -10447,8 +11149,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "b6e5ed6ecf489fbd",
-            "count": 8,
+            "disallowed": "e28dc34c8ca88d74",
+            "count": 9,
             "notFromClaim": [
               "Edit(src/**)",
               "Write(docs/**)",
@@ -10456,7 +11158,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -10542,8 +11245,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "c90d609901d0a46c",
-            "count": 10,
+            "disallowed": "9dba1d9028672561",
+            "count": 11,
             "notFromClaim": [
               "Edit(src/**)",
               "Write(docs/**)",
@@ -10553,7 +11256,8 @@
               "Read(/<case>/home/daemon.lock)",
               "Read(/<case>/home/server-state.json)",
               "Edit",
-              "Write"
+              "Write",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -10638,8 +11342,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -10647,7 +11351,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -10744,8 +11449,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -10753,7 +11458,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -10840,8 +11546,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -10849,7 +11555,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -10937,8 +11644,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -10946,7 +11653,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -11048,9 +11756,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "73f6ad061dc79311",
-            "count": 2,
+            "disallowed": "3768c6ff19cd11e0",
+            "count": 3,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
@@ -11094,9 +11803,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "73f6ad061dc79311",
-            "count": 2,
+            "disallowed": "3768c6ff19cd11e0",
+            "count": 3,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
@@ -11203,8 +11913,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -11212,7 +11922,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -11259,8 +11970,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -11268,7 +11979,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -11358,9 +12070,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "73f6ad061dc79311",
-            "count": 2,
+            "disallowed": "3768c6ff19cd11e0",
+            "count": 3,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
@@ -11404,9 +12117,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "73f6ad061dc79311",
-            "count": 2,
+            "disallowed": "3768c6ff19cd11e0",
+            "count": 3,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
@@ -11819,8 +12533,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "9e494e2c46f5b43a",
-            "count": 72,
+            "disallowed": "e53c5c5eff5434b6",
+            "count": 91,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -11829,7 +12543,8 @@
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
               "Read(/<case>/home/server-state.json)",
-              "Bash"
+              "Bash",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -11920,8 +12635,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "17a2e904671ab700",
-            "count": 73,
+            "disallowed": "f5aa6f008a8dbea4",
+            "count": 92,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -11929,7 +12644,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -12019,9 +12735,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "73f6ad061dc79311",
-            "count": 2,
+            "disallowed": "3768c6ff19cd11e0",
+            "count": 3,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
@@ -12102,9 +12819,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "73f6ad061dc79311",
-            "count": 2,
+            "disallowed": "3768c6ff19cd11e0",
+            "count": 3,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
@@ -12196,8 +12914,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -12205,7 +12923,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -12255,8 +12974,8 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "f8c30cdda3ec790c",
-            "count": 71,
+            "disallowed": "07887bb9d9fd1e7d",
+            "count": 90,
             "notFromClaim": [
               "Bash(npm test:*)",
               "Edit(src/**)",
@@ -12264,7 +12983,8 @@
               "Read(/<case>/home/run-config/**)",
               "Read(/<case>/home/logs/**)",
               "Read(/<case>/home/daemon.lock)",
-              "Read(/<case>/home/server-state.json)"
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
             ]
           },
           "--permission-mode",
@@ -12388,9 +13108,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "73f6ad061dc79311",
-            "count": 2,
+            "disallowed": "3768c6ff19cd11e0",
+            "count": 3,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
@@ -12499,9 +13220,10 @@
           },
           "--disallowedTools",
           {
-            "disallowed": "73f6ad061dc79311",
-            "count": 2,
+            "disallowed": "3768c6ff19cd11e0",
+            "count": 3,
             "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
               "Read(/<case>/home/run-config/**)"
             ]
           },
