@@ -3,6 +3,7 @@
 // la parada y el exit code de la plataforma legacy, la única de esos casos) para que sus aserciones no cambien.
 
 import type { ClaimResponse } from '../src/claim.js';
+import type { ClaudeInfo } from '../src/claude.js';
 import type { RunnerConfig } from '../src/config.js';
 import { RunnerDaemon, type DaemonOptions } from '../src/daemon.js';
 import { LEGACY_PLATFORM_ID } from '../src/paths.js';
@@ -59,4 +60,9 @@ export function legacyDaemon(d: DaemonInternals): LegacyDaemon {
       return d.exitCode;
     },
   };
+}
+
+/** fija lo que el daemon sabe del cli de claude en vez de detectarlo: el único sitio de las pruebas que sabe dónde lo guarda. */
+export function setClaudeInfo(d: unknown, info: ClaudeInfo): void {
+  (d as { claude: ClaudeInfo }).claude = info;
 }

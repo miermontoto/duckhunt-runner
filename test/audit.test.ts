@@ -21,8 +21,9 @@ import { PLATFORM_STATE } from '../src/platforms/supervisor.js';
 import { RunLease } from '../src/run-lease.js';
 import { writeServerState } from '../src/server-state.js';
 import { platformsStatus } from '../src/status.js';
-import { internals, legacyOf, type DaemonInternals, type SupervisorInternals } from './daemon-harness.js';
+import { internals, legacyOf, setClaudeInfo, type DaemonInternals, type SupervisorInternals } from './daemon-harness.js';
 import { fakeFactories, type FakePlatform } from './fake-platform.js';
+import { replayBody, writeFakeClaude } from './fakes/fake-claude.js';
 
 const FIXTURES = new URL('../../test/fixtures/', import.meta.url);
 // lo que nunca puede acabar en la auditoría.
@@ -54,7 +55,7 @@ async function daemon(t: TestContext, platforms: object | null): Promise<{ d: Da
   const { factories, created } = fakeFactories();
   const d = internals(loadConfig()!, { factories });
   await d.reloadConfig();
-  (d as unknown as { claude: unknown }).claude = { version: '2.1.296', supported: new Set(OPTIONAL_FLAGS) };
+  setClaudeInfo(d, { version: '2.1.296', supported: new Set(OPTIONAL_FLAGS) });
   return { d, created };
 }
 
@@ -90,7 +91,7 @@ before(() => {
     },
     { type: 'result', subtype: 'success', is_error: false, result: MARKER.result, total_cost_usd: COST_USD, num_turns: TURNS, session_id: 's-1' },
   ];
-  fs.writeFileSync(path.join(bin, 'claude'), `#!/usr/bin/env node\nprocess.stdout.write(${JSON.stringify(lines.map((l) => JSON.stringify(l)).join('\n'))} + '\\n');\n`, { mode: 0o755 });
+  writeFakeClaude(bin, replayBody(lines));
 });
 
 beforeEach(() => {
