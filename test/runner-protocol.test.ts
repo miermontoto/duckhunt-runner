@@ -71,3 +71,21 @@ test('los módulos vendorizados son los copiados: un retoque a mano se nota', ()
   assert.deepEqual(modules, Object.keys(record.files).sort(), 'módulos de más o de menos en src/vendor/runner-protocol');
   modules.forEach((m) => assert.equal(sha256(fs.readFileSync(new URL(m, VENDOR))), record.files[m], `${m} no es el vendorizado: cámbialo en duckhunt y vuelve a vendorizar`));
 });
+
+// las listas a mano del script de vendorizar (t#440 P0): sus FIXTURE_SUBDIRS son los de este test y los del manifiesto, y
+// sus MODULES son el barrel y todo lo que reexporta. un dir o un módulo nuevo del paquete sin su entrada allí no se copia.
+const VENDOR_SCRIPT = fs.readFileSync(new URL('../../scripts/vendor-protocol.mjs', import.meta.url), 'utf8');
+const scriptList = (name: string): string[] => {
+  const m = new RegExp(`const ${name} = \\[([^\\]]*)\\]`).exec(VENDOR_SCRIPT);
+  assert.ok(m, `scripts/vendor-protocol.mjs sin ${name}`);
+  return Array.from(m[1]!.matchAll(/'([^']+)'/g), (x) => x[1]!).sort();
+};
+
+test('el script de vendorizar cubre los dirs del manifiesto y todo módulo que reexporta el barrel', () => {
+  const dirs = scriptList('FIXTURE_SUBDIRS');
+  assert.deepEqual(dirs, [...FIXTURE_SUBDIRS].sort(), 'los FIXTURE_SUBDIRS de este test');
+  assert.deepEqual(Array.from(new Set(Object.keys(manifest.files).map((f) => f.split('/')[0]!))).sort(), dirs, 'los dirs del manifiesto');
+  const barrel = fs.readFileSync(new URL(`index${MODULE_EXT}`, VENDOR), 'utf8');
+  const reexported = Array.from(barrel.matchAll(/^export [^;]* from '\.\/([^']+)\.js';$/gm), (m) => `${m[1]}${MODULE_EXT}`);
+  assert.deepEqual(scriptList('MODULES'), [`index${MODULE_EXT}`, ...reexported].sort(), 'MODULES = el barrel y lo que reexporta');
+});
