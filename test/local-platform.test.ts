@@ -12,7 +12,6 @@ import path from 'node:path';
 import { after, afterEach, before, beforeEach, test, type TestContext } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { OPTIONAL_FLAGS } from '../src/claude.js';
 import { configPath, loadConfig } from '../src/config.js';
 import { RunnerDaemon } from '../src/daemon.js';
 import { LocalMcpServer, type TokenSubject } from '../src/local/mcp.js';
@@ -23,6 +22,7 @@ import { LocalPlatform } from '../src/platforms/local.js';
 import { platformsCommand } from '../src/platforms-cli.js';
 import { RUN_EXIT, runCommand, type RunIo } from '../src/run-cli.js';
 import { fakeFactories } from './fake-platform.js';
+import { writeFakeClaude } from './fakes/fake-claude.js';
 
 const execFileP = promisify(execFile);
 const HOLD_POLL_MS = 50;
@@ -35,23 +35,16 @@ const savedEnv = { ...process.env };
 let root = '';
 let caseDir = '';
 
-// `claude` falso: --version/--help como el de verdad; un run anota argv y mcp-config en <caso>/spawns.jsonl, llama
+// `claude` falso (el preámbulo de fakes/fake-claude.ts): un run anota argv y mcp-config en <caso>/spawns.jsonl, llama
 // a las tools de la plataforma local según su prompt (ASK:, BLOCK:) y contesta un stream-json mínimo, o espera a un
 // fichero (HOLD:<f>) hasta que lo maten.
-function writeFakeClaude(bin: string): void {
-  const script = `#!${process.execPath}
-const fs = require('node:fs');
-const path = require('node:path');
-const args = process.argv.slice(2);
-if (args[0] === '--version') { console.log('9.9.9 (Claude Code)'); process.exit(0); }
-if (args[0] === '--help') { console.log(${JSON.stringify(OPTIONAL_FLAGS.join('\n'))}); process.exit(0); }
-const mcpFile = args[args.indexOf('--mcp-config') + 1];
-const mcp = JSON.parse(fs.readFileSync(mcpFile, 'utf8')).mcpServers.local;
-let caseDir = path.dirname(mcpFile);
-while (!fs.existsSync(path.join(caseDir, 'runner.json'))) caseDir = path.dirname(caseDir);
+function writeLocalClaude(bin: string): void {
+  writeFakeClaude(
+    bin,
+    `const mcp = JSON.parse(fs.readFileSync(mcpFile, 'utf8')).mcpServers.local;
+const caseDir = caseDirOf(mcpFile);
 fs.appendFileSync(path.join(caseDir, 'spawns.jsonl'), JSON.stringify({ argv: args, mcp }) + '\\n');
 const prompt = args[args.length - 1];
-const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
 const call = (name, args) => fetch(mcp.url, { method: 'POST', headers: { ...mcp.headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } }) }).then((r) => r.json());
 const finish = (text) => {
   out({ type: 'system', subtype: 'init', session_id: 'sess-' + process.pid, model: 'claude-opus-5-5' });
@@ -68,8 +61,8 @@ else if (hold) {
   const wait = () => (fs.existsSync(hold[1]) ? finish('hecho') : setTimeout(wait, ${HOLD_POLL_MS}));
   wait();
 } else finish('hecho: ' + prompt);
-`;
-  fs.writeFileSync(path.join(bin, 'claude'), script, { mode: 0o755 });
+`,
+  );
 }
 
 interface FakeIo extends RunIo {
@@ -137,7 +130,7 @@ before(() => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'lp-'));
   const bin = path.join(root, 'bin');
   fs.mkdirSync(bin);
-  writeFakeClaude(bin);
+  writeLocalClaude(bin);
   process.env.PATH = `${bin}${path.delimiter}${process.env.PATH ?? ''}`;
 });
 

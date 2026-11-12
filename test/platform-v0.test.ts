@@ -13,7 +13,7 @@ import type { AddressInfo } from 'node:net';
 import os from 'node:os';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
-import { detectClaude, OPTIONAL_FLAGS, type ClaudeInfo } from '../src/claude.js';
+import { detectClaude, type ClaudeInfo } from '../src/claude.js';
 import { loadConfig } from '../src/config.js';
 import { allRunConfigDirs } from '../src/paths.js';
 import { CLAIM_REJECT, claimOfV0, ClaimRejectedError, type V0Enforcement } from '../src/platforms/claim-v0.js';
@@ -24,7 +24,8 @@ import { runConfigDeny } from '../src/run-mcp-config.js';
 import { secretPathsDeny } from '../src/secret-paths.js';
 import { shadowOf } from '../src/toolset/shadow.js';
 import { DUCKHUNT_EXT_ENDPOINT, V0_ENDPOINT, V0_FEATURE } from '../src/vendor/runner-protocol/index.js';
-import { internals, type DaemonInternals, type SupervisorInternals } from './daemon-harness.js';
+import { internals, setClaudeInfo, type DaemonInternals, type SupervisorInternals } from './daemon-harness.js';
+import { writeFakeClaude } from './fakes/fake-claude.js';
 
 const FIXTURES = new URL('../../test/fixtures/', import.meta.url);
 const BASE = 'https://plataforma.test';
@@ -260,21 +261,14 @@ const savedEnv = { ...process.env };
 let root = '';
 let claude: ClaudeInfo = { version: null, supported: new Set() };
 
-// `claude` falso: --version/--help como el de verdad; un run anota argv y mcp-config en <caso>/spawns.jsonl y
+// `claude` falso (el preámbulo de fakes/fake-claude.ts): un run anota argv y mcp-config en <caso>/spawns.jsonl y
 // contesta un stream-json mínimo, o espera a un fichero (HOLD:<f>) hasta que lo maten.
-function writeFakeClaude(bin: string): void {
-  const script = `#!${process.execPath}
-const fs = require('node:fs');
-const path = require('node:path');
-const args = process.argv.slice(2);
-if (args[0] === '--version') { console.log('9.9.9 (Claude Code)'); process.exit(0); }
-if (args[0] === '--help') { console.log(${JSON.stringify(OPTIONAL_FLAGS.join('\n'))}); process.exit(0); }
-const mcpFile = args[args.indexOf('--mcp-config') + 1];
-let caseDir = path.dirname(mcpFile);
-while (!fs.existsSync(path.join(caseDir, 'runner.json'))) caseDir = path.dirname(caseDir);
+function writeV0Claude(bin: string): void {
+  writeFakeClaude(
+    bin,
+    `const caseDir = caseDirOf(mcpFile);
 fs.appendFileSync(path.join(caseDir, 'spawns.jsonl'), JSON.stringify({ argv: args, mcp: fs.readFileSync(mcpFile, 'utf8') }) + '\\n');
 const prompt = args[args.length - 1];
-const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
 const finish = () => {
   out({ type: 'system', subtype: 'init', session_id: 'sess-new', model: 'claude-opus-5-5' });
   out({ type: 'assistant', message: { content: [{ type: 'text', text: 'miro el problema' }] } });
@@ -287,8 +281,8 @@ else {
   const wait = () => (fs.existsSync(hold[1]) ? finish() : setTimeout(wait, ${HOLD_POLL_MS}));
   wait();
 }
-`;
-  fs.writeFileSync(path.join(bin, 'claude'), script, { mode: 0o755 });
+`,
+  );
 }
 
 async function waitFor(cond: () => boolean): Promise<void> {
@@ -304,7 +298,7 @@ before(async () => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'duckhunt-runner-v0-'));
   const bin = path.join(root, 'bin');
   fs.mkdirSync(bin);
-  writeFakeClaude(bin);
+  writeV0Claude(bin);
   process.env.PATH = `${bin}${path.delimiter}${process.env.PATH ?? ''}`;
   claude = await detectClaude();
 });
@@ -342,8 +336,8 @@ async function daemonFor(server: FakeV0, slug: string): Promise<{ d: DaemonInter
   const d = internals(loadConfig()!);
   await d.reloadConfig();
   // lo que hace run() al arrancar, sin el loop ni las señales.
-  const live = d as unknown as { claude: ClaudeInfo; secretDeny: string[] };
-  live.claude = claude;
+  const live = d as unknown as { secretDeny: string[] };
+  setClaudeInfo(d, claude);
   allRunConfigDirs().forEach(runConfigDeny);
   live.secretDeny = secretPathsDeny(process.env).rules;
   const sup = d.supervisors.get('beta');

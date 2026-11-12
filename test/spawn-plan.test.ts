@@ -17,9 +17,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { detectClaude, OPTIONAL_FLAGS, type ClaudeInfo } from '../src/claude.js';
+import { detectClaude, type ClaudeInfo } from '../src/claude.js';
 import { parseClaim, TOOLSET_V1, type ClaimResponse } from '../src/claim.js';
-import { internals, legacyOf, type DaemonInternals as Harness } from './daemon-harness.js';
+import { internals, legacyOf, setClaudeInfo, type DaemonInternals as Harness } from './daemon-harness.js';
+import { FAKE_CLAUDE_VERSION, writeFakeClaude } from './fakes/fake-claude.js';
 import { loadConfig, type RunnerConfig } from '../src/config.js';
 import { RunLease } from '../src/run-lease.js';
 import { allRunConfigDirs } from '../src/paths.js';
@@ -83,21 +84,15 @@ function makeOrigin(name: string, links: Record<string, string> = {}): string {
   return bare;
 }
 
-// `claude` falso: --version/--help como el de verdad (todos los flags opcionales); un run anota lo que recibe en
+// `claude` falso (el preámbulo de fakes/fake-claude.ts): un run anota lo que recibe en
 // <case>/spawns.jsonl (el case es el primer padre del mcp-config con la config del caso) y contesta un stream-json mínimo. el prompt puede
 // pedir esperar a un fichero (HOLD:<f>) o fallar (FAIL); --resume gone simula una sesión que no está. con una sesión de
 // navegador en el mcp-config (res_browser_*, t#495 M7) anota la copia que recibe y le añade una cookie, como odysea al
 // guardar un token rotado (sin ella, lo de siempre).
-function writeFakeClaude(): void {
-  const script = `#!${process.execPath}
-const fs = require('node:fs');
-const path = require('node:path');
-const args = process.argv.slice(2);
-if (args[0] === '--version') { console.log('9.9.9 (Claude Code)'); process.exit(0); }
-if (args[0] === '--help') { console.log(${JSON.stringify(OPTIONAL_FLAGS.join('\n'))}); process.exit(0); }
-const mcpFile = args[args.indexOf('--mcp-config') + 1];
-let caseDir = path.dirname(mcpFile);
-while (!fs.existsSync(path.join(caseDir, 'runner.json'))) caseDir = path.dirname(caseDir);
+function writeSpawnPlanClaude(): void {
+  writeFakeClaude(
+    bin,
+    `const caseDir = caseDirOf(mcpFile);
 const browsers = Object.entries(JSON.parse(fs.readFileSync(mcpFile, 'utf8')).mcpServers).filter(([name]) => name.startsWith('res_browser_'));
 const copies = browsers.map(([name, s]) => ({ name, state: JSON.parse(fs.readFileSync(s.env.ODYSEA_STATE_FILE, 'utf8')) }));
 browsers.forEach(([, s]) => {
@@ -109,7 +104,6 @@ const live = args.includes('--input-format');
 const record = (stdinPrompt) => fs.appendFileSync(path.join(caseDir, 'spawns.jsonl'), JSON.stringify({ argv: args, cwd: process.cwd(), env: process.env, mcp: fs.readFileSync(mcpFile, 'utf8'), ...(stdinPrompt !== undefined ? { stdinPrompt } : {}), ...(copies.length > 0 ? { copies } : {}) }) + '\\n');
 const resume = args.includes('--resume') ? args[args.indexOf('--resume') + 1] : null;
 let prompt = '';
-const out = (o) => process.stdout.write(JSON.stringify(o) + '\\n');
 const finish = () => {
   if (resume === 'gone') { process.stderr.write('No conversation found with session ID: gone\\n'); process.exit(1); }
   // un turno que cambia el repo (t#514): crea el fichero que diga el prompt.
@@ -184,8 +178,8 @@ if (!live) {
   });
   process.stdin.on('end', () => process.exit(0));
 }
-`;
-  fs.writeFileSync(path.join(bin, 'claude'), script, { mode: 0o755 });
+`,
+  );
 }
 
 interface Case {
@@ -207,7 +201,6 @@ interface Case {
 }
 
 interface DaemonInternals extends Harness {
-  claude: ClaudeInfo;
   secretDeny: string[];
   hasAws: boolean;
   refreshBrowserHealth(force?: boolean): Promise<void>;
@@ -427,7 +420,7 @@ async function runCase(c: Case): Promise<unknown> {
   // lo que hace run() al arrancar, sin el loop ni las señales: también la salud de las sesiones de navegador (sin
   // ninguna configurada, nada: ni se busca odysea).
   await d.refreshBrowserHealth(true);
-  d.claude = claude;
+  setClaudeInfo(d, claude);
   d.hasAws = c.awsCli === true;
   allRunConfigDirs().forEach(runConfigDeny);
   d.secretDeny = secretPathsDeny(process.env).rules;
@@ -494,7 +487,7 @@ before(async () => {
   root = fs.mkdtempSync(path.join(os.tmpdir(), 'duckhunt-runner-plan-'));
   bin = path.join(root, 'bin');
   fs.mkdirSync(bin);
-  writeFakeClaude();
+  writeSpawnPlanClaude();
   const userHome = path.join(root, 'user');
   fs.mkdirSync(path.join(userHome, '.claude'), { recursive: true });
   // settings de usuario con un allow que el kit de lectura espeja a su deny.
@@ -535,7 +528,7 @@ test('el plan de lanzamiento de cada claim legacy es el de antes de los recursos
   t.mock.method(console, 'log', () => {});
   t.mock.method(console, 'warn', () => {});
   t.mock.method(console, 'error', () => {});
-  assert.equal(claude.version, '9.9.9 (Claude Code)');
+  assert.equal(claude.version, FAKE_CLAUDE_VERSION);
   const cases = [...fixtureCases(), ...syntheticCases()];
   const plans: Record<string, unknown> = {};
   // i/o secuencial: los casos comparten el env del proceso (config y home del daemon).
@@ -1097,7 +1090,7 @@ test('varios repos: volver atrás restaura también los adicionales; si uno no p
   // el mismo daemon del caso (su config y su home siguen en el env del proceso), como runCase.
   const d = internals(loadConfig()!) as DaemonInternals;
   await d.reloadConfig();
-  d.claude = claude;
+  setClaudeInfo(d, claude);
   d.secretDeny = secretPathsDeny(process.env).rules;
   const exec = (raw: Record<string, unknown>) => d.executeRun(legacyOf(d), parseClaim(raw, { canBypass: true }), new RunLease(String(runId)));
   await exec(broken);
