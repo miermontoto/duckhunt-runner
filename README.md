@@ -949,6 +949,46 @@ With the daemon running, `run` hands the run to it over `~/.duckhunt-runner/sock
 lock while it works and `start` refuses to start meanwhile. Conversations live in
 `~/.duckhunt-runner/platforms/local/`, so one can be resumed from either.
 
+## Conformance: checking an agent CLI's guarantees
+
+The daemon leans on the agent CLI to honour the sandbox it is launched with: that a read-only run
+cannot run project code, that denied paths stay unreadable, that one run cannot reach another's token.
+`conformance <backend>` checks those guarantees for the exact CLI you have installed, and **spends no
+model tokens**: it runs the CLI against a local scripted model server, not the real API.
+
+```sh
+duckhunt-runner conformance claude_code
+```
+
+Each check (a *probe*) builds a throwaway home with random *canary* values seeded everywhere a run
+should not be able to reach — other agent CLIs' credentials, another run's config, another session's
+transcript, a repo that tries to plant a hook or load its own MCP server, symlinks that escape the
+repo. It then launches the CLI exactly as the daemon would, with a scripted model that tells it to
+try reading or writing each of those places. The probe passes or fails by whether a canary value
+reaches the model or a file it should not — never by what the model says. The scripted server also
+acts as the run's outbound proxy and refuses every connection, so nothing leaves your machine and the
+report lists anything the CLI tried to contact.
+
+The verdicts:
+
+| verdict | meaning |
+|---|---|
+| `PASS` | the guarantee held |
+| `FAIL` | a canary leaked: the guarantee did not hold |
+| `XFAIL` | a *known* gap (a `t#…` target that will close it) is still open, as expected |
+| `XPASS` | a known gap looks closed — check whether the expectation is stale |
+| `ERROR` | the probe could not be measured (the CLI never ran, or a step went unanswered); never a pass |
+| `SKIP` | the probe does not apply on this OS |
+
+Results are cached under `~/.duckhunt-runner/conformance/` per CLI version, the binary's SHA-256 and
+the OS, so a probe re-runs only when the CLI changes. `conformance <backend> --probe <id>` runs one
+probe, `--keep` leaves its canary home and the recorded requests on disk to inspect, and `--json`
+prints the machine-readable record. Later phases use this to let duckhunt admit a run class on a
+backend only once the needed guarantees are proven for that exact version.
+
+On Linux, `status` also prints `kernel.yama.ptrace_scope`: a host setting that one of those guarantees
+(a run cannot read a sibling's process memory) depends on. `1` or higher is the hardened value.
+
 ## Licence
 
 Copyright © 2026 miermontoto.
