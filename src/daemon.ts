@@ -155,6 +155,7 @@ import { mirroredDeny, READ_MIRRORED_TOOLS, settingsFilesFor, WRITE_TOOLS } from
 import { canBypassPermissions, EVENTS_DEFAULTS, PROMPT_PROFILE, RUN_ISOLATION, RUN_KIND, type ClaimResponse } from './claim.js';
 import { EventUploader } from './event-uploader.js';
 import { clip, feedEventsFromStream, systemEvent, type FeedContext } from './feed.js';
+import { maskSecrets } from './secret-mask.js';
 import { scrubEnv } from './scrub-env.js';
 import { reportFor, type Attempt, type KillReason, type StatusReport } from './status-report.js';
 import { combineChanges, remainingLimits, runChanges, startSnapshot, turnChanges, type TurnStartSnapshot } from './turn-changes.js';
@@ -260,7 +261,8 @@ function turnEndedOf(ev: StreamLine, stream: StreamState, toolCallsAt: number): 
       toolCalls: Math.max(0, stream.toolCalls - toolCallsAt),
       ...(stream.sessionId ? { sessionId: stream.sessionId } : {}),
       ...(model ? { model } : {}),
-      ...(typeof ev.result === 'string' ? { result: ev.result.slice(0, TURN_RESULT_MAX_CHARS) } : {}),
+      // enmascarado como el status (clampReport): el texto de un turno también sale de la máquina.
+      ...(typeof ev.result === 'string' ? { result: maskSecrets(ev.result).slice(0, TURN_RESULT_MAX_CHARS) } : {}),
       ...(stream.lastAssistantUuid ? { lastMessageUuid: stream.lastAssistantUuid } : {}),
     },
   };

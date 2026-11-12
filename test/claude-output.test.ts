@@ -163,7 +163,7 @@ const SCRIPTS: Record<string, Script> = {
       init(),
       use('toolu_bg', 'Agent', { description: 'en segundo plano', prompt: 'mira los logs', run_in_background: true }, { uuid: UUID_FIRST }),
       { type: 'system', subtype: 'task_started', task_id: 'bgtask1', tool_use_id: 'toolu_bg', task_type: 'local_agent', description: 'en segundo plano', session_id: SID },
-      result('success', false, huge('lanzado')),
+      result('success', false, huge(`lanzado ${secretLine}`)),
     ],
     onMessage: [say('leo tu mensaje', { uuid: UUID_LAST }), { type: 'system', subtype: 'task_notification', task_id: 'bgtask1', status: 'completed', session_id: SID }, result('success', false, 'segundo turno', { total_cost_usd: 2.5 })],
   },
