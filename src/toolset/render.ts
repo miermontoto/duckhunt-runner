@@ -36,6 +36,7 @@ import {
   AGENT_AWS_READ_DENIED_COMMANDS,
   AGENT_AWS_READ_SERVICES,
   AGENT_AWS_READ_VERBS,
+  AGENT_CLI_CREDENTIAL_PATHS,
   GRANT_TYPE,
   TOOLSET_SHELL,
   type ToolsetV1,
@@ -56,7 +57,8 @@ export const CLAUDE_CODE_TOOLS = {
 } as const;
 
 // lecturas de credenciales locales, genéricas y relativas a ~ (AGENT_SECRET_READ_DENY del server). las rutas reales
-// de esta máquina las añade aparte secret-paths.ts al argv.
+// de esta máquina las añade aparte secret-paths.ts al argv. las de otros clis de agente y los transcripts ajenos
+// (AGENT_CLI_CREDENTIAL_PATHS, t#651) espejan al server: misma lista y mismo orden (inserción contigua tras el tmp).
 export const SECRET_READ_DENY: readonly string[] = [
   'Read(~/.aws/**)',
   'Read(~/.ssh/**)',
@@ -67,6 +69,7 @@ export const SECRET_READ_DENY: readonly string[] = [
   'Read(~/.git-credentials)',
   'Read(~/.docker/config.json)',
   'Read(//tmp/duckhunt-runner-*)',
+  ...AGENT_CLI_CREDENTIAL_PATHS.map((p) => `Read(~/${p})`),
 ];
 
 // sin vcsPush: ni push ni remotos (AGENT_UNATTENDED_EDIT_DENY del server; de mejor esfuerzo con Bash entero).

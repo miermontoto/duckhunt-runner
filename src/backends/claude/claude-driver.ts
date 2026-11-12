@@ -19,10 +19,10 @@ import { buildClaudeArgs, claudeRunEnv } from '../../claude-args.js';
 import { consumeStreamLine, detectClaude, newStreamState, reportedModel, supportsPermissionPromptTool, supportsRewind, type ClaudeInfo, type StreamLine, type StreamState } from '../../claude.js';
 import { feedEventsFromStream } from '../../feed.js';
 import { LiveSession, type LiveTurnHooks } from '../../live-session.js';
-import { allRunConfigDirs } from '../../paths.js';
+import { allRunConfigDirs, backendsRoot } from '../../paths.js';
 import { mergeShellVerdicts, readShellGuard, readShellLog, readShellNote } from '../../read-shell-guard.js';
 import type { RunMcp } from '../../resources/lifecycle.js';
-import { permissionMcpServers, readOnlyDirDeny, runConfigDeny, writeRunMcpConfig } from '../../run-mcp-config.js';
+import { permissionMcpServers, readDenyRule, readOnlyDirDeny, runConfigDeny, writeRunMcpConfig } from '../../run-mcp-config.js';
 import { browserVaultDeny, otherPlatformsDeny, otherScratchDeny, secretPathsDeny } from '../../secret-paths.js';
 import { maskSecrets } from '../../secret-mask.js';
 import { claudeConfigDir, resolveSlashCommands } from '../../slash-commands.js';
@@ -208,7 +208,11 @@ export class ClaudeDriver implements AgentDriver {
   /** el deny de todo kit de un segmento de `platform` (por intento: una plataforma añadida en caliente queda cubierta). */
   platformDeny(platform: SegmentSpec['platform']): string[] {
     const configured = platform.configured();
-    return [...allRunConfigDirs().flatMap(runConfigDeny), ...otherScratchDeny(platform.id, configured), ...otherPlatformsDeny(platform.id, configured), ...browserVaultDeny()];
+    // los homes de agente por conversación (t#440, <runnerHome>/backends/): aún no existen; se niegan desde ya para que
+    // un run de lectura no lea la auth/sesión de los futuros backends. dir, puede no existir (readDenyRule no toca fs).
+    // constante de la máquina (como el run-config), va DELANTE: lo que crece al añadir una plataforma se añade detrás.
+    const backendsDeny = [readDenyRule(backendsRoot(), true)].filter((r): r is string => r !== null);
+    return [...backendsDeny, ...allRunConfigDirs().flatMap(runConfigDeny), ...otherScratchDeny(platform.id, configured), ...otherPlatformsDeny(platform.id, configured), ...browserVaultDeny()];
   }
 
   // un intento: claude en su grupo de procesos, con su stream-json → contadores + feed y, con `live` (t#636, fase 2), el

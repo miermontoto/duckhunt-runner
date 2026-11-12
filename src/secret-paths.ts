@@ -39,8 +39,31 @@ import { auditPath, LEGACY_PLATFORM_ID, PLATFORM_ID_RE, PLATFORM_PRIVATE_ENTRIES
 // lo que el daemon escribe en su estado aunque aún no exista al arrancar (logs con --verbose, el lock y
 // lo último que dijo el server): directorios con `/` final.
 const RUNNER_HOME_PRIVATE = ['logs/', 'daemon.lock', 'server-state.json'];
-// la lista genérica del server (AGENT_SECRET_READ_DENY), relativa a ~: aquí solo cuenta su realpath.
-const HOME_SECRETS = ['.aws/', '.ssh/', '.duckhunt-runner.json', '.claude/.credentials.json', '.config/gh/', '.netrc', '.git-credentials', '.docker/config.json'];
+// la lista genérica del server (AGENT_SECRET_READ_DENY), relativa a ~: aquí solo cuenta su realpath. las de otros clis
+// de agente (t#651) se dan por su dir raíz: un almacén enlazado a otro sitio dejaría la regla ~/<p> del server sin
+// efecto sobre la ruta real. NO va .claude/projects (su realpath negaría también los .md de memoria nativa, legibles):
+// ahí basta la regla .jsonl del server.
+const HOME_SECRETS = [
+  '.aws/',
+  '.ssh/',
+  '.duckhunt-runner.json',
+  '.claude/.credentials.json',
+  '.config/gh/',
+  '.netrc',
+  '.git-credentials',
+  '.docker/config.json',
+  // credenciales y sesiones de otros clis de agente (t#651), por dir raíz.
+  '.codex/',
+  '.config/opencode/',
+  '.local/share/opencode/',
+  '.config/amp/',
+  '.local/share/amp/',
+  '.gemini/',
+  '.copilot/',
+  '.config/goose/',
+  '.local/share/goose/',
+  '.cursor/',
+];
 const CLAUDE_CREDENTIALS = '.credentials.json';
 
 /** las reglas que se añaden al deny de lectura y las rutas que no cupieron en una regla (para avisar). */
@@ -123,6 +146,13 @@ export function secretPathsDeny(env: NodeJS.ProcessEnv = process.env, home: stri
     env.CLAUDE_CONFIG_DIR ? entry(env.CLAUDE_CONFIG_DIR, CLAUDE_CREDENTIALS) : null,
     env.AWS_SHARED_CREDENTIALS_FILE ? { path: env.AWS_SHARED_CREDENTIALS_FILE, dir: false } : null,
     env.AWS_CONFIG_FILE ? { path: env.AWS_CONFIG_FILE, dir: false } : null,
+    // homes reubicados por env de otros clis de agente (t#651): su dir raíz, solo si el env var está (si no, la lista
+    // genérica ya cubre el ~/<p> por defecto). se niega también su realpath si difiere, como el resto.
+    env.CODEX_HOME ? { path: env.CODEX_HOME, dir: true } : null,
+    env.XDG_DATA_HOME ? { path: path.join(env.XDG_DATA_HOME, 'opencode'), dir: true } : null,
+    env.OPENCODE_CONFIG_DIR ? { path: env.OPENCODE_CONFIG_DIR, dir: true } : null,
+    env.GEMINI_CLI_HOME ? { path: env.GEMINI_CLI_HOME, dir: true } : null,
+    env.COPILOT_HOME ? { path: env.COPILOT_HOME, dir: true } : null,
   ].filter((c): c is Candidate => c !== null);
   const own = [{ path: configPath(), dir: false }, ...runnerHomeEntries(runnerHome()), ...fromEnv]
     .map((c) => ({ ...c, path: path.resolve(c.path) }))
