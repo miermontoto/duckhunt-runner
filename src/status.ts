@@ -9,6 +9,7 @@
 // último que dijo su server, su cuota (slots y la del día, de su auditoría), su techo, lo que ve de la máquina con
 // su salud y el resumen de su auditoría de las últimas 24 h. tampoco toca ningún server; `status` sin el flag sigue
 // siendo, byte a byte, el de siempre.
+// (t#440 P6) también kernel.yama.ptrace_scope (ptrace-scope.ts), la precondición de host de `token_isolation`.
 
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
@@ -33,6 +34,7 @@ import { scrubEnv } from './scrub-env.js';
 import { ownedHere } from './machine.js';
 import { CLAIM_OUTCOME, readServerState, type ServerState } from './server-state.js';
 import { runnerVersion } from './version.js';
+import { ptraceScope } from './ptrace-scope.js';
 
 // motivo legible del estado que dijo el server.
 const STATE_TEXT: Readonly<Record<string, string>> = {
@@ -204,6 +206,7 @@ export async function statusCommand(args: string[] = []): Promise<void> {
     .then((r) => (r.stdout || r.stderr).trim().split('\n')[0]!)
     .catch(() => null);
   console.log(`aws cli:    ${aws ?? 'no instalada (los runs no podrán consultar aws)'}`);
+  console.log(`ptrace:     kernel.yama.ptrace_scope ${ptraceScope()}`);
   // las que anunciaría el daemon con este kit (model solo si el cli lista --model).
   if (claude.version) {
     console.log(`capacidades: ${announcedCapabilities({ hasAws: aws !== null, supported: claude.supported, claudeVersion: claude.version, bypassPermissions: canBypassPermissions(), remoteRepoEdits: cfg?.defaults.remoteRepoEdits, toolsetRender: cfg?.defaults.toolsetRender }).join(' ')}`);
