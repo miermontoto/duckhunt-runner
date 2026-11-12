@@ -10,6 +10,8 @@
 // (platforms-cli.ts) y `logout <id>` desvincula una; `login` y `logout` a secas son los de siempre (duckhunt).
 // (t#495, M7) `browser` gestiona las sesiones de navegador guardadas por odysea (browser-cli.ts). `run "<prompt>"` lanza
 // un run por la plataforma local, sin ningún server (run-cli.ts); `run` sin prompt sigue siendo `start`, obsoleto.
+// (t#440 P6) `conformance <backend>` mide qué garantías de seguridad cumple el cli de agente instalado, sin tokens
+// (conformance/conformance-cli.ts); cada sonda corre en el subcomando oculto `conformance-probe`.
 
 import { configPath, DEFAULT_BASE_URL, loadConfig } from './config.js';
 import { acquireDaemonLock } from './daemon-lock.js';
@@ -28,6 +30,8 @@ import { RUN_USAGE, runCommand } from './run-cli.js';
 import { S3_READ_SUBCOMMAND } from './resources/s3-read.js';
 import { s3McpCommand } from './s3-read-server.js';
 import { PERMISSION_SUBCOMMAND, permissionMcpCommand } from './permission-server.js';
+import { conformanceCommand } from './conformance/conformance-cli.js';
+import { PROBE_WORKER_SUBCOMMAND, probeWorkerCommand } from './conformance/probe-worker.js';
 import { runnerVersion } from './version.js';
 
 const VERBOSE_FLAG = '--verbose';
@@ -52,6 +56,7 @@ uso:
   duckhunt-runner resource list|add|remove|check [repo|aws|browser]   los recursos de la máquina por tipo
   duckhunt-runner browser login|list|check|remove   sesiones de navegador guardadas (odysea)
   duckhunt-runner audit [--platform <id>] [--since 7d|<fecha>] [--json]   lo que corrió cada plataforma
+  duckhunt-runner conformance <backend> [--refresh] [--json]   qué garantías cumple el cli de agente instalado (sin tokens)
   duckhunt-runner --version
 
 config en ~/.duckhunt-runner.json (otra con DUCKHUNT_RUNNER_CONFIG=<fichero>); scratch, logs y
@@ -115,6 +120,15 @@ async function main(): Promise<void> {
   // oculto: la tool de permisos de una conversación en edición que lanza el cli de un run (permission-server.ts, t#527).
   if (cmd === PERMISSION_SUBCOMMAND) {
     await permissionMcpCommand();
+    return;
+  }
+  if (cmd === 'conformance') {
+    process.exitCode = await conformanceCommand(rest);
+    return;
+  }
+  // oculto: el proceso de una sonda de conformidad, con el env de su entorno canario (conformance/probe-worker.ts).
+  if (cmd === PROBE_WORKER_SUBCOMMAND) {
+    await probeWorkerCommand(rest);
     return;
   }
   if (cmd === 'run' && rest.length === 1 && (rest[0] === '--help' || rest[0] === '-h')) {
