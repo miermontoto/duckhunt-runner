@@ -24,7 +24,7 @@ import { runConfigDeny } from '../src/run-mcp-config.js';
 import { secretPathsDeny } from '../src/secret-paths.js';
 import { shadowOf } from '../src/toolset/shadow.js';
 import { DUCKHUNT_EXT_ENDPOINT, V0_ENDPOINT, V0_FEATURE } from '../src/vendor/runner-protocol/index.js';
-import { internals, setClaudeInfo, type DaemonInternals, type SupervisorInternals } from './daemon-harness.js';
+import { internals, setClaudeInfo, setSecretDeny, type DaemonInternals, type SupervisorInternals } from './daemon-harness.js';
 import { writeFakeClaude } from './fakes/fake-claude.js';
 
 const FIXTURES = new URL('../../test/fixtures/', import.meta.url);
@@ -336,10 +336,9 @@ async function daemonFor(server: FakeV0, slug: string): Promise<{ d: DaemonInter
   const d = internals(loadConfig()!);
   await d.reloadConfig();
   // lo que hace run() al arrancar, sin el loop ni las señales.
-  const live = d as unknown as { secretDeny: string[] };
   setClaudeInfo(d, claude);
   allRunConfigDirs().forEach(runConfigDeny);
-  live.secretDeny = secretPathsDeny(process.env).rules;
+  setSecretDeny(d, secretPathsDeny(process.env).rules);
   const sup = d.supervisors.get('beta');
   assert.ok(sup, 'la plataforma v0 se supervisa sin `trusted`: su techo se aplica');
   return { d, sup, dir };

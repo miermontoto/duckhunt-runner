@@ -19,7 +19,7 @@ import { after, before, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { detectClaude, type ClaudeInfo } from '../src/claude.js';
 import { parseClaim, TOOLSET_V1, type ClaimResponse } from '../src/claim.js';
-import { internals, legacyOf, setClaudeInfo, type DaemonInternals as Harness } from './daemon-harness.js';
+import { internals, legacyOf, setClaudeInfo, setSecretDeny, type DaemonInternals as Harness } from './daemon-harness.js';
 import { FAKE_CLAUDE_VERSION, writeFakeClaude } from './fakes/fake-claude.js';
 import { loadConfig, type RunnerConfig } from '../src/config.js';
 import { RunLease } from '../src/run-lease.js';
@@ -201,7 +201,6 @@ interface Case {
 }
 
 interface DaemonInternals extends Harness {
-  secretDeny: string[];
   hasAws: boolean;
   refreshBrowserHealth(force?: boolean): Promise<void>;
 }
@@ -423,7 +422,7 @@ async function runCase(c: Case): Promise<unknown> {
   setClaudeInfo(d, claude);
   d.hasAws = c.awsCli === true;
   allRunConfigDirs().forEach(runConfigDeny);
-  d.secretDeny = secretPathsDeny(process.env).rules;
+  setSecretDeny(d, secretPathsDeny(process.env).rules);
   const hold = path.join(dir, 'hold');
   // como un proceso que no es root (bypass, t#527): el plan no depende de quién corre el test.
   const claims = [c.raw, ...(c.then ?? [])].map((raw) => (c.patch ?? ((cl: ClaimResponse) => cl))(parseClaim(JSON.parse(JSON.stringify(raw).replaceAll('<hold>', hold)) as unknown, { canBypass: true })));
@@ -1091,7 +1090,7 @@ test('varios repos: volver atrás restaura también los adicionales; si uno no p
   const d = internals(loadConfig()!) as DaemonInternals;
   await d.reloadConfig();
   setClaudeInfo(d, claude);
-  d.secretDeny = secretPathsDeny(process.env).rules;
+  setSecretDeny(d, secretPathsDeny(process.env).rules);
   const exec = (raw: Record<string, unknown>) => d.executeRun(legacyOf(d), parseClaim(raw, { canBypass: true }), new RunLease(String(runId)));
   await exec(broken);
   assert.match(rec.status.at(-1)!, /restore_failed/);

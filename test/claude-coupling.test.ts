@@ -6,8 +6,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { test } from 'node:test';
 
-// lo que había al fijar el trinquete (runner 0.26.0).
-const CLAUDE_COUPLING_MAX = 11;
+// 11 al fijar el trinquete (runner 0.26.0); 0 desde el seam (P1).
+const CLAUDE_COUPLING_MAX = 0;
 const DAEMON = new URL('../../src/daemon.ts', import.meta.url);
 
 test('daemon.ts no toca el cli de claude más veces que el tope del trinquete', () => {

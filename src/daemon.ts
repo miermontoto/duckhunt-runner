@@ -5,8 +5,11 @@
 // usuario. el server nunca ve paths ni perfiles — el mapa repo→checkout y cuenta→perfil vive en la
 // config local.
 // decisiones:
-// - claude corre en su PROPIO grupo de procesos (detached): cancelar, el timeout o parar el daemon
-//   matan también lo que lanzó la tool Bash (tests, servidores). por eso el daemon instala sus
+// - el cli de agente va tras el seam de drivers (t#440 P1, backends/agent-driver.ts): executeRun hace lo neutral y el
+//   driver lo propio del cli (qué anuncia, el mcp-config del segmento, el argv, la lectura de su salida, el informe).
+//   claude code es el driver #0, envuelto en su sitio (backends/claude/claude-driver.ts); este fichero no lo nombra.
+// - el agente corre en su PROPIO grupo de procesos (detached, backends/spawn-agent.ts): cancelar, el timeout o parar el
+//   daemon matan también lo que lanzó la tool Bash (tests, servidores). por eso el daemon instala sus
 //   handlers de SIGINT/SIGTERM: ctrl-c ya no le llega al hijo por la terminal.
 // - kind=prompt usa un worktree POR CONVERSACIÓN que sobrevive entre segmentos (resources/repo/worktree.ts); lo
 //   recoge resources/repo/gc.ts en el loop de claim. los kinds de reglas heredados (servers anteriores a
@@ -122,11 +125,10 @@
 //   existe en disco. sin daemon, `runner run` arranca este mismo núcleo solo con ella (localOnly): sin duckhunt ni
 //   las demás de la config, sin socket ni señales propias (las lleva el cli).
 
-import { execFile, spawn, type ChildProcess } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import readline from 'node:readline';
 import { promisify } from 'node:util';
 import {
   concurrency,
@@ -145,25 +147,20 @@ import {
   type StoredConfig,
 } from './config.js';
 import { derivedMachineId, ensureMachineId, ensureMachineSecret } from './machine.js';
-import { browserVaultDeny, otherPlatformsDeny, otherScratchDeny, secretPathsDeny } from './secret-paths.js';
 import { CLAIM_OUTCOME } from './server-state.js';
-import { consumeStreamLine, detectClaude, newStreamState, supportsPermissionPromptTool, supportsRewind, type ClaudeInfo, reportedModel, type StreamLine, type StreamState } from './claude.js';
-import { buildClaudeArgs, claudeRunEnv } from './claude-args.js';
-import { LiveSession, type LiveTurnHooks } from './live-session.js';
-import { announcedCapabilities } from './announced-capabilities.js';
-import { mirroredDeny, READ_MIRRORED_TOOLS, settingsFilesFor, WRITE_TOOLS } from './user-permissions.js';
-import { canBypassPermissions, EVENTS_DEFAULTS, PROMPT_PROFILE, RUN_ISOLATION, RUN_KIND, type ClaimResponse } from './claim.js';
+import type { AgentDriver, InboxTarget, PreparedSegment, SegmentIo, SegmentOutcome, SegmentSpec, TurnEnded, TurnHooks } from './backends/agent-driver.js';
+import { ClaudeDriver } from './backends/claude/claude-driver.js';
+import { DriverRegistry } from './backends/driver-registry.js';
+import { canBypassPermissions, EVENTS_DEFAULTS, PROMPT_PROFILE, RUN_ISOLATION, type ClaimResponse } from './claim.js';
 import { EventUploader } from './event-uploader.js';
-import { clip, feedEventsFromStream, systemEvent, type FeedContext } from './feed.js';
-import { maskSecrets } from './secret-mask.js';
+import { clip, systemEvent, type FeedContext } from './feed.js';
 import { scrubEnv } from './scrub-env.js';
-import { reportFor, type Attempt, type KillReason, type StatusReport } from './status-report.js';
+import type { StatusReport } from './status-report.js';
 import { combineChanges, remainingLimits, runChanges, startSnapshot, turnChanges, type TurnStartSnapshot } from './turn-changes.js';
 import { assertRestorable, restoreTree } from './rewind-files.js';
 import { sameRepoKey } from './repo-key.js';
-import { AuditLog, AUDIT_OUTCOME, claimedRecord, closedRecord, DAY_MS, nextMidnight, outcomeCode, pruneAudit, rejectedRecord, retentionDays, toolsetSummary, type AttemptFacts, type AuditSubject, type ClaimedRecord } from './audit.js';
-import { mergeShellVerdicts, readShellGuard, readShellLog, readShellNote } from './read-shell-guard.js';
-import { clearLegacyTmpConfigs, clearRunMcpConfigs, permissionMcpServers, readOnlyDirDeny, runConfigDeny, writeRunMcpConfig } from './run-mcp-config.js';
+import { AuditLog, AUDIT_OUTCOME, claimedRecord, closedRecord, DAY_MS, nextMidnight, outcomeCode, pruneAudit, rejectedRecord, retentionDays, toolsetSummary, type AuditSubject, type ClaimedRecord } from './audit.js';
+import { clearLegacyTmpConfigs, clearRunMcpConfigs } from './run-mcp-config.js';
 import { CONVERSATION_GC_INTERVAL_MS, listWorktreeCandidates, removeWorktrees, selectForRemoval, type WorktreeCandidate } from './resources/repo/gc.js';
 import { KeyedMutex } from './keyed-mutex.js';
 import { describeFinding, REPO_HEALTH_INTERVAL_MS, repoChoices, repoFindings, repoIssues, scanRepos, type RepoChoice, type RepoIssue } from './resources/repo/health.js';
@@ -179,10 +176,10 @@ import { AWS_ACCOUNT_ID_RE, AWS_DEFAULT_KEY, awsProvider, machineHasAws } from '
 import { LEGACY_RESOURCE_KEYS, legacyPlatform } from './config-legacy.js';
 import { RELEASE, RESOURCE_TYPE, ResourceUnavailableError, type ReleaseOutcome } from './resources/types.js';
 import { applyRepoCommand, type RepoCommandResult } from './repo-commands.js';
-import { RunLease, signalGroup } from './run-lease.js';
+import { RunLease } from './run-lease.js';
 import { compareRunIds } from './run-id.js';
-import { allRunConfigDirs, LEGACY_PLATFORM_ID, LOCAL_PLATFORM_ID, logsDir, platformHome, runConfigDir, scratchDir, slashCommandsPath } from './paths.js';
-import { claudeConfigDir, resolveSlashCommands, SlashCommandCatalog } from './slash-commands.js';
+import { LEGACY_PLATFORM_ID, LOCAL_PLATFORM_ID, logsDir, platformHome, runConfigDir, scratchDir, slashCommandsPath } from './paths.js';
+import { SlashCommandCatalog } from './slash-commands.js';
 import { runnerVersion } from './version.js';
 import { PlatformRejectedError, PROTOCOL, type ClaimAnnounce, type Platform, type PlatformContext, type PlatformFactories, type Protocol, type RunSegment } from './platforms/platform.js';
 import { DEFAULT_CEILING, EXPOSE_ALL, isExposed, LOCAL_PLATFORM_DEFAULTS, PLATFORM_DEFAULT_SLOTS, type PlatformConfig } from './platforms/types.js';
@@ -190,7 +187,7 @@ import { credentialStore } from './platforms/credentials.js';
 import { PLATFORM_FACTORIES } from './platforms/factories.js';
 import { Scheduler } from './platforms/scheduler.js';
 import { PLATFORM_STATE, PlatformSupervisor, type SupervisorHooks } from './platforms/supervisor.js';
-import { REWIND_RESTORE_ERROR, RUN_CHANGES_SCOPE, RUNNER_LABEL_MAX_CHARS, type LegacyClaimChanges, type RunChangesReport, type ToolsetShadow, type RunInboxCommand, type RunTurnReport } from './vendor/runner-protocol/index.js';
+import { REWIND_RESTORE_ERROR, RUN_CHANGES_SCOPE, RUNNER_LABEL_MAX_CHARS, type LegacyClaimChanges, type RunChangesReport, type ToolsetShadow, type RunInboxCommand, V0_BACKEND } from './vendor/runner-protocol/index.js';
 import { shadowOf } from './toolset/shadow.js';
 import { intersectToolset } from './toolset/intersect.js';
 import { v0Announce } from './platforms/v0.js';
@@ -203,18 +200,7 @@ import { serveLocal, type LocalEvaluation } from './local/socket.js';
 const execFileP = promisify(execFile);
 
 const CLAIM_POLL_MS = 5_000;
-// SIGTERM → SIGKILL (al grupo) si el proceso no muere en este margen.
-const KILL_GRACE_MS = 10_000;
-// tras la salida de claude, espera máxima a que se cierren sus pipes: un proceso en background que
-// los heredó retendría el 'close' para siempre.
-const EXIT_DRAIN_MS = 5_000;
-// throttle del reporte de tool calls al server.
-const PROGRESS_MIN_INTERVAL_MS = 5_000;
-const PROGRESS_TICK_MS = 1_000;
 const MIN_HEARTBEAT_MS = 5_000;
-const MIN_RUN_TIMEOUT_MS = 60_000;
-const STDERR_TAIL_LINES = 20;
-const STDERR_TAIL_MAX_CHARS = 4000;
 // tras SIGINT/SIGTERM: margen para cerrar el run en curso antes de salir a la fuerza.
 const SHUTDOWN_GRACE_MS = 20_000;
 const EXIT_CODE_SIGINT = 130;
@@ -226,11 +212,6 @@ interface TurnStart {
   changesFrom: TurnStartSnapshot | null;
   extraFrom: ExtraStart[];
   start: { startTree?: string; startHead?: string; extraStarts?: Array<{ repo: string; tree: string; head: string }> };
-}
-interface TurnEnded {
-  // las tool calls del proceso al cerrarlo: la base del turno siguiente.
-  toolCallsTotal: number;
-  report: RunTurnReport;
 }
 // la foto base del diff neto de la conversación (t#642): la del principal y la de cada repo adicional.
 interface RunDiffFrom {
@@ -245,29 +226,6 @@ interface TurnState extends TurnStart {
   // los cambios de turno van en fila: uno no empieza hasta que acaba el anterior.
   chain: Promise<void>;
 }
-// el tope del texto final de un turno (el mismo que el del status en el server).
-const TURN_RESULT_MAX_CHARS = 20_000;
-const finite = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
-/** lo que un `result` cuenta de su turno (t#636, fase 3): el total de la sesión, sus vueltas y las tool calls desde `toolCallsAt`. */
-function turnEndedOf(ev: StreamLine, stream: StreamState, toolCallsAt: number): TurnEnded {
-  const cost = finite(ev.total_cost_usd);
-  const turns = finite(ev.num_turns);
-  const model = reportedModel(stream.initModel, ev.modelUsage);
-  return {
-    toolCallsTotal: stream.toolCalls,
-    report: {
-      ...(cost !== undefined ? { costUsd: cost } : {}),
-      ...(turns !== undefined ? { numTurns: turns } : {}),
-      toolCalls: Math.max(0, stream.toolCalls - toolCallsAt),
-      ...(stream.sessionId ? { sessionId: stream.sessionId } : {}),
-      ...(model ? { model } : {}),
-      // enmascarado como el status (clampReport): el texto de un turno también sale de la máquina.
-      ...(typeof ev.result === 'string' ? { result: maskSecrets(ev.result).slice(0, TURN_RESULT_MAX_CHARS) } : {}),
-      ...(stream.lastAssistantUuid ? { lastMessageUuid: stream.lastAssistantUuid } : {}),
-    },
-  };
-}
-
 // pausa entre long-polls del buzón cuando uno vuelve vacío antes de tiempo (error de red, server que no espera).
 const INBOX_RETRY_MS = 2_000;
 // espera que se corta al abortar (el proceso salió).
@@ -282,7 +240,6 @@ const abortableSleep = (ms: number, signal: AbortSignal): Promise<void> =>
 // la credencial ya no vale (desvinculada, revocada o caducada): EX_CONFIG de sysexits, sin `login` no vuelve.
 export const EXIT_CODE_UNPAIRED = 78;
 // tope de la nota de workdir.
-const WORKDIR_MAX_CHARS = 300;
 // prefijo del log del daemon; el de una plataforma que no es la legacy lleva su id (`[runner:<id>]`).
 const LOG_PREFIX = 'runner';
 // el código de un claim rechazado por el runner (platforms/claim-v0.ts): `claim rechazado por el runner (<código>: …)`.
@@ -294,16 +251,6 @@ function rejectCode(error: string): string {
   const code = REJECT_CODE_RE.exec(error)?.[1];
   return code !== undefined && REJECT_CODES.has(code) ? code : CLAIM_REJECT.invalid;
 }
-
-// lo que la auditoría sabe del intento que cerró un segmento: cómo acabó, nunca su salida.
-const attemptFacts = (a: Attempt): AttemptFacts => ({ killedBy: a.killedBy, exitCode: a.exitCode, isError: a.stream.result?.isError ?? false, subtype: a.stream.result?.subtype ?? null });
-
-// las tools de los recursos del run (mcp__res_<tipo>_<clave>__*, t#495 M7) en las listas con que se lanza: al allow
-// las suyas, al deny las que se le niegan. sin recursos mcp, el claim tal cual (el argv de siempre).
-const withResourceTools = (claim: ClaimResponse, mcp: RunMcp): ClaimResponse =>
-  mcp.allowed.length === 0 && mcp.deny.length === 0
-    ? claim
-    : { ...claim, tools: { allowed: [...claim.tools.allowed, ...mcp.allowed], disallowed: [...claim.tools.disallowed, ...mcp.deny] } };
 
 // cómo suelta sus recursos un run según su cierre.
 const RELEASE_BY_STATUS: Readonly<Record<StatusReport['status'], ReleaseOutcome>> = {
@@ -318,6 +265,8 @@ export interface DaemonOptions {
   factories?: PlatformFactories;
   // `runner run` sin daemon (t#495, M7): el núcleo solo con la plataforma local (ver cabecera).
   localOnly?: boolean;
+  // los clis de agente (t#440): el primero es el principal. por defecto, claude code.
+  drivers?: AgentDriver[];
 }
 
 // la parte de la config que el daemon recarga (sin la credencial de duckhunt, que un `runner run` no necesita).
@@ -401,7 +350,8 @@ export class RunnerDaemon {
   private closeLocalSocket: (() => Promise<void>) | null = null;
   // plataformas de la config que no reclaman (sin credencial, o con un protocolo que este runner no habla) y por qué.
   private readonly skipped = new Map<string, string>();
-  private claude: ClaudeInfo = { version: null, supported: new Set() };
+  // los clis de agente (t#440, backends/): el daemon solo habla con ellos por AgentDriver.
+  private readonly drivers: DriverRegistry;
   private hasAws = false;
   // mapas, etiqueta y defaults: los recarga reloadConfig en cada vuelta del loop.
   private cfg: LocalConfig;
@@ -447,8 +397,6 @@ export class RunnerDaemon {
   private lastRepoHealthAt = 0;
   // chequeo en curso: los forzados lo esperan en vez de solaparse con él.
   private repoHealthRun: Promise<void> | null = null;
-  // Read negado de las rutas reales de las credenciales de la máquina: todo kit de lectura (al arrancar).
-  private secretDeny: string[] = [];
   // auditoría local de cada plataforma (audit.ts) y cuándo se podó por última vez.
   private readonly audit = new AuditLog();
   private lastAuditPruneAt = 0;
@@ -470,6 +418,7 @@ export class RunnerDaemon {
     cfg: RunnerConfig | StoredConfig,
     private readonly opts: DaemonOptions = {},
   ) {
+    this.drivers = new DriverRegistry(opts.drivers ?? [new ClaudeDriver()]);
     this.factories = opts.factories ?? PLATFORM_FACTORIES;
     if (opts.localOnly) {
       this.cfg = localPart(cfg);
@@ -625,13 +574,10 @@ export class RunnerDaemon {
     return { platform: sup.id, protocol: sup.platform.protocol, at: Date.now() };
   }
 
-  // capacidades que se anuncian: prompt solo si el cli puede cumplir su perfil (permission mode
-  // explícito, sin mcp del repo, deny list y settings solo del usuario en lectura), model solo con --model.
+  // capacidades que se anuncian: las del driver principal (t#440) sobre lo que el daemon sabe de la máquina.
   private capabilities(): string[] {
-    return announcedCapabilities({
+    return this.drivers.primary.capabilities({
       hasAws: this.hasAws,
-      supported: this.claude.supported,
-      claudeVersion: this.claude.version,
       bypassPermissions: canBypassPermissions(),
       remoteRepoEdits: this.cfg.defaults.remoteRepoEdits,
       toolsetRender: this.cfg.defaults.toolsetRender,
@@ -663,31 +609,25 @@ export class RunnerDaemon {
   }
 
   async run(): Promise<number> {
-    this.claude = await detectClaude();
-    if (!this.claude.version) {
-      throw new Error('no se encuentra `claude` en el PATH: instala claude code y haz login antes de arrancar el daemon');
-    }
+    await this.drivers.detect();
+    // lo que el driver comprueba y calcula al arrancar (claude: que esté instalado, que cada run-config quepa en una regla
+    // de permisos y las reglas de secret_paths); lanza si no puede trabajar.
+    this.drivers.drivers.forEach((d) => d.start());
     this.hasAws = await execFileP('aws', ['--version']).then(
       () => true,
       () => false,
     );
-    // lanza si la ruta no cabe en una regla de permisos: sin ese deny el daemon no arranca. cubre el
-    // run-config de cada plataforma con estado en disco; cada segmento lo recalcula (runDeny).
-    allRunConfigDirs().forEach(runConfigDeny);
     const stale = clearRunMcpConfigs(LEGACY_PLATFORM_ID) + this.registry.sweep(LEGACY_PLATFORM_ID);
     if (stale > 0) console.log(`[runner] ${stale} config(s) de runs anteriores borrada(s)`);
     const legacy = clearLegacyTmpConfigs();
     if (legacy > 0) console.log(`[runner] ${legacy} mcp-config(s) de daemons < 0.10.2 borrado(s) del tmpdir`);
-    const secrets = secretPathsDeny(process.env);
-    this.secretDeny = secrets.rules;
-    secrets.skipped.forEach((p) => console.warn(`[runner] secret_paths: ${p} no cabe en una regla de permisos de claude: queda solo la lista genérica del server`));
     this.pruneAudit();
     if (!this.opts.localOnly) {
       this.adoptMachineId();
       this.warnAwsDefault();
       this.installSignalHandlers();
       console.log(
-        `[runner] duckhunt-runner ${runnerVersion() ?? '?'} · ${this.label()} → ${this.legacy.platform.identity().baseUrl} (claude ${this.claude.version}, aws cli ${this.hasAws ? 'sí' : 'no'}, ${Object.keys(this.cfg.repos).length} repos, ${Object.keys(this.cfg.aws).length} cuentas aws, capacidades ${this.capabilities().join(',')}, ${this.slots} slot${this.slots === 1 ? '' : 's'}, poll ${CLAIM_POLL_MS / 1000}s)`,
+        `[runner] duckhunt-runner ${runnerVersion() ?? '?'} · ${this.label()} → ${this.legacy.platform.identity().baseUrl} (${this.drivers.primary.command} ${this.drivers.primary.version}, aws cli ${this.hasAws ? 'sí' : 'no'}, ${Object.keys(this.cfg.repos).length} repos, ${Object.keys(this.cfg.aws).length} cuentas aws, capacidades ${this.capabilities().join(',')}, ${this.slots} slot${this.slots === 1 ? '' : 's'}, poll ${CLAIM_POLL_MS / 1000}s)`,
       );
       await this.refreshRepoHealth();
     }
@@ -910,7 +850,7 @@ export class RunnerDaemon {
       capabilities: this.capabilities(),
       slots: this.quota(sup),
       version: runnerVersion(),
-      claudeVersion: this.claude.version,
+      claudeVersion: this.drivers.versionOf(V0_BACKEND.claudeCode),
       repos,
       repoIssues: allRepos ? this.repoHealth : (this.repoHealth?.filter((i) => i.repo !== null && repos.includes(i.repo)) ?? null),
       repoCandidates: !legacy ? null : allRepos ? this.repoChoices : (this.repoChoices?.filter((c) => repos.includes(c.repo)) ?? null),
@@ -1258,16 +1198,12 @@ export class RunnerDaemon {
     return key !== null && map && Object.hasOwn(map, key) && isExposed(this.exposure(sup), type, key) ? map[key] : null;
   }
 
-  // deny de todo kit para un segmento de la plataforma: el run-config de todas (con estado en disco), el scratch de
-  // las demás y lo privado de las demás (su estado y su auditoría). por segmento: una plataforma añadida en caliente
-  // queda cubierta en el siguiente. con una sola plataforma, lo de las demás es vacío: el deny de siempre.
-  private runDeny(sup: PlatformSupervisor): string[] {
-    // la local solo desde que tiene estado en disco: un daemon que nunca sirvió un `runner run` deja el deny como estaba.
+  // las plataformas configuradas (lo privado de las demás se niega a cada run): por segmento, una añadida en caliente
+  // queda cubierta en el siguiente. la local solo desde que tiene estado en disco: un daemon que nunca sirvió un
+  // `runner run` deja el deny como estaba.
+  private configuredPlatforms(): string[] {
     const localOnDisk = fs.existsSync(platformHome(LOCAL_PLATFORM_ID));
-    const configured = [...new Set([...Object.keys(this.platformsCfg), ...this.supervisors.keys()])].filter((id) => id !== LOCAL_PLATFORM_ID || localOnDisk);
-    // el vault de las sesiones de navegador (t#495, M7) a todo kit, no solo a los de lectura: una edición tampoco lo
-    // lee. sin navegador configurado, nada.
-    return [...allRunConfigDirs().flatMap(runConfigDeny), ...otherScratchDeny(sup.id, configured), ...otherPlatformsDeny(sup.id, configured), ...browserVaultDeny()];
+    return [...new Set([...Object.keys(this.platformsCfg), ...this.supervisors.keys()])].filter((id) => id !== LOCAL_PLATFORM_ID || localOnDisk);
   }
 
   // latido del run desde el claim hasta el cierre: transporta el soft-cancel del server (y refresca
@@ -1389,41 +1325,59 @@ export class RunnerDaemon {
       ended: null,
       chain: Promise.resolve(),
     };
-    // mcp-config con el token per-run (run-mcp-config.ts: 0600 en un directorio 0700; se borra al terminar).
-    let mcpFile: string | null = null;
+    // lo que el driver deja en disco para el segmento (claude: el mcp-config con el token per-run, 0600 en un directorio
+    // 0700); se retira al terminar.
+    const driver = this.drivers.primary;
+    let prepared: PreparedSegment | null = null;
     let report: StatusReport;
-    let attempt: Attempt | null = null;
+    let outcome: SegmentOutcome | null = null;
     // los servidores mcp de los recursos (t#495, M7), con los turnos ya tomados; null = no se pudieron preparar.
     let resourceMcp: RunMcp | null = null;
+    // los límites de turno dentro del proceso (t#636, fase 3): el driver los usa si su cli parte turnos en el mismo proceso.
+    const turns: TurnHooks = {
+      onTurnEnd: (ended) => {
+        turn.ended = ended;
+      },
+      onTurnStart: (delivered) => {
+        // lo del turno que acaba se toma YA: el `result` del siguiente puede llegar antes de que el cambio en fila
+        // corra, y lo pisaría. la base de tool calls del turno nuevo, también ya.
+        const ended = turn.ended;
+        const base = turn.toolCallsAt;
+        turn.ended = null;
+        if (ended !== null) turn.toolCallsAt = ended.toolCallsTotal;
+        turn.chain = turn.chain
+          .then(() => this.rollTurn(sup, claim, res, seg, turn, snapshotStart, ended, base, delivered))
+          .catch((err: Error) => console.error(`${log} ${tag}: cambio de turno: ${err.message}`));
+      },
+      onDelivered: (ids) => {
+        if (seg.segment !== undefined) void sup.platform.delivered?.(run.id, { segment: seg.segment, ids });
+      },
+    };
+    const io: SegmentIo = {
+      log,
+      feed,
+      ctx,
+      note,
+      progress: (toolCalls, workdir) => this.postProgress(sup, run.id, toolCalls, seg, workdir),
+      serveInbox: (target, waitMs, signal) => void this.pollInbox(sup, run.id, seg, waitMs, target, signal),
+      verboseLog: this.opts.verboseLog ? () => path.join(logsDir(sup.id), `${run.id}.jsonl`) : null,
+      toolCallsAt: () => turn.toolCallsAt,
+      turns,
+    };
     try {
       if (restoreError !== null) throw restoreError;
       resourceMcp = await res.mcp();
-      // la tool de permisos (t#527) junto a los de los recursos: res_<tipo>_<clave> nunca choca con su nombre.
-      mcpFile = writeRunMcpConfig(run.id, claim.mcp, sup.id, claim.extraMcp, { ...permissionMcpServers(claim), ...resourceMcp.servers });
-      // los límites de turno dentro del proceso (t#636, fase 3): con `live.turns` y un cli que acusa los mensajes de stdin.
-      const liveTurns = claim.live?.turns === true && this.claude.supported.has('--input-format') && this.claude.supported.has('--replay-user-messages');
-      const turns = liveTurns
-        ? (stream: StreamState): LiveTurnHooks => ({
-            onTurnEnd: (ev) => {
-              turn.ended = turnEndedOf(ev, stream, turn.toolCallsAt);
-            },
-            onTurnStart: (delivered) => {
-              // lo del turno que acaba se toma YA: el `result` del siguiente puede llegar antes de que el cambio en fila
-              // corra, y lo pisaría. la base de tool calls del turno nuevo, también ya.
-              const ended = turn.ended;
-              const base = turn.toolCallsAt;
-              turn.ended = null;
-              if (ended !== null) turn.toolCallsAt = ended.toolCallsTotal;
-              turn.chain = turn.chain
-                .then(() => this.rollTurn(sup, claim, res, seg, turn, snapshotStart, ended, base, delivered))
-                .catch((err: Error) => console.error(`${log} ${tag}: cambio de turno: ${err.message}`));
-            },
-            onDelivered: (ids) => {
-              if (seg.segment !== undefined) void sup.platform.delivered?.(run.id, { segment: seg.segment, ids });
-            },
-          })
-        : null;
-      ({ report, attempt } = await this.runAttempts(sup, withResourceTools(claim, resourceMcp), lease, res, mcpFile, feed, ctx, note, seg, { turns, toolCallsAt: () => turn.toolCallsAt }));
+      const spec: SegmentSpec = {
+        claim,
+        res,
+        resourceMcp,
+        lease,
+        platform: { id: sup.id, configured: () => this.configuredPlatforms() },
+        defaults: () => ({ model: this.cfg.defaults.model, maxBudgetUsd: this.cfg.defaults.maxBudgetUsd }),
+      };
+      prepared = driver.prepare(spec);
+      outcome = await driver.run(spec, prepared, io);
+      report = outcome.report;
       // un cambio de turno en vuelo termina antes del cierre: el informe es del último turno.
       await turn.chain;
       // las tool calls del último turno (el proceso las cuenta desde que empezó).
@@ -1431,16 +1385,16 @@ export class RunnerDaemon {
     } catch (err) {
       report = { status: 'failed', error: err === restoreError || resourceMcp !== null ? (err as Error).message : legacyResourceError(err) };
     } finally {
-      if (mcpFile !== null) fs.rmSync(mcpFile, { force: true });
+      prepared?.dispose();
       clearInterval(heartbeat);
     }
     // los slash commands que cargó el segmento (t#555), con el cwd aún en pie: sus ficheros dan las descripciones. los del
     // proyecto solo cuentan en edición (lectura va con --setting-sources user).
     // nunca lanza: un fallo aquí no puede saltarse la liberación de los recursos ni el informe.
-    const init = attempt?.stream.initCatalog ?? null;
     const edit = run.profile === PROMPT_PROFILE.edit;
     try {
-      if (init) this.slashCatalogOf(sup.id).record({ edit, repo: run.repo, commands: resolveSlashCommands(init, { configDir: claudeConfigDir(), projectCwd: edit ? res.cwd.dir : null }) });
+      const commands = outcome?.commands(edit ? res.cwd.dir : null) ?? null;
+      if (commands) this.slashCatalogOf(sup.id).record({ edit, repo: run.repo, commands });
     } catch (err) {
       console.error(`${log} ${tag}: slash commands sin registrar: ${(err as Error).message}`);
     }
@@ -1461,8 +1415,8 @@ export class RunnerDaemon {
     if (changes !== null) await sup.platform.changes?.(run.id, changes, seg);
     if (runDiff !== null) await sup.platform.changes?.(run.id, runDiff, seg);
     const code =
-      restoreError !== null ? AUDIT_OUTCOME.runnerError : resourceMcp === null ? AUDIT_OUTCOME.resourceUnavailable : outcomeCode(report.status, attempt && attemptFacts(attempt));
-    audited({ lockWaitMs, materialized: res.resources, report, toolsByName: attempt?.stream.toolsByName ?? {}, code });
+      restoreError !== null ? AUDIT_OUTCOME.runnerError : resourceMcp === null ? AUDIT_OUTCOME.resourceUnavailable : outcomeCode(report.status, outcome?.facts ?? null);
+    audited({ lockWaitMs, materialized: res.resources, report, toolsByName: outcome?.toolsByName ?? {}, code });
     await sup.platform.result(run.id, { ...report, ...turn.start, ...withShadow, ...seg });
     console.log(`${log} ${tag} terminado (${report.status}${report.error ? `: ${report.error}` : ''})`);
     void this.syncSlashCommands(sup);
@@ -1566,198 +1520,6 @@ export class RunnerDaemon {
     return shadow;
   }
 
-  // uno o dos intentos: reanudación fallida antes de que el asistente hablara (sesión inexistente
-  // en esta máquina, borrada, de otro daemon) → un solo reintento desde cero con el prompt de respaldo.
-  private async runAttempts(
-    sup: PlatformSupervisor,
-    claim: ClaimResponse,
-    lease: RunLease,
-    res: MaterializedRun,
-    mcpFile: string,
-    feed: EventUploader | null,
-    ctx: FeedContext,
-    note: (text: string) => void,
-    seg: RunSegment,
-    turnsOf: { turns: ((stream: StreamState) => LiveTurnHooks) | null; toolCallsAt: () => number },
-  ): Promise<{ report: StatusReport; attempt: Attempt }> {
-    const { run } = claim;
-    // settings leídos por run (pueden cambiar con el daemon vivo): lectura solo carga los de usuario y
-    // espeja su shell y su escritura; un run de reglas carga todos y espeja su escritura; edición, nada.
-    const readPrompt = run.kind === RUN_KIND.prompt && run.profile === PROMPT_PROFILE.read;
-    const deny = readPrompt
-      ? mirroredDeny(settingsFilesFor(res.cwd.dir, true), READ_MIRRORED_TOOLS)
-      : run.kind !== RUN_KIND.prompt
-        ? mirroredDeny(settingsFilesFor(res.cwd.dir, false), WRITE_TOOLS)
-        : [];
-    // shell de lectura solo en un checkout del que una lectura recursiva no pueda salir (el scratch no
-    // es un checkout: no se revisa). una vez por segmento: el reintento desde cero usa el mismo cwd.
-    // con repos adicionales (t#597) se revisa también cada uno: una lectura recursiva tampoco puede salir de ellos.
-    const guarded = [res.cwd.checkout ? res.cwd.dir : null, ...res.addDirs.filter((a) => a.checkout).map((a) => a.dir)];
-    const shell = mergeShellVerdicts(await Promise.all(guarded.map((dir) => readShellGuard(dir, claim.tools, deny, res.env))));
-    if (shell.dropShell) {
-      console.warn(`${this.tagOf(sup)} run ${run.id}: shell de lectura fuera en este segmento: ${readShellLog(shell)}`);
-      note(readShellNote(shell)!);
-    }
-    const readOnlyDeny = res.addDirs.filter((a) => a.readOnly).flatMap((a) => readOnlyDirDeny(a.dir));
-    // el buzón del proceso vivo (t#636, fase 2): solo si el claim lo trae y el cli tiene stdin en stream-json.
-    const live = claim.live && this.claude.supported.has('--input-format') ? claim.live : null;
-    const args = (prompt: string, resumeSessionId: string | null): string[] =>
-      buildClaudeArgs({
-        claim,
-        prompt,
-        mcpConfigFile: mcpFile,
-        supported: this.claude.supported,
-        resumeSessionId,
-        // el que pide duckhunt para esta conversación; si no pide ninguno, el default de la máquina.
-        model: run.model ?? this.cfg.defaults.model,
-        configBudgetUsd: this.cfg.defaults.maxBudgetUsd,
-        skipPermissions: res.cwd.skipPermissions,
-        payingWithApiKey: !!process.env.ANTHROPIC_API_KEY,
-        mirroredDeny: deny,
-        runConfigDeny: this.runDeny(sup),
-        secretPathsDeny: this.secretDeny,
-        withoutShell: shell.dropShell,
-        permissionPromptTool: supportsPermissionPromptTool(this.claude.version),
-        // volver atrás (t#564): solo con --resume; el reintento desde cero (resumeSessionId null) no lo lleva.
-        resumeAt: run.resumeAt,
-        rewind: supportsRewind(this.claude.version),
-        // los repos adicionales (t#597) y el deny de los de solo lectura.
-        addDirs: res.addDirs.map((a) => a.dir),
-        readOnlyDirsDeny: readOnlyDeny,
-        liveInput: live !== null,
-        liveTurns: live !== null && turnsOf.turns !== null,
-      });
-    // reanudar o no lo decide el server: manda sessionId solo cuando hay sesión que retomar.
-    const resume = run.sessionId;
-    const liveOf = (prompt: string) => (live ? { prompt, waitMs: live.waitMs, turns: turnsOf.turns } : null);
-    let attempt = await this.spawnClaude(sup, claim, lease, args(claim.prompt, resume), res, feed, ctx, seg, turnsOf.toolCallsAt, liveOf(claim.prompt));
-    let resumed: boolean | undefined = resume ? true : undefined;
-    if (resume && attempt.killedBy === null && attempt.exitCode !== 0 && !attempt.stream.sawAssistant && claim.fallbackPrompt) {
-      console.log(`${this.tagOf(sup)} run ${run.id}: la sesión ${resume} no se pudo reanudar`);
-      note('la sesión anterior no se pudo reanudar en este runner: reintento desde cero');
-      attempt = await this.spawnClaude(sup, claim, lease, args(claim.fallbackPrompt, null), res, feed, ctx, seg, turnsOf.toolCallsAt, liveOf(claim.fallbackPrompt));
-      resumed = false;
-    }
-    return { report: reportFor(attempt, resumed), attempt };
-  }
-
-  // spawnea claude en su propio grupo de procesos, consume stdout (stream-json → contadores + feed)
-  // y stderr (tail), bombea el progreso y aplica el timeout wall-clock. si el run ya murió (cancel o
-  // parada mientras esperaba turno) no lo lanza. resuelve siempre (nunca rechaza). con `live` (t#636, fase 2) el prompt
-  // va por stdin, que sigue abierto mientras haga falta (live-session.ts), y atiende el buzón del run mientras vive.
-  private spawnClaude(
-    sup: PlatformSupervisor,
-    claim: ClaimResponse,
-    lease: RunLease,
-    args: string[],
-    res: MaterializedRun,
-    feed: EventUploader | null,
-    ctx: FeedContext,
-    seg: RunSegment,
-    toolCallsAt: () => number,
-    live: { prompt: string; waitMs: number; turns: ((stream: StreamState) => LiveTurnHooks) | null } | null = null,
-  ): Promise<Attempt> {
-    const runId = claim.run.id;
-    if (lease.killedBy) return Promise.resolve({ exitCode: null, killedBy: lease.killedBy, stream: newStreamState(), stderrTail: '' });
-    return new Promise((resolve) => {
-      const stream = newStreamState();
-      const stderrTail: string[] = [];
-      let killedBy: KillReason | null = null;
-      let killTimer: NodeJS.Timeout | null = null;
-      let drainTimer: NodeJS.Timeout | null = null;
-      let logFile: number | null = null;
-      if (this.opts.verboseLog) {
-        try {
-          logFile = fs.openSync(path.join(logsDir(sup.id), `${runId}.jsonl`), 'a');
-        } catch (err) {
-          console.error(`${this.tagOf(sup)} no se pudo abrir el log del run: ${(err as Error).message}`);
-        }
-      }
-
-      let child: ChildProcess;
-      try {
-        child = spawn('claude', args, {
-          cwd: res.cwd.dir,
-          env: { ...res.env, ...claudeRunEnv(res.env, claim) },
-          stdio: [live ? 'pipe' : 'ignore', 'pipe', 'pipe'],
-          detached: true,
-        });
-      } catch (err) {
-        if (logFile !== null) fs.closeSync(logFile);
-        resolve({ exitCode: null, killedBy: null, stream, stderrTail: `no se pudo lanzar claude: ${(err as Error).message}` });
-        return;
-      }
-
-      const kill = (reason: KillReason): void => {
-        if (killedBy) return;
-        killedBy = reason;
-        signalGroup(child, 'SIGTERM');
-        killTimer = setTimeout(() => signalGroup(child, 'SIGKILL'), KILL_GRACE_MS);
-      };
-      lease.attach(child, kill);
-
-      const session = live && child.stdin ? new LiveSession(child.stdin, undefined, live.turns?.(stream) ?? null) : null;
-      const inboxAbort = new AbortController();
-      if (session && live) {
-        session.start(live.prompt);
-        void this.pollInbox(sup, runId, seg, live.waitMs, session, inboxAbort.signal);
-      }
-
-      readline.createInterface({ input: child.stdout! }).on('line', (line) => {
-        const ev = consumeStreamLine(stream, line);
-        if (ev && session) session.observe(ev);
-        if (ev && feed) feedEventsFromStream(ev, ctx).forEach((e) => feed.push(e));
-        if (logFile !== null) fs.writeSync(logFile, `${line}\n`);
-      });
-      readline.createInterface({ input: child.stderr! }).on('line', (line) => {
-        stderrTail.push(line);
-        if (stderrTail.length > STDERR_TAIL_LINES) stderrTail.shift();
-        if (logFile !== null) fs.writeSync(logFile, `${JSON.stringify({ type: 'stderr', line })}\n`);
-      });
-
-      // progreso: tool calls del segmento (throttled) + la nota de workdir en el primer envío.
-      this.postProgress(sup, runId, 0, seg, clip(res.note, WORKDIR_MAX_CHARS));
-      let reportedToolCalls = 0;
-      let lastProgressAt = Date.now();
-      const progress = setInterval(() => {
-        const now = Date.now();
-        // las del turno en curso (t#636, fase 3: el proceso puede haber partido turnos).
-        const turnCalls = stream.toolCalls - toolCallsAt();
-        if (turnCalls === reportedToolCalls || now - lastProgressAt < PROGRESS_MIN_INTERVAL_MS) return;
-        reportedToolCalls = turnCalls;
-        lastProgressAt = now;
-        this.postProgress(sup, runId, reportedToolCalls, seg);
-      }, PROGRESS_TICK_MS);
-
-      const timeout = setTimeout(() => {
-        console.log(`${this.tagOf(sup)} run ${runId} superó ${Math.round(claim.timeoutMs / 1000)}s; deteniendo claude`);
-        kill('timeout');
-      }, Math.max(MIN_RUN_TIMEOUT_MS, claim.timeoutMs));
-
-      child.on('error', (err) => {
-        stderrTail.push(`[runner] no se pudo lanzar claude: ${err.message}`);
-      });
-      child.on('exit', () => {
-        // claude salió: si algo en background retiene sus pipes, se dejan de esperar.
-        drainTimer = setTimeout(() => {
-          child.stdout?.destroy();
-          child.stderr?.destroy();
-        }, EXIT_DRAIN_MS);
-      });
-      child.on('close', (code) => {
-        inboxAbort.abort();
-        session?.end();
-        clearInterval(progress);
-        clearTimeout(timeout);
-        if (killTimer) clearTimeout(killTimer);
-        if (drainTimer) clearTimeout(drainTimer);
-        if (logFile !== null) fs.closeSync(logFile);
-        lease.detach();
-        resolve({ exitCode: code, killedBy, stream, stderrTail: stderrTail.join('\n').slice(-STDERR_TAIL_MAX_CHARS) });
-      });
-    });
-  }
-
   // parte el turno dentro del proceso vivo (t#636, fase 3): el diff del que acaba con su segmento, la foto del que empieza y
   // POST …/turn; con el segmento nuevo, el latido, el feed y el buzón siguen con él. el server que no lo parte (null) deja
   // todo como estaba: el cierre lo contará como un solo turno.
@@ -1803,7 +1565,7 @@ export class RunnerDaemon {
 
   // el buzón del proceso vivo (t#636, fase 2): long-poll mientras stdin siga abierto; cada orden va al proceso. un fallo de
   // red espera y reintenta; un run que ya no las acepta (null) deja de pedir.
-  private async pollInbox(sup: PlatformSupervisor, runId: string, seg: RunSegment, waitMs: number, session: LiveSession, signal: AbortSignal): Promise<void> {
+  private async pollInbox(sup: PlatformSupervisor, runId: string, seg: RunSegment, waitMs: number, session: InboxTarget, signal: AbortSignal): Promise<void> {
     const inbox = sup.platform.inbox?.bind(sup.platform);
     if (!inbox) return;
     // i/o secuencial: un long-poll tras otro mientras el proceso viva.

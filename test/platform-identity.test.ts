@@ -11,7 +11,7 @@ import { after, before, beforeEach, test, type TestContext } from 'node:test';
 import { configPath, loadConfig, runnerHome, type RunnerConfig } from '../src/config.js';
 import { derivedMachineId, ensureMachineSecret } from '../src/machine.js';
 import { otherPlatformsDeny } from '../src/secret-paths.js';
-import { internals, legacyOf, type DaemonInternals, type SupervisorInternals } from './daemon-harness.js';
+import { internals, legacyOf, runDenyOf, type DaemonInternals, type SupervisorInternals } from './daemon-harness.js';
 import { fakeFactories, type FakePlatform } from './fake-platform.js';
 
 let root = '';
@@ -31,7 +31,7 @@ async function daemon(t: TestContext, platforms: object | null): Promise<{ d: Da
   return { d, created };
 }
 
-const runDeny = (d: DaemonInternals, sup: SupervisorInternals): string[] => (d as unknown as { runDeny(s: SupervisorInternals): string[] }).runDeny(sup);
+const runDeny = (d: DaemonInternals, sup: SupervisorInternals): string[] => runDenyOf(d, sup);
 const rule = (p: string, dir = false): string => `Read(/${path.resolve(p)}${dir ? '/**' : ''})`;
 
 before(() => {
