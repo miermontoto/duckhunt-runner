@@ -61,9 +61,9 @@ A run from a duckhunt that does not send the neutral form yet launches exactly a
 ## Setup
 
 ```sh
-npx duckhunt-runner@0.13.0 login
-npx duckhunt-runner@0.13.0 repos discover ~/dev
-npx duckhunt-runner@0.13.0 start
+npx duckhunt-runner@0.26.0 login
+npx duckhunt-runner@0.26.0 repos discover ~/dev
+npx duckhunt-runner@0.26.0 start
 ```
 
 Pin the version: the daemon runs `claude -p` with a shell on your machine, so install the release you
@@ -156,7 +156,7 @@ already does for this — a `screen`/`tmux` session, a systemd user service, `la
 Description=duckhunt runner
 
 [Service]
-ExecStart=/usr/bin/npx duckhunt-runner@0.13.0 start
+ExecStart=/usr/bin/npx duckhunt-runner@0.26.0 start
 Restart=always
 # 78: this machine was unpaired (or its credential expired); it needs a new `login`, not a restart.
 RestartPreventExitStatus=78
@@ -607,6 +607,14 @@ does it when the claim asks for it.
   is listed with its counts but without its diff.
 - It is uploaded after the feed and before the step's status. If git or the upload fails, the turn
   just shows no changes; the run is never affected.
+- A turn that moves `HEAD` to another line of history (`git checkout -b x origin/y`) is diffed from its
+  starting snapshot carried onto the new `HEAD`, so the distance between the two branches never counts as
+  the turn's changes (0.25.1 or later). Commits on top of the same line and a reset back still diff from
+  the snapshot.
+- From 0.26.0, when duckhunt asks for it (`changes.run` in the claim), each step also uploads the net diff
+  of the whole conversation: from the conversation's base snapshot (the one duckhunt sends, or the first
+  turn of the process) to the end of the step, extra repos included. A base that `git gc` removed uploads
+  nothing; no changes upload an empty report.
 - In the checkout (instead of a worktree), the snapshots also catch what you edit there while the turn
   runs.
 
@@ -660,6 +668,33 @@ don't announce it).
   snapshot, the step fails with `restore_failed` without launching Claude, and nothing is changed.
 - What the agent did outside the worktree (in duckhunt, Jira, a push) stays done.
 
+### Subagents and workflows (0.23.0 or later)
+
+With a Claude Code that lists `--forward-subagent-text` in `--help`, the daemon announces subagents and
+passes that flag, so the conversation shows what each subagent says and does, nested under the tool call
+that started it. The feed carries the id of each tool call and of its parent, and the milestones of
+subagents, workflows and background commands as `task` events. The tool lists grant `Agent`, `Task` and
+`TaskStop` (and `Workflow` when duckhunt grants it) and deny `ListAgents` and `SendMessage`, which reach other
+Claude Code sessions on the machine. A subagent inherits the step's permissions and tools, nothing more.
+
+### Talking to a run while it works (0.24.0 or later)
+
+With a Claude Code that lists `--input-format`, a step can keep Claude's stdin open (in stream-json): the
+prompt goes in as the first message, and while the process lives the daemon long-polls the run's inbox in
+duckhunt.
+
+- **Stopping a task** (0.24.0). Stopping a subagent, workflow or background command from duckhunt becomes
+  Claude Code's own `stop_task` request. The daemon closes stdin on the first result that leaves no task
+  running (or on an error). If the main agent does not wake up within 60 seconds of its last task ending,
+  or the process says nothing for 15 minutes, stdin is closed anyway; the step's timeout still applies.
+- **Messages** (0.25.0). With `--replay-user-messages` too, a message you send while the agent works is
+  written to stdin with its id, and Claude Code echoes it back when it takes it: that is the
+  acknowledgement. Taken while the agent is idle, it starts a new turn in the same process; taken mid-turn,
+  it joins that turn. A message not yet acknowledged keeps stdin open, like a task.
+- Each new turn inside the process (a message, or Claude Code waking the main agent after a background
+  task) closes the previous one: its diff is uploaded with its own step number, the next turn's snapshot is
+  taken, and heartbeat, feed and inbox move to the new step.
+
 ## Platforms (0.13.0 or later)
 
 duckhunt is the built-in platform: `login` and `logout` without an id are still the duckhunt ones,
@@ -671,7 +706,7 @@ worktrees (`<checkout>/.runner/worktrees/<id>/`), and sees only what you expose 
 ### Adding one
 
 ```sh
-npx duckhunt-runner@0.13.0 login https://platform.example --as acme --name "Acme"
+npx duckhunt-runner@0.26.0 login https://platform.example --as acme --name "Acme"
 ```
 
 `login <url> --as [id] [--name <name>] [--trusted]` reads the platform's discovery document and its
