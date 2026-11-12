@@ -61,9 +61,9 @@ A run from a duckhunt that does not send the neutral form yet launches exactly a
 ## Setup
 
 ```sh
-npx duckhunt-runner@0.26.0 login
-npx duckhunt-runner@0.26.0 repos discover ~/dev
-npx duckhunt-runner@0.26.0 start
+npx duckhunt-runner@0.27.0 login
+npx duckhunt-runner@0.27.0 repos discover ~/dev
+npx duckhunt-runner@0.27.0 start
 ```
 
 Pin the version: the daemon runs `claude -p` with a shell on your machine, so install the release you
@@ -156,7 +156,7 @@ already does for this — a `screen`/`tmux` session, a systemd user service, `la
 Description=duckhunt runner
 
 [Service]
-ExecStart=/usr/bin/npx duckhunt-runner@0.26.0 start
+ExecStart=/usr/bin/npx duckhunt-runner@0.27.0 start
 Restart=always
 # 78: this machine was unpaired (or its credential expired); it needs a new `login`, not a restart.
 RestartPreventExitStatus=78
@@ -715,7 +715,7 @@ worktrees (`<checkout>/.runner/worktrees/<id>/`), and sees only what you expose 
 ### Adding one
 
 ```sh
-npx duckhunt-runner@0.26.0 login https://platform.example --as acme --name "Acme"
+npx duckhunt-runner@0.27.0 login https://platform.example --as acme --name "Acme"
 ```
 
 `login <url> --as [id] [--name <name>] [--trusted]` reads the platform's discovery document and its
