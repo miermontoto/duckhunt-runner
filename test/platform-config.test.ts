@@ -14,7 +14,7 @@ import { LEGACY_PLATFORM_ID, serverStatePath } from '../src/paths.js';
 import { credentialStore } from '../src/platforms/credentials.js';
 import { PLATFORM_STATE } from '../src/platforms/supervisor.js';
 import { RunLease } from '../src/run-lease.js';
-import { internals, legacyOf, type DaemonInternals } from './daemon-harness.js';
+import { internals, legacyOf, runDenyOf, type DaemonInternals } from './daemon-harness.js';
 import { fakeFactories, type FakePlatform } from './fake-platform.js';
 
 const BASE = 'https://duckhunt.test';
@@ -242,7 +242,7 @@ test('los comandos de repos solo se aceptan de la legacy', async (t) => {
 test('el deny de run-config se recalcula por segmento: una plataforma que aparece en disco queda cubierta', async (t) => {
   quiet(t);
   const { d } = await daemon({});
-  const runDeny = (d as unknown as { runDeny(s: unknown): string[] }).runDeny.bind(d);
+  const runDeny = (sup: { id: string }): string[] => runDenyOf(d, sup);
   const before = runDeny(legacyOf(d));
   assert.ok(!before.some((r) => r.includes('/platforms/gamma/')));
   fs.mkdirSync(path.join(runnerHome(), 'platforms', 'gamma', 'run-config'), { recursive: true });
