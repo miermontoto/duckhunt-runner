@@ -8,7 +8,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 import { awsEntryOf, planAwsAccounts } from '../src/aws-discover.js';
-import { daemonCommand, launchdPlist, serviceEnv, systemdUnit } from '../src/service.js';
+import { daemonCommand, launchdPlist, serviceEnv, servicePath, systemdUnit } from '../src/service.js';
 import { defaultCodeDir, parseSetupArgs } from '../src/setup.js';
 
 test('lanzado con npx el servicio fija la versión; instalado, su propio index.js con este node', () => {
@@ -22,6 +22,25 @@ test('lanzado con npx el servicio fija la versión; instalado, su propio index.j
 test('el entorno del servicio: solo las claves que necesita, con las rutas absolutas', () => {
   const env = serviceEnv({ PATH: '/usr/bin:/bin', DUCKHUNT_RUNNER_CONFIG: 'rel/runner.json', AWS_SECRET_ACCESS_KEY: 'x', HOME: '/home/u' });
   assert.deepEqual(env, { PATH: '/usr/bin:/bin', DUCKHUNT_RUNNER_CONFIG: path.resolve('rel/runner.json') });
+});
+
+test('el PATH del servicio sin lo que mete npm exec ni repetidos (t#670: cada actualización lo apilaba)', () => {
+  // el de una unidad real, instalada con npx desde home.
+  const fromNpx = [
+    '/home/u/.npm/_npx/62badc454fbce180/node_modules/.bin',
+    '/home/u/node_modules/.bin',
+    '/home/node_modules/.bin',
+    '/node_modules/.bin',
+    '/opt/node/lib/node_modules/npm/node_modules/@npmcli/run-script/lib/node-gyp-bin',
+    '/opt/node/bin',
+    '/home/u/.local/bin',
+    '/usr/bin',
+    '/opt/node/bin',
+  ].join(':');
+  assert.equal(servicePath(fromNpx, ':'), '/opt/node/bin:/home/u/.local/bin:/usr/bin');
+  assert.equal(servicePath('/usr/bin::/bin:', ':'), '/usr/bin:/bin', 'sin entradas vacías');
+  assert.equal(servicePath('/srv/node_modules_extra/bin:/usr/bin', ':'), '/srv/node_modules_extra/bin:/usr/bin', 'solo un …/node_modules/.bin exacto');
+  assert.equal(serviceEnv({ PATH: servicePath(fromNpx, ':') }).PATH, servicePath(servicePath(fromNpx, ':'), ':'), 'reescribirla desde el servicio no la cambia');
 });
 
 test('la unidad de systemd: ExecStart entrecomillado, su entorno, reinicio salvo con 78', () => {

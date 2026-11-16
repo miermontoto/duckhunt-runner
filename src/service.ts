@@ -8,7 +8,10 @@
 //   con la versión nueva.
 // - el entorno del servicio es el de quien lo instala, solo lo que necesita: PATH (claude, git, aws y node para npx;
 //   un servicio de usuario arranca con un PATH mínimo), la config y el home del daemon si no son los de siempre, la
-//   config de claude y los proxies. ni credenciales ni el resto del entorno.
+//   config de claude y los proxies. ni credenciales ni el resto del entorno. del PATH se quita lo que `npm exec` (npx)
+//   mete delante al lanzar el paquete —el .bin de su caché, el de cada carpeta hasta la raíz y su node-gyp-bin— y los
+//   repetidos: no es de quien instala, apunta a cachés efímeras y cada actualización desde duckhunt (t#670, que
+//   reescribe la unidad desde el propio servicio) lo volvería a apilar.
 // - exit 78 (EXIT_CODE_UNPAIRED: la máquina se desvinculó o caducó su credencial) no se reinicia en systemd
 //   (RestartPreventExitStatus). launchd no sabe excluir un código: lo reintenta con un ThrottleInterval largo y el
 //   daemon sale enseguida sin credencial; `service remove` lo quita.
@@ -38,6 +41,8 @@ const SERVICE_ENV_KEYS = ['PATH', 'DUCKHUNT_RUNNER_CONFIG', 'DUCKHUNT_RUNNER_HOM
 const SERVICE_PATH_KEYS: ReadonlySet<string> = new Set(['DUCKHUNT_RUNNER_CONFIG', 'DUCKHUNT_RUNNER_HOME', 'CLAUDE_CONFIG_DIR']);
 // segmentos de ruta de un paquete lanzado con npx o pnpm dlx: su caché no es estable.
 const EPHEMERAL_SEGMENTS = ['_npx', 'dlx'];
+// lo que `npm exec` mete delante del PATH (ver cabecera): cualquier `…/node_modules/.bin` y el node-gyp-bin de npm.
+const NPM_EXEC_PATH_RE = /(?:^|[\\/])node_modules[\\/]\.bin[\\/]?$|[\\/]@npmcli[\\/]run-script[\\/]lib[\\/]node-gyp-bin[\\/]?$/;
 const RESTART_SEC = 5;
 const LAUNCHD_THROTTLE_S = 60;
 /** la salida del daemon fuera de systemd (launchd y el relevo de una actualización, self-update.ts), en su home. */
@@ -76,11 +81,16 @@ export function daemonCommand(script: string, execPath: string, version: string 
   return [...npxRunner(execPath, version), 'start'];
 }
 
+/** el PATH del servicio: el de quien instala sin lo que mete `npm exec` y sin repetidos, en su orden (ver cabecera). */
+export function servicePath(value: string, delimiter: string = path.delimiter): string {
+  return [...new Set(value.split(delimiter).filter((dir) => dir !== '' && !NPM_EXEC_PATH_RE.test(dir)))].join(delimiter);
+}
+
 /** el entorno que hereda el servicio (ver cabecera). */
 export function serviceEnv(env: NodeJS.ProcessEnv = process.env): Record<string, string> {
   return Object.fromEntries(
     SERVICE_ENV_KEYS.flatMap((key) => {
-      const value = env[key];
+      const value = key === 'PATH' && env.PATH ? servicePath(env.PATH) : env[key];
       if (!value) return [];
       return [[key, SERVICE_PATH_KEYS.has(key) ? path.resolve(value) : value]];
     }),

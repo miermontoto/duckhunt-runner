@@ -189,7 +189,8 @@ later, also offered by `setup`) does it for you: on Linux it writes
 for the logs; run `loginctl enable-linger` once if it should keep running with no session open); on
 macOS it writes `~/Library/LaunchAgents/info.duckhunt.runner.plist` and loads it, with its output in
 `~/.duckhunt-runner/daemon.log`. The service runs the same pinned version that installed it (through
-`npx` when you ran it with `npx`), with your current `PATH` so it finds `claude`, `git` and `aws`, and
+`npx` when you ran it with `npx`), with your current `PATH` so it finds `claude`, `git` and `aws` (minus the
+temporary folders `npx` adds to it), and
 with `DUCKHUNT_RUNNER_CONFIG`/`DUCKHUNT_RUNNER_HOME` if you set them. It does not restart a daemon that
 stopped because the machine was unpaired. `service remove` stops and deletes it. To upgrade, run
 `setup` or `service install` with the new version, or update it from duckhunt (below).
