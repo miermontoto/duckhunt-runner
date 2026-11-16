@@ -238,14 +238,17 @@ async function awsStep(args: SetupArgs, prompt: Prompter, interactive: boolean):
     ok('nada nuevo que mapear');
     return;
   }
-  // una cuenta con varios perfiles: elige la persona (el número, o «-» para no mapearla).
+  // una cuenta con varios perfiles: elige la persona (el número, o «-» para no mapearla); sin terminal se dice cómo.
   const picks: { account: string; profile: AwsProfileAccount }[] = [];
   for (const candidate of plan.fresh) {
     if (candidate.profiles.length === 1) {
       picks.push({ account: candidate.account, profile: candidate.profiles[0]! });
       continue;
     }
-    if (!interactive) continue;
+    if (!interactive) {
+      console.log(`  saltada ${candidate.account}: elige su perfil con \`duckhunt-runner aws add ${candidate.account} <perfil> [region]\``);
+      continue;
+    }
     const options = candidate.profiles.map((p, i) => `${i + 1} ${p.profile}`).join(', ');
     const answer = await prompt.text(`  ¿qué perfil para ${candidate.account}? (${options}, «${SKIP_ANSWER}» ninguno)`, '1');
     const chosen = candidate.profiles[Number.parseInt(answer, 10) - 1];
@@ -278,6 +281,7 @@ async function runStep(args: SetupArgs, prompt: Prompter): Promise<boolean> {
       console.log('  quitarlo: `duckhunt-runner service remove`');
       return false;
     }
+    console.log('  en primer plano: para dejarlo como servicio luego, `duckhunt-runner service install`');
   } else if (args.service) {
     warn('esta máquina no tiene systemd --user ni launchd: arranca en primer plano');
   }
@@ -295,7 +299,7 @@ export async function setupCommand(rest: readonly string[]): Promise<{ foregroun
   await reposStep(args, prompt);
   await awsStep(args, prompt, interactive);
   const foreground = await runStep(args, prompt);
-  console.log(`\nlisto: «${name}» sale en ${args.baseUrl}${MACHINES_PATH} en cuanto reclame trabajo.`);
+  console.log(`\nlisto: «${name}» sale en ${args.baseUrl}${MACHINES_PATH} en cuanto el daemon se conecte.`);
   if (foreground) console.log('arrancando el daemon en primer plano: déjalo abierto (ctrl-c lo para).\n');
   return { foreground };
 }

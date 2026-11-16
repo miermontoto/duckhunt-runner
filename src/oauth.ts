@@ -262,11 +262,12 @@ export async function authorizeClient(ep: OAuthEndpoints, clientName: string, op
     } else {
       const opened = await (opts.open ?? openBrowser)(authorizeUrl(loop.redirectUri));
       console.log(opened ? '\nse abrió el navegador: aprueba esta máquina y vuelve aquí.' : '\nno se pudo abrir el navegador.');
+      // con terminal, la url out-of-band (vale en otro ordenador); sin ella, la del loopback (solo en esta máquina).
       if (opts.paste) {
-        console.log(`${opened ? '¿no se abrió, o el navegador está en otro ordenador?' : 'abre'} esta url, autoriza y pega aquí el código:\n`);
+        console.log(`${opened ? '¿no se abrió, o el navegador está en otro ordenador? abre' : 'abre'} esta url, autoriza y pega aquí el código:\n`);
         console.log(`  ${authorizeUrl(ep.redirectUri)}\n`);
       } else {
-        console.log('abre esta url en un navegador de esta máquina y autoriza:\n');
+        console.log(`${opened ? 'si no se abrió, abre' : 'abre'} esta url en un navegador de esta máquina y autoriza:\n`);
         console.log(`  ${authorizeUrl(loop.redirectUri)}\n`);
       }
       obtained = await raceForCode(loop, state, ep.redirectUri, opts.paste ? ask : null);
