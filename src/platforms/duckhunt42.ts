@@ -14,6 +14,7 @@
 import { claimRunId, parseClaim } from '../claim.js';
 import type { SeqEvent } from '../event-uploader.js';
 import { parseRepoCommands, type RepoCommand, type RepoCommandResult } from '../repo-commands.js';
+import { REPO_FILES_UPLOAD, type RepoFilesOutcome } from '../repo-files.js';
 import { chunk } from '../resources/repo/gc.js';
 import { RESOURCE_TYPE } from '../resources/types.js';
 import { isLegacyRunId, legacyWireRunId } from '../run-id.js';
@@ -23,9 +24,11 @@ import { clampReport, type StatusReport } from '../status-report.js';
 import type { RunnerCredential } from '../config.js';
 import {
   RUNNER_CLAUDE_VERSION_MAX_CHARS,
+  RUNNER_REPO_FILES_PATH,
   RUNNER_SLASH_COMMANDS_PATH,
   RUNNER_STATE_HEADER,
   type RunChangesReport,
+  type RunnerRepoFiles,
   type RunnerSlashCommands,
   AGENT_RUN_EVENT_ID_RE,
   RUN_INBOX_COMMANDS_MAX,
@@ -62,10 +65,12 @@ export const STATUS_POST_ATTEMPTS = 5;
 export const STATUS_POST_BACKOFF_MS = 2_000;
 const HTTP_NO_CONTENT = 204;
 const HTTP_OK = 200;
+const HTTP_BAD_REQUEST = 400;
 const HTTP_UNAUTHORIZED = 401;
 const HTTP_NOT_FOUND = 404;
 const HTTP_TIMEOUT = 408;
 const HTTP_CONFLICT = 409;
+const HTTP_PAYLOAD_TOO_LARGE = 413;
 // margen del GET del buzón sobre la espera que pide (la respuesta llega justo al vencer).
 const INBOX_SLACK_MS = 10_000;
 // id de una orden del buzón (también el request_id del control_request): opaco y acotado.
@@ -303,6 +308,19 @@ export class Duckhunt42Platform implements Platform {
     if (res?.status === HTTP_NOT_FOUND) return SLASH_UPLOAD.unsupported;
     if (res) console.error(`[runner] slash commands: ${RUNNER_SLASH_COMMANDS_PATH} respondió http ${res.status}`);
     return SLASH_UPLOAD.failed;
+  }
+
+  // índice de ficheros de un repo (t#678, repo-files.ts). 404 = server anterior a la ruta y 400/413 = ese índice no lo
+  // acepta: no se reintentan hasta que cambie; 409 (la máquina o el repo aún no están en su mapa), 5xx o la red, sí.
+  async repoFiles(body: RunnerRepoFiles): Promise<RepoFilesOutcome> {
+    const res = await this.transport.post(RUNNER_REPO_FILES_PATH, body).catch((err: Error) => {
+      console.error(`[runner] índice de ${body.repo}: ${RUNNER_REPO_FILES_PATH} inaccesible: ${err.message}`);
+      return null;
+    });
+    if (res?.ok) return REPO_FILES_UPLOAD.ok;
+    if (res?.status === HTTP_NOT_FOUND) return REPO_FILES_UPLOAD.unsupported;
+    if (res) console.error(`[runner] índice de ${body.repo}: ${RUNNER_REPO_FILES_PATH} respondió ${await failureReason(res)}`);
+    return res?.status === HTTP_BAD_REQUEST || res?.status === HTTP_PAYLOAD_TOO_LARGE ? REPO_FILES_UPLOAD.rejected : REPO_FILES_UPLOAD.retry;
   }
 
   // revoca la credencial, borra la fila de la máquina y cancela sus runs en marcha (lo mismo que el × de

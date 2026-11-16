@@ -55,6 +55,9 @@ export class PlatformSupervisor {
   private serverState: ServerState | null = null;
   // el último bloque runner que dijo su server (ver cabecera); null = ninguno aún.
   lastRunner: RunnerBlock | null = null;
+  // los repos que anunció su último claim con respuesta: los del mapa de la máquina en su server (t#678, el índice de
+  // ficheros solo sube esos). null = ninguno aún.
+  claimedRepos: readonly string[] | null = null;
   private wakeUp: (() => void) | null = null;
 
   constructor(
@@ -93,8 +96,9 @@ export class PlatformSupervisor {
    *  se avisa al daemon. devuelve el run, o null si no hay (o no se puede correr). */
   async claim(): Promise<ClaimResponse | null> {
     let result: ClaimResult;
+    const announce = this.hooks.announce(this);
     try {
-      result = await this.platform.claim(this.hooks.announce(this));
+      result = await this.platform.claim(announce);
     } catch (err) {
       if (!(err instanceof PlatformRejectedError)) throw err;
       this.hooks.rejected(this, err);
@@ -102,6 +106,7 @@ export class PlatformSupervisor {
     }
     if (result.commandsPending) this.hooks.commandsPending(this);
     if (result.kind === CLAIM_RESULT.unavailable) return null;
+    this.claimedRepos = announce.repos;
     this.recordServerState(result.said.state, result.said.runner);
     if (result.kind === CLAIM_RESULT.invalid) {
       this.hooks.rejectedClaim?.(this, result.runId, result.error);

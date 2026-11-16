@@ -23,7 +23,8 @@ disk. With the progress feed on, it also receives what the agent says and one li
 the diff of what an `edit` conversation changed in its repo, so you can review it in the conversation
 (see [Code changes per turn](#code-changes-per-turn-0140-or-later)). From 0.16.0 it also receives the
 names of the slash commands your runs load, with the one-line description from each command's file (see
-[Slash commands](#slash-commands-0160-or-later)).
+[Slash commands](#slash-commands-0160-or-later)), and from 0.30.0 the list of file paths of each mapped repo,
+never their contents (see [File mentions](#file-mentions-0300-or-later)).
 
 ## Requirements
 
@@ -724,6 +725,23 @@ not offered.
 - Each platform has its own catalogue (`slash-commands.json` in its state directory) and only receives what
   its own runs loaded. It is uploaded whole when it changes. A failed upload is retried a minute later; a
   server without the endpoint is not asked again until the list changes. The run is never affected.
+
+### File mentions (0.30.0 or later)
+
+Typing `@` in a duckhunt conversation suggests the files of that conversation's repo. Claude Code expands
+`@path` by itself anywhere in the prompt and still applies the run's read rules, so the message travels as
+written.
+
+- The list is `git ls-files --cached --others --exclude-standard` of the repo's **mapped checkout** (tracked
+  files plus new ones that are not ignored), never a conversation's worktree: a file that only exists in one
+  conversation is not suggested, but typing it still works. Only paths are sent, never contents or sizes.
+- Paths longer than 400 characters or with control characters, `"` or `\` are left out. Shallower paths go
+  first; a repo is cut at 20 000 paths or a 2 MB upload, and duckhunt is told it was cut.
+- The daemon lists every repo a platform announces after its first claim, again every 10 minutes and after
+  each step in that repo, and uploads a repo only when its list changed, one repo at a time. Each platform
+  only receives the repos it announces. A failed upload is retried a minute later; a server without the
+  endpoint, or one that refuses that list, is not asked again until the list changes. A repo that can't be
+  listed (not a git checkout, too slow) is skipped with one log line. The run is never affected.
 
 ### Going back in a conversation (0.17.0 or later)
 
