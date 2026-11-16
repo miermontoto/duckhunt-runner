@@ -8,7 +8,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { configPath, deprecatedRepoFlags, loadStoredConfig, REPO_FLAGS_DEPRECATED, saveConfig, type RepoConfig } from './config.js';
+import { configPath, deprecatedRepoFlags, loadStoredConfig, REPO_FLAGS_DEPRECATED, saveConfig, type RepoConfig, type StoredConfig } from './config.js';
 import { REPO_KEY_RE, sameRepoKey } from './repo-key.js';
 import { describeFinding, inspectCheckouts, repoFindings, scanRepos, type CheckoutState } from './resources/repo/health.js';
 import { scrubEnv } from './scrub-env.js';
@@ -43,6 +43,60 @@ function warnStopHooks(repoPath: string): void {
 // checkout principal de un grupo del mismo repo: el que guarda el .git común (no un worktree enlazado).
 const mainCheckout = (group: CheckoutState[]): CheckoutState =>
   group.find((s) => s.commonDir !== null && path.dirname(s.commonDir) === s.real) ?? group[0]!;
+
+/** un repo que `discover` mapearía: su key y su checkout. */
+export interface DiscoveredRepo {
+  key: string;
+  dir: string;
+}
+
+/** lo que `discover` haría en `base` (el dir y sus hijos directos) sobre los repos ya mapeados: lo nuevo, una línea
+ *  por repo visto (`+` nuevo, `=` ya mapeado, `?` varios checkouts: elige la persona) y cuántos repos vio. sin
+ *  checkouts git con origin, una sola línea que lo dice. lo usan `repos discover` y el paso de repos de `setup`. */
+export async function planDiscover(base: string, cfg: Pick<StoredConfig, 'repos'>): Promise<{ fresh: DiscoveredRepo[]; lines: string[]; checkouts: number }> {
+  // candidatos: el propio dir + sus hijos directos (los checkouts suelen vivir planos
+  // bajo ~/dev; profundidad 1 evita recorrer node_modules y árboles enormes).
+  const candidates = [
+    base,
+    ...fs
+      .readdirSync(base, { withFileTypes: true })
+      .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
+      .map((e) => path.join(base, e.name)),
+  ].filter((dir) => fs.existsSync(path.join(dir, '.git')));
+
+  // agrupados por key: los worktrees enlazados de un repo comparten git-common-dir y son UN checkout.
+  const groups = (await inspectCheckouts(candidates, scrubEnv(process.env)))
+    .filter((s) => s.root && s.key !== null)
+    .reduce((acc, s) => acc.set(s.key!.toLowerCase(), [...(acc.get(s.key!.toLowerCase()) ?? []), s]), new Map<string, CheckoutState[]>());
+  if (groups.size === 0) return { fresh: [], lines: [`sin checkouts git con remote origin bajo ${base}`], checkouts: 0 };
+
+  const seen = [...groups.values()].map((group): { line: string; fresh: DiscoveredRepo | null } => {
+    const key = group[0]!.key!;
+    const repos = [...new Map(group.map((s) => [s.commonDir ?? s.real, s])).values()];
+    const mapped = Object.keys(cfg.repos).find((k) => sameRepoKey(k, key));
+    if (mapped) {
+      const mappedPath = cfg.repos[mapped]!.path;
+      const mappedReal = fs.existsSync(mappedPath) ? fs.realpathSync(mappedPath) : path.resolve(mappedPath);
+      const mappedCommon = group.find((s) => s.real === mappedReal)?.commonDir ?? null;
+      const others = repos.filter((s) => s.real !== mappedReal && (mappedCommon === null || s.commonDir !== mappedCommon)).map((s) => s.dir);
+      return { line: `  = ${mapped} ya mapeado (${mappedPath})${others.length ? `; también en ${others.join(', ')}` : ''}`, fresh: null };
+    }
+    // varios checkouts distintos del mismo repo: elegir es del usuario, nunca del orden alfabético.
+    if (repos.length > 1) {
+      return { line: `  ? ${key}: ${repos.map((s) => s.dir).join(', ')} — varios checkouts: elige uno con \`repos add ${key} <path>\``, fresh: null };
+    }
+    const pick = mainCheckout(group);
+    return { line: `  + ${key} → ${pick.dir}`, fresh: { key, dir: pick.dir } };
+  });
+  return { fresh: seen.flatMap((s) => (s.fresh ? [s.fresh] : [])), lines: seen.map((s) => s.line), checkouts: groups.size };
+}
+
+/** mapea lo que encontró `planDiscover` (sobre la config del momento, sin pisar lo demás). */
+export function applyDiscover(fresh: readonly DiscoveredRepo[]): void {
+  // los flags sensibles (skip-permissions, no-worktree) NUNCA se autodescubren:
+  // son opt-in explícito por repo via `repos add` o editando la config.
+  saveConfig((current) => ({ repos: { ...current.repos, ...Object.fromEntries(fresh.map(({ key, dir }) => [key, { path: dir }])) } }));
+}
 
 export async function reposCommand(args: string[]): Promise<void> {
   // sin credencial también (tras `logout` los mapas se quedan): solo se leen y escriben los mapas.
@@ -117,58 +171,18 @@ export async function reposCommand(args: string[]): Promise<void> {
       process.exitCode = 1;
       return;
     }
-    // candidatos: el propio dir + sus hijos directos (los checkouts suelen vivir planos
-    // bajo ~/dev; profundidad 1 evita recorrer node_modules y árboles enormes).
-    const candidates = [
-      base,
-      ...fs
-        .readdirSync(base, { withFileTypes: true })
-        .filter((e) => e.isDirectory() && !e.name.startsWith('.'))
-        .map((e) => path.join(base, e.name)),
-    ].filter((dir) => fs.existsSync(path.join(dir, '.git')));
-
-    // agrupados por key: los worktrees enlazados de un repo comparten git-common-dir y son UN checkout.
-    const groups = (await inspectCheckouts(candidates, scrubEnv(process.env)))
-      .filter((s) => s.root && s.key !== null)
-      .reduce((acc, s) => acc.set(s.key!.toLowerCase(), [...(acc.get(s.key!.toLowerCase()) ?? []), s]), new Map<string, CheckoutState[]>());
-    if (groups.size === 0) {
-      console.log(`sin checkouts git con remote origin bajo ${base}`);
-      return;
-    }
-
-    const fresh = [...groups.values()].flatMap((group) => {
-      const key = group[0]!.key!;
-      const repos = [...new Map(group.map((s) => [s.commonDir ?? s.real, s])).values()];
-      const mapped = Object.keys(cfg.repos).find((k) => sameRepoKey(k, key));
-      if (mapped) {
-        const mappedPath = cfg.repos[mapped]!.path;
-        const mappedReal = fs.existsSync(mappedPath) ? fs.realpathSync(mappedPath) : path.resolve(mappedPath);
-        const mappedCommon = group.find((s) => s.real === mappedReal)?.commonDir ?? null;
-        const others = repos.filter((s) => s.real !== mappedReal && (mappedCommon === null || s.commonDir !== mappedCommon)).map((s) => s.dir);
-        console.log(`  = ${mapped} ya mapeado (${cfg.repos[mapped]!.path})${others.length ? `; también en ${others.join(', ')}` : ''}`);
-        return [];
-      }
-      // varios checkouts distintos del mismo repo: elegir es del usuario, nunca del orden alfabético.
-      if (repos.length > 1) {
-        console.log(`  ? ${key}: ${repos.map((s) => s.dir).join(', ')} — varios checkouts: elige uno con \`repos add ${key} <path>\``);
-        return [];
-      }
-      const pick = mainCheckout(group);
-      console.log(`  + ${key} → ${pick.dir}`);
-      return [{ key, dir: pick.dir }];
-    });
-    if (fresh.length === 0) {
-      console.log('nada nuevo que mapear');
+    const plan = await planDiscover(base, cfg);
+    plan.lines.forEach((line) => console.log(line));
+    if (plan.fresh.length === 0) {
+      if (plan.checkouts > 0) console.log('nada nuevo que mapear');
       return;
     }
     if (dryRun) {
-      console.log(`dry-run: ${fresh.length} repo(s) sin aplicar`);
+      console.log(`dry-run: ${plan.fresh.length} repo(s) sin aplicar`);
       return;
     }
-    // los flags sensibles (skip-permissions, no-worktree) NUNCA se autodescubren:
-    // son opt-in explícito por repo via `repos add` o editando la config.
-    saveConfig((current) => ({ repos: { ...current.repos, ...Object.fromEntries(fresh.map(({ key, dir }) => [key, { path: dir }])) } }));
-    console.log(`mapeados ${fresh.length} repo(s) en ${configPath()}`);
+    applyDiscover(plan.fresh);
+    console.log(`mapeados ${plan.fresh.length} repo(s) en ${configPath()}`);
     return;
   }
 

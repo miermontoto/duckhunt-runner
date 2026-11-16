@@ -61,18 +61,52 @@ A run from a duckhunt that does not send the neutral form yet launches exactly a
 ## Setup
 
 ```sh
+npx duckhunt-runner@0.27.0 setup
+```
+
+Pin the version: the daemon runs `claude -p` with a shell on your machine, so install the release you
+mean to run (Settings → Agents → Connections shows the command pinned to the version duckhunt
+recommends, and ticks off each step as this machine pairs and comes online).
+
+`setup` (0.28.0 or later) walks you through the whole thing in one go:
+
+1. **Requirements.** Checks Node, Claude Code and git. A missing Claude Code is a warning, not an
+   error: the machine pairs anyway, and its first run tells you.
+2. **Connect.** Asks for this machine's name (the hostname by default), opens your browser to approve
+   it and comes back to the terminal by itself, like `claude` does. If the browser is on another
+   computer, or did not open, paste the code that duckhunt shows instead (see `login` below). A machine
+   already connected to that instance is kept unless you ask to reconnect it.
+3. **Repos.** Proposes the folder where your checkouts live (`~/dev`, `~/code`, `~/src`… whichever
+   exists), shows what it found and maps it if you agree. It only adds: repos you already mapped stay.
+4. **AWS accounts.** Lists the profiles of your AWS CLI, asks AWS which account each one reaches
+   (`aws sts get-caller-identity`, read-only) and offers to map the accounts not mapped yet, each with
+   its profile and region, as `aws add` would. When several profiles reach the same account it asks
+   which one to use; a profile AWS rejects (an expired SSO session, revoked keys) is listed with how to
+   fix it and skipped. Only the account id reaches duckhunt.
+5. **Keep it running.** Offers to install the daemon as a service of your session — a systemd user
+   unit on Linux, a launchd agent on macOS — so it starts with your session and restarts if it
+   crashes. Otherwise, or where there is neither (Windows, a container), it starts in the foreground.
+
+Every question has a flag, so `setup` also works in a script: `setup [base-url] [--name <name>]
+[--repos <dir> | --no-repos] [--no-aws] [--service | --no-service] [--yes] [--no-browser]`. `--yes` takes the
+default answer to every question (so it maps every account reached by a single profile and installs the
+service); without a terminal it does the same.
+Running `setup` again is safe, and it is how you move the service to a new version.
+
+Step by step, the same thing is three commands:
+
+```sh
 npx duckhunt-runner@0.27.0 login
 npx duckhunt-runner@0.27.0 repos discover ~/dev
 npx duckhunt-runner@0.27.0 start
 ```
 
-Pin the version: the daemon runs `claude -p` with a shell on your machine, so install the release you
-mean to run (Settings → Agents → Machines shows the commands pinned to the version duckhunt
-recommends). That is the whole thing. Step by step:
+Every command:
 
 | Command | What it does |
 | --- | --- |
-| `login [base-url] [label]` | Connects the daemon to your account. Opens the browser, you paste the code back. Defaults to `https://duckhunt.info`; pass a URL for another instance (`https://` is assumed if you omit the scheme). Both arguments are optional — an argument that does not look like a URL is taken as the label, which distinguishes machines if you run more than one. A running daemon switches to the new credential before its next claim; one connected to another instance keeps it until you restart it. |
+| `setup [base-url] [flags]` | The guided setup above (0.28.0 or later). |
+| `login [base-url] [label] [--no-browser]` | Connects the daemon to your account. Opens the browser and, once you approve, comes back by itself through a one-off listener on `127.0.0.1` (0.28.0 or later); you can always paste the code duckhunt shows instead, which is what works over SSH or with the browser on another computer. With no browser to open (no display, an SSH session) or `--no-browser`, it only asks for the code. Defaults to `https://duckhunt.info`; pass a URL for another instance (`https://` is assumed if you omit the scheme). Both arguments are optional — an argument that does not look like a URL is taken as the label, which distinguishes machines if you run more than one. A running daemon switches to the new credential before its next claim; one connected to another instance keeps it until you restart it. |
 | `repos discover [dir]` | Scans a directory for git checkouts and maps each one by its `origin` remote, so an agent can read the code behind an alarm. Add `--dry-run` to see what it would map. Only the `workspace/slug` key reaches the server. A repo checked out in more than one directory is listed but not mapped: pick one with `repos add`. |
 | `repos list\|add\|remove` | Manage that map by hand: `repos add <workspace/slug> <path>`. `list` and `add` show each repo's health warnings (see below). |
 | `aws add <accountId> <profile> [region] [--s3-read [bucket[/prefix]]…]` | Optional. Binds an AWS account id to a profile of your local AWS CLI, so the agent can read metrics, logs and resource state for that account. `--s3-read` (0.13.0 or later) also lets runs read S3 objects (see [S3 object reads](#s3-object-reads-0130-or-later)). |
@@ -83,6 +117,7 @@ recommends). That is the whole thing. Step by step:
 | `logout [id]` | Unpairs this machine from duckhunt and deletes its credential from the config file (0.11.0 or later; see [Machines](#machines-and-credentials)). With an id, does the same for another platform. |
 | `login <url> --as [id]`, `platforms …`, `audit …` | Add and manage other platforms, and read what each one ran here (0.13.0 or later; see [Platforms](#platforms-0130-or-later)). |
 | `start [--verbose]` | Starts the claim loop. |
+| `service install\|remove` | Installs the daemon as a service of your session (systemd user unit on Linux, launchd agent on macOS) and starts it, or stops and removes it (0.28.0 or later; see [Keeping it running](#keeping-it-running)). |
 | `run [flags] "<prompt>"` | Runs an agent on this machine with no server (0.13.0 or later; see [Local runs](#local-runs-runner-run-0130-or-later)). `run` with no prompt still starts the daemon, with a deprecation warning. |
 
 Configuration lives in `~/.duckhunt-runner.json`. It holds the base URL, the OAuth credential, this
@@ -147,8 +182,19 @@ To keep the map CLI-only on a machine, set `"remoteRepoEdits": false` under `def
 
 ### Keeping it running
 
-`start` runs in the foreground and has to stay alive to claim runs. Use whatever your machine
-already does for this — a `screen`/`tmux` session, a systemd user service, `launchd`:
+`start` runs in the foreground and has to stay alive to claim runs. `service install` (0.28.0 or
+later, also offered by `setup`) does it for you: on Linux it writes
+`~/.config/systemd/user/duckhunt-runner.service` and enables it (`journalctl --user -u duckhunt-runner -f`
+for the logs; run `loginctl enable-linger` once if it should keep running with no session open); on
+macOS it writes `~/Library/LaunchAgents/info.duckhunt.runner.plist` and loads it, with its output in
+`~/.duckhunt-runner/daemon.log`. The service runs the same pinned version that installed it (through
+`npx` when you ran it with `npx`), with your current `PATH` so it finds `claude`, `git` and `aws`, and
+with `DUCKHUNT_RUNNER_CONFIG`/`DUCKHUNT_RUNNER_HOME` if you set them. It does not restart a daemon that
+stopped because the machine was unpaired. `service remove` stops and deletes it. To upgrade, run
+`setup` or `service install` with the new version.
+
+Or use whatever your machine already does for this — a `screen`/`tmux` session, your own systemd
+unit, `launchd`:
 
 ```ini
 # ~/.config/systemd/user/duckhunt-runner.service

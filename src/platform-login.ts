@@ -16,7 +16,7 @@
 import path from 'node:path';
 import { configPath, loadConfigV2, loadStoredConfig, saveConfigV2, type RunnerCredential } from './config.js';
 import { daemonLockHolder } from './daemon-lock.js';
-import { authorizeClient, legacyOAuth, tokenUrlOf, type AskCode, type OAuthEndpoints } from './oauth.js';
+import { authorizeClient, legacyOAuth, tokenUrlOf, type AskCode, type AuthorizeOptions, type OAuthEndpoints } from './oauth.js';
 import { LEGACY_PLATFORM_ID, PLATFORM_ID_RE, RESERVED_PLATFORM_IDS } from './paths.js';
 import { getDiscovery, parseDiscovery, parseDiscoveryAuth } from './platforms/discovery.js';
 import { isSecureOrLoopback, sameSecureOrigin, sameUrl, urlOf } from './platforms/origin.js';
@@ -138,14 +138,15 @@ async function loginTarget(base: string, trusted: boolean): Promise<LoginTarget>
   return { protocol: PROTOCOL.v0, issuer: auth.issuer, oauth: { ...endpoints, redirectUri: auth.oobRedirectUri, resource: auth.resource } };
 }
 
-/** `login <url> --as [id]`: discovery, oauth y la plataforma en la config (ver cabecera). lanza con el motivo. */
-export async function platformLogin(args: PlatformLoginArgs, ask?: AskCode): Promise<void> {
+/** `login <url> --as [id]`: discovery, oauth y la plataforma en la config (ver cabecera). `auth` = navegador y code
+ *  pegado (browser-open.ts::interactiveAuth); sin él, solo el code pegado. lanza con el motivo. */
+export async function platformLogin(args: PlatformLoginArgs, ask?: AskCode, auth: Pick<AuthorizeOptions, 'browser' | 'paste'> = {}): Promise<void> {
   if (args.id !== null) checkId(args.id);
   const base = args.baseUrl;
   const target = await loginTarget(base, args.trusted);
   const id = args.id ?? platformIdOf(target.issuer) ?? fail(`no sale un id de ${target.issuer}: pásalo con ${PLATFORM_LOGIN_FLAG.as} <id>`);
   checkSameIssuer(id, loadConfigV2()?.platforms[id], target.issuer);
-  const { clientId, tokens } = await authorizeClient(target.oauth, `duckhunt-runner (${loadStoredConfig()?.label ?? CLIENT_NAME_FALLBACK})`, ask);
+  const { clientId, tokens } = await authorizeClient(target.oauth, `duckhunt-runner (${loadStoredConfig()?.label ?? CLIENT_NAME_FALLBACK})`, { ...auth, ask });
   // el token endpoint solo se guarda si no es el de siempre bajo su base.
   const tokenEndpoint = target.oauth.token === tokenUrlOf({ baseUrl: base }) ? undefined : target.oauth.token;
   const renewed = { value: false };

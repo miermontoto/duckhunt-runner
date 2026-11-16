@@ -12,7 +12,11 @@
 // un run por la plataforma local, sin ningún server (run-cli.ts); `run` sin prompt sigue siendo `start`, obsoleto.
 // (t#440 P6) `conformance <backend>` mide qué garantías de seguridad cumple el cli de agente instalado, sin tokens
 // (conformance/conformance-cli.ts); cada sonda corre en el subcomando oculto `conformance-probe`.
+// (t#660) `setup` es el alta guiada en un comando (setup.ts): conecta, mapea repos y lo deja en marcha como servicio
+// (`service install|remove`, service.ts) o en primer plano por la misma ruta que `start`. `login` y `setup` abren el
+// navegador con vuelta automática por loopback y dejan pegar el code (`--no-browser`: solo el code).
 
+import { interactiveAuth, NO_BROWSER_FLAG } from './browser-open.js';
 import { configPath, DEFAULT_BASE_URL, loadConfig } from './config.js';
 import { acquireDaemonLock } from './daemon-lock.js';
 import { login, parseLoginArgs } from './oauth.js';
@@ -32,6 +36,8 @@ import { s3McpCommand } from './s3-read-server.js';
 import { PERMISSION_SUBCOMMAND, permissionMcpCommand } from './permission-server.js';
 import { conformanceCommand } from './conformance/conformance-cli.js';
 import { PROBE_WORKER_SUBCOMMAND, probeWorkerCommand } from './conformance/probe-worker.js';
+import { serviceCommand } from './service.js';
+import { SETUP_USAGE, setupCommand } from './setup.js';
 import { runnerVersion } from './version.js';
 
 const VERBOSE_FLAG = '--verbose';
@@ -39,7 +45,9 @@ const VERBOSE_FLAG = '--verbose';
 const USAGE = `duckhunt-runner — daemon local de agent runs
 
 uso:
-  duckhunt-runner login [base-url] [label]   conecta el runner (pega el código del browser)
+  duckhunt-runner setup [base-url]           alta guiada: conecta, mapea repos y lo deja en marcha (\`setup --help\`)
+  duckhunt-runner login [base-url] [label] [--no-browser]
+                                            conecta el runner (abre el navegador y vuelve solo, o pega el código)
                                             sin base-url apunta a ${DEFAULT_BASE_URL}
   duckhunt-runner login <url> --as [id] [--name <n>] [--trusted]
                                             da de alta otra plataforma (su discovery y su oauth)
@@ -50,6 +58,7 @@ uso:
   duckhunt-runner status                     kit de esta máquina y lo que duckhunt dice de ella
   duckhunt-runner status --platforms         cada plataforma: estado, cuota, techo, lo expuesto y su auditoría
   duckhunt-runner start [--verbose]          arranca el daemon
+  duckhunt-runner service install|remove     lo deja en marcha con tu sesión (systemd --user, launchd) o lo quita
   duckhunt-runner run [flags] "<prompt>"     un run en esta máquina sin server (\`run --help\`)
   duckhunt-runner repos list|add|remove|discover
   duckhunt-runner aws list|add|remove
@@ -70,14 +79,28 @@ async function main(): Promise<void> {
     console.log(runnerVersion() ?? 'desconocida');
     return;
   }
-  if (cmd === 'login') {
-    const platform = parsePlatformLoginArgs(rest);
-    if (platform) {
-      await platformLogin(platform);
+  if (cmd === 'setup') {
+    if (rest.includes('--help') || rest.includes('-h')) {
+      console.log(SETUP_USAGE);
       return;
     }
-    const { baseUrl, label } = parseLoginArgs(rest);
-    await login(baseUrl, label);
+    if ((await setupCommand(rest)).foreground) await startDaemon(false);
+    return;
+  }
+  if (cmd === 'service') {
+    serviceCommand(rest);
+    return;
+  }
+  if (cmd === 'login') {
+    const auth = interactiveAuth(rest);
+    const args = rest.filter((a) => a !== NO_BROWSER_FLAG);
+    const platform = parsePlatformLoginArgs(args);
+    if (platform) {
+      await platformLogin(platform, undefined, auth);
+      return;
+    }
+    const { baseUrl, label } = parseLoginArgs(args);
+    await login(baseUrl, label, auth);
     return;
   }
   if (cmd === 'logout') {
@@ -145,15 +168,20 @@ async function main(): Promise<void> {
     process.exitCode = 1;
     return;
   }
+  await startDaemon(rest.includes(VERBOSE_FLAG));
+}
+
+// el loop de claim (`start`, y `setup` en primer plano): el lock de un solo daemon y la salida con su código.
+async function startDaemon(verboseLog: boolean): Promise<void> {
   const cfg = loadConfig();
   if (!cfg) {
-    console.error(`sin config (${configPath()}): ejecuta \`duckhunt-runner login <base-url>\` primero`);
+    console.error(`sin config (${configPath()}): ejecuta \`duckhunt-runner setup\` o \`duckhunt-runner login <base-url>\` primero`);
     process.exitCode = 1;
     return;
   }
   process.once('exit', acquireDaemonLock());
   // salida explícita: los sockets keep-alive de fetch no deben alargar la parada.
-  process.exit(await new RunnerDaemon(cfg, { verboseLog: rest.includes(VERBOSE_FLAG) }).run());
+  process.exit(await new RunnerDaemon(cfg, { verboseLog }).run());
 }
 
 main().catch((err) => {

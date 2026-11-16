@@ -18,12 +18,18 @@
 // (M6.4) el flujo (dcr + pkce + code pegado) va contra unos OAuthEndpoints: los de duckhunt, fijos bajo su base
 // (legacyOAuth, el `login` de siempre byte a byte), o los que publica la metadata rfc 8414 de otra plataforma
 // (platform-login.ts). el refresh usa el token endpoint de la credencial si lo trae.
+// navegador (t#660): con `browser` el flujo registra además una redirect_uri loopback (loopback.ts), abre el
+// navegador con ella y espera la vuelta MIENTRAS deja pegar el code de la url out-of-band (otro ordenador, ssh): gana
+// lo primero que llegue y se canjea con la redirect_uri que lo produjo. ese modo lleva `state` (lo compara el
+// loopback). sin `browser` las peticiones son las de siempre byte a byte (legacy-login.test.ts): solo el code pegado.
 
 import crypto from 'node:crypto';
 import path from 'node:path';
-import readline from 'node:readline/promises';
+import { openBrowser } from './browser-open.js';
 import { configPath, DEFAULT_BASE_URL, saveConfig, type RunnerCredential } from './config.js';
 import { daemonLockHolder } from './daemon-lock.js';
+import { startLoopback, type LoopbackOutcome, type LoopbackReceiver } from './loopback.js';
+import { askLine } from './terminal-prompt.js';
 import { loginIdentity } from './machine.js';
 import { PlatformRejectedError } from './platforms/platform.js';
 import { LEGACY_CREDENTIALS, type CredentialStore } from './platforms/credentials.js';
@@ -37,8 +43,11 @@ const REGISTER_PATH = '/oauth/register';
 const AUTHORIZE_PATH = '/oauth/authorize';
 const TOKEN_PATH = '/oauth/token';
 const PKCE_VERIFIER_BYTES = 32;
+const STATE_BYTES = 16;
 const PKCE_METHOD = 'S256';
 const CODE_PROMPT = 'código: ';
+// el prompt mientras el navegador aún puede volver solo.
+const CODE_OR_WAIT_PROMPT = 'código (o espera a que vuelva el navegador): ';
 // sin respuesta del token endpoint en este plazo = fallo (un refresh colgado pararía el daemon).
 const TOKEN_TIMEOUT_MS = 30_000;
 // error oauth (rfc 6749) con el que el token endpoint rechaza una credencial que ya no vale.
@@ -91,8 +100,6 @@ async function postToken(tokenUrl: string, form: Record<string, string>): Promis
   return body as TokenResponse;
 }
 
-/** login interactivo: registra el cliente, imprime la url de autorización, espera el code
- *  pegado por el usuario y persiste clientId + refresh token en la config. */
 /**
  * argumentos de `login`: ambos posicionales son opcionales. el primero es la instancia si parece
  * una url (esquema, o un host con punto o puerto) y si no es la etiqueta, para que `login` a secas
@@ -114,69 +121,180 @@ export interface OAuthEndpoints {
   token: string;
   redirectUri: string;
   resource: string;
+  // adónde va el navegador tras la vuelta por loopback (`?connected=1` o `?error=`); sin ella, una página mínima del
+  // propio daemon.
+  returnUrl?: string;
 }
 
-/** el oauth de duckhunt: todo fijo bajo su base (el contrato de siempre). */
+/** el oauth de duckhunt: todo fijo bajo su base (el contrato de siempre). la vuelta del navegador acaba en su
+ *  página out-of-band, que con `?connected=1` dice «máquina conectada». */
 export const legacyOAuth = (base: string): OAuthEndpoints => ({
   registration: `${base}${REGISTER_PATH}`,
   authorization: `${base}${AUTHORIZE_PATH}`,
   token: `${base}${TOKEN_PATH}`,
   redirectUri: `${base}${OOB_REDIRECT_PATH}`,
   resource: `${base}${RUNNER_RESOURCE_PATH}`,
+  returnUrl: `${base}${OOB_REDIRECT_PATH}`,
 });
 
 /** token endpoint de una credencial: el suyo si lo trae, el de duckhunt bajo su base si no. */
 export const tokenUrlOf = (cred: Pick<RunnerCredential, 'baseUrl' | 'tokenEndpoint'>): string => cred.tokenEndpoint ?? `${cred.baseUrl}${TOKEN_PATH}`;
 
-/** lee el code que el usuario pega (la terminal; los tests pasan el suyo). */
-export type AskCode = (prompt: string) => Promise<string>;
+/** lee el code que el usuario pega (la terminal; los tests pasan el suyo). `signal` lo corta cuando el navegador
+ *  volvió antes: rechaza entonces con un AbortError. */
+export type AskCode = (prompt: string, signal?: AbortSignal) => Promise<string>;
 
-const askTerminal: AskCode = async (prompt) => {
-  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  const answer = await rl.question(prompt);
-  rl.close();
-  return answer;
-};
+const askTerminal: AskCode = askLine;
 
-/** dcr de cliente público + pkce S256 + code out-of-band contra `ep`: el client_id y los tokens. lanza si algo falla. */
-export async function authorizeClient(ep: OAuthEndpoints, clientName: string, ask: AskCode = askTerminal): Promise<{ clientId: string; tokens: TokenResponse }> {
-  const reg = await fetch(ep.registration, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ client_name: clientName, redirect_uris: [ep.redirectUri] }),
-  });
-  const client = (await reg.json().catch(() => ({}))) as { client_id?: string };
-  if (!reg.ok || !client.client_id) throw new Error(`dcr falló: http ${reg.status}`);
-
-  const verifier = b64url(crypto.randomBytes(PKCE_VERIFIER_BYTES));
-  const challenge = b64url(crypto.createHash('sha256').update(verifier).digest());
-  const authorizeUrl = new URL(ep.authorization);
-  authorizeUrl.searchParams.set('response_type', 'code');
-  authorizeUrl.searchParams.set('client_id', client.client_id);
-  authorizeUrl.searchParams.set('redirect_uri', ep.redirectUri);
-  authorizeUrl.searchParams.set('code_challenge', challenge);
-  authorizeUrl.searchParams.set('code_challenge_method', PKCE_METHOD);
-  authorizeUrl.searchParams.set('resource', ep.resource);
-
-  console.log('\nabre esta url en tu navegador, autoriza y pega aquí el código:\n');
-  console.log(`  ${authorizeUrl.toString()}\n`);
-  const code = (await ask(CODE_PROMPT)).trim();
-  if (!code) throw new Error('código vacío');
-
-  const tokens = await postToken(ep.token, {
-    grant_type: 'authorization_code',
-    code,
-    code_verifier: verifier,
-    redirect_uri: ep.redirectUri,
-    client_id: client.client_id,
-    resource: ep.resource,
-  });
-  return { clientId: client.client_id, tokens };
+/** cómo se autoriza: `browser` abre el navegador con vuelta por loopback; `paste` deja además pegar el code (sin
+ *  navegador siempre se pega). `ask` y `open` los cambian los tests. */
+export interface AuthorizeOptions {
+  ask?: AskCode;
+  browser?: boolean;
+  paste?: boolean;
+  open?: (url: string) => Promise<boolean>;
 }
 
-export async function login(baseUrl: string, label?: string): Promise<void> {
+/** lo que se pegó: un code suelto (el de la página out-of-band) o la url entera de una vuelta (la del loopback que no
+ *  llegó, o la de la página out-of-band), con su state si lo trae. */
+export interface PastedCode {
+  code: string;
+  // true = la url era la del loopback de este intento: se canjea con esa redirect_uri.
+  loopback: boolean;
+  state: string | null;
+}
+
+/** interpreta lo pegado (ver PastedCode). lanza si la url trae el error del authorize o no trae code. */
+export function parsePastedCode(input: string, loopbackUri: string | null): PastedCode {
+  const text = input.trim();
+  if (!text) throw new Error('código vacío');
+  let url: URL;
+  try {
+    url = new URL(text);
+  } catch {
+    return { code: text, loopback: false, state: null };
+  }
+  const error = url.searchParams.get('error');
+  if (error) throw new Error(`autorización denegada (${error})`);
+  const code = url.searchParams.get('code');
+  if (!code) throw new Error('la url pegada no trae ningún código');
+  const loopback = loopbackUri !== null && `${url.origin}${url.pathname}` === loopbackUri;
+  return { code, loopback, state: url.searchParams.get('state') };
+}
+
+// el code y la redirect_uri con la que se emitió.
+interface ObtainedCode {
+  code: string;
+  redirectUri: string;
+}
+
+// espera la vuelta del navegador y, con `ask`, el code pegado a la vez: gana lo primero. la vuelta corta el prompt.
+async function raceForCode(loop: LoopbackReceiver, state: string, oobRedirect: string, ask: AskCode | null): Promise<ObtainedCode> {
+  const abort = new AbortController();
+  const fromBrowser = loop.outcome.then((outcome: LoopbackOutcome): ObtainedCode => {
+    abort.abort();
+    if ('error' in outcome) throw new Error(`autorización denegada en el navegador (${outcome.error})`);
+    console.log('\n✓ aprobada en el navegador');
+    return { code: outcome.code, redirectUri: loop.redirectUri };
+  });
+  if (!ask) return fromBrowser;
+  const fromPaste = ask(CODE_OR_WAIT_PROMPT, abort.signal).then(
+    (input): ObtainedCode => {
+      const pasted = parsePastedCode(input, loop.redirectUri);
+      // una url del loopback de OTRO intento traería un code emitido para otra verificación de pkce.
+      if (pasted.loopback && pasted.state !== state) throw new Error('esa url es de otro intento de login: vuelve a empezar');
+      return { code: pasted.code, redirectUri: pasted.loopback ? loop.redirectUri : oobRedirect };
+    },
+    (err: unknown) => {
+      if (abort.signal.aborted) return fromBrowser;
+      throw err;
+    },
+  );
+  return Promise.race([fromBrowser, fromPaste]);
+}
+
+/** dcr de cliente público + pkce S256 + el code (por loopback o pegado) contra `ep`: el client_id y los tokens. lanza
+ *  si algo falla. sin `browser`, las peticiones de siempre (solo el code pegado). */
+export async function authorizeClient(ep: OAuthEndpoints, clientName: string, opts: AuthorizeOptions = {}): Promise<{ clientId: string; tokens: TokenResponse }> {
+  const ask = opts.ask ?? askTerminal;
+  const state = b64url(crypto.randomBytes(STATE_BYTES));
+  const loop = opts.browser
+    ? await startLoopback(state, ep.returnUrl).catch((err: unknown) => {
+        console.warn(`[runner] sin vuelta automática del navegador (${(err as Error).message}): pega el código`);
+        return null;
+      })
+    : null;
+  try {
+    const reg = await fetch(ep.registration, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client_name: clientName, redirect_uris: loop ? [ep.redirectUri, loop.redirectUri] : [ep.redirectUri] }),
+    }).catch((err: unknown) => {
+      // el «fetch failed» de undici no dice adónde ni por qué: su causa sí (ECONNREFUSED, ENOTFOUND…).
+      const cause = (err as Error & { cause?: Error }).cause?.message ?? (err as Error).message;
+      throw new Error(`no se pudo contactar con ${new URL(ep.registration).origin} (${cause}): ¿es la url de tu duckhunt?`);
+    });
+    const client = (await reg.json().catch(() => ({}))) as { client_id?: string };
+    if (!reg.ok || !client.client_id) throw new Error(`dcr falló: http ${reg.status}`);
+    const clientId = client.client_id;
+
+    const verifier = b64url(crypto.randomBytes(PKCE_VERIFIER_BYTES));
+    const challenge = b64url(crypto.createHash('sha256').update(verifier).digest());
+    const authorizeUrl = (redirectUri: string): string => {
+      const url = new URL(ep.authorization);
+      url.searchParams.set('response_type', 'code');
+      url.searchParams.set('client_id', clientId);
+      url.searchParams.set('redirect_uri', redirectUri);
+      url.searchParams.set('code_challenge', challenge);
+      url.searchParams.set('code_challenge_method', PKCE_METHOD);
+      url.searchParams.set('resource', ep.resource);
+      if (loop) url.searchParams.set('state', state);
+      return url.toString();
+    };
+
+    let obtained: ObtainedCode;
+    if (!loop) {
+      console.log('\nabre esta url en tu navegador, autoriza y pega aquí el código:\n');
+      console.log(`  ${authorizeUrl(ep.redirectUri)}\n`);
+      const code = (await ask(CODE_PROMPT)).trim();
+      if (!code) throw new Error('código vacío');
+      obtained = { code, redirectUri: ep.redirectUri };
+    } else {
+      const opened = await (opts.open ?? openBrowser)(authorizeUrl(loop.redirectUri));
+      console.log(opened ? '\nse abrió el navegador: aprueba esta máquina y vuelve aquí.' : '\nno se pudo abrir el navegador.');
+      // con terminal, la url out-of-band (vale en otro ordenador); sin ella, la del loopback (solo en esta máquina).
+      if (opts.paste) {
+        console.log(`${opened ? '¿no se abrió, o el navegador está en otro ordenador? abre' : 'abre'} esta url, autoriza y pega aquí el código:\n`);
+        console.log(`  ${authorizeUrl(ep.redirectUri)}\n`);
+      } else {
+        console.log(`${opened ? 'si no se abrió, abre' : 'abre'} esta url en un navegador de esta máquina y autoriza:\n`);
+        console.log(`  ${authorizeUrl(loop.redirectUri)}\n`);
+      }
+      obtained = await raceForCode(loop, state, ep.redirectUri, opts.paste ? ask : null);
+    }
+
+    const tokens = await postToken(ep.token, {
+      grant_type: 'authorization_code',
+      code: obtained.code,
+      code_verifier: verifier,
+      redirect_uri: obtained.redirectUri,
+      client_id: clientId,
+      resource: ep.resource,
+    });
+    return { clientId, tokens };
+  } finally {
+    loop?.close();
+  }
+}
+
+/** opciones de `login`/`connect`: las de la autorización. */
+export type LoginOptions = Pick<AuthorizeOptions, 'ask' | 'browser' | 'paste' | 'open'>;
+
+/** conecta esta máquina con duckhunt en `baseUrl` (dcr + autorización) y guarda la credencial, su identidad y la
+ *  etiqueta: lo que hacen `login` y el paso «conectar» de `setup`. avisa al daemon en marcha. */
+export async function connect(baseUrl: string, label?: string, opts: LoginOptions = {}): Promise<{ base: string }> {
   const base = baseUrl.replace(/\/+$/, '');
-  const { clientId, tokens } = await authorizeClient(legacyOAuth(base), `duckhunt-runner (${label ?? 'local'})`);
+  const { clientId, tokens } = await authorizeClient(legacyOAuth(base), `duckhunt-runner (${label ?? 'local'})`, opts);
 
   // solo la credencial, la identidad de la máquina (y la etiqueta si se pasó): mapas, defaults y lo demás
   // del fichero se quedan. replacesClientId ausente = undefined, que el json omite (borra uno viejo).
@@ -197,7 +315,6 @@ export async function login(baseUrl: string, label?: string): Promise<void> {
       defaults: current.defaults,
     };
   });
-  console.log(`\nconectado. config en ${configPath()} — mapea tus repos (\`repos discover ~/dev\`) y cuentas aws (\`aws add\`).`);
   const daemon = daemonLockHolder();
   if (daemon?.config === path.resolve(configPath())) {
     console.warn(
@@ -206,6 +323,13 @@ export async function login(baseUrl: string, label?: string): Promise<void> {
         : `aviso: el daemon en marcha (pid ${daemon.pid}) sigue conectado a ${previous.baseUrl}: reinícialo para usar ${base}`,
     );
   }
+  return { base };
+}
+
+/** `login`: conecta y dice qué falta (mapear repos y arrancar). */
+export async function login(baseUrl: string, label?: string, opts: LoginOptions = {}): Promise<void> {
+  await connect(baseUrl, label, opts);
+  console.log(`\nconectado. config en ${configPath()} — mapea tus repos (\`repos discover ~/dev\`) y cuentas aws (\`aws add\`).`);
 }
 
 export interface AccessState {
