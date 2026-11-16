@@ -13,10 +13,11 @@
 // - cuándo: tras un claim aceptado, la vuelta entera la primera vez y cada REPO_FILES_REFRESH_MS, más los reintentos
 //   que tocan; tras cada segmento, el de su repo. una subida a la vez por plataforma, un repo tras otro.
 // - lo que responde el server: ok; 404 (server anterior a la ruta) y 400/413 (ese índice no lo acepta) no se reintentan
-//   hasta que el índice cambie; 409 (la máquina o el repo aún no están en su mapa), 5xx o la red, tras
-//   REPO_FILES_RETRY_MS y con otro claim.
+//   hasta que el índice cambie; 409 (la máquina o el repo aún no están en su mapa), 5xx o la red, con otro claim tras
+//   REPO_FILES_RETRY_MS, el doble en cada fallo seguido y como mucho REPO_FILES_REFRESH_MS (un repo que el server nunca
+//   acepta no se manda cada minuto para siempre).
 // - nunca tumba un run: un repo que no se puede listar (no es un checkout, git tarda de más) es una línea de log (una vez
-//   por error distinto) y se salta.
+//   por error distinto), se salta y se reintenta con la misma espera (un timeout puntual no deja el índice viejo 10 min).
 
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -103,8 +104,9 @@ export interface RepoCheckout {
 interface RepoState {
   // la huella de lo que ya tiene el server (o de lo que no hay que volver a mandarle); null = nada aún.
   uploaded: string | null;
-  // cuándo reintentar un fallo; null = sin reintento pendiente.
+  // cuándo reintentar un fallo (null = sin reintento pendiente) y cuántos van seguidos (la espera se dobla con cada uno).
   retryAt: number | null;
+  failures: number;
   // el último error al listarlo (solo se loguea uno distinto).
   error: string | null;
 }
@@ -158,9 +160,20 @@ export class RepoFilesSync {
   private stateOf(repo: string): RepoState {
     const known = this.states.get(repo);
     if (known) return known;
-    const fresh: RepoState = { uploaded: null, retryAt: null, error: null };
+    const fresh: RepoState = { uploaded: null, retryAt: null, failures: 0, error: null };
     this.states.set(repo, fresh);
     return fresh;
+  }
+
+  // un fallo más seguido: el reintento, a REPO_FILES_RETRY_MS doblado por cada uno anterior, sin pasar de una vuelta.
+  private failed(state: RepoState): void {
+    state.failures++;
+    state.retryAt = Date.now() + Math.min(REPO_FILES_RETRY_MS * 2 ** (state.failures - 1), REPO_FILES_REFRESH_MS);
+  }
+
+  private settled(state: RepoState): void {
+    state.failures = 0;
+    state.retryAt = null;
   }
 
   private async syncOne(repo: string, dir: string): Promise<void> {
@@ -175,12 +188,12 @@ export class RepoFilesSync {
       const message = (e.stderr?.trim() || e.message).split('\n')[0]!;
       if (message !== state.error) console.warn(`[runner] índice de ${repo}: no se pudo listar su checkout (${message}); se salta`);
       state.error = message;
-      state.retryAt = null;
+      this.failed(state);
       return;
     }
     const hash = sha256(JSON.stringify(body));
     if (state.uploaded === hash) {
-      state.retryAt = null;
+      this.settled(state);
       return;
     }
     const outcome = await this.upload(body).catch((err: Error) => {
@@ -189,11 +202,11 @@ export class RepoFilesSync {
       return REPO_FILES_UPLOAD.retry;
     });
     if (outcome === REPO_FILES_UPLOAD.retry) {
-      state.retryAt = Date.now() + REPO_FILES_RETRY_MS;
+      this.failed(state);
       return;
     }
     state.uploaded = hash;
-    state.retryAt = null;
+    this.settled(state);
     if (outcome === REPO_FILES_UPLOAD.ok && body.truncated) console.warn(`[runner] índice de ${repo}: recortado a ${body.files.length} rutas por los topes`);
   }
 }

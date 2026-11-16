@@ -55,8 +55,8 @@ export class PlatformSupervisor {
   private serverState: ServerState | null = null;
   // el último bloque runner que dijo su server (ver cabecera); null = ninguno aún.
   lastRunner: RunnerBlock | null = null;
-  // los repos que anunció su último claim con respuesta: los del mapa de la máquina en su server (t#678, el índice de
-  // ficheros solo sube esos). null = ninguno aún.
+  // los repos que anunció su último claim si tuvo respuesta: los del mapa de la máquina en su server (t#678, el índice de
+  // ficheros solo sube esos). null = ninguno aún o el último no la tuvo (con el server caído no se le manda nada).
   claimedRepos: readonly string[] | null = null;
   private wakeUp: (() => void) | null = null;
 
@@ -105,8 +105,8 @@ export class PlatformSupervisor {
       return null;
     }
     if (result.commandsPending) this.hooks.commandsPending(this);
+    this.claimedRepos = result.kind === CLAIM_RESULT.unavailable ? null : announce.repos;
     if (result.kind === CLAIM_RESULT.unavailable) return null;
-    this.claimedRepos = announce.repos;
     this.recordServerState(result.said.state, result.said.runner);
     if (result.kind === CLAIM_RESULT.invalid) {
       this.hooks.rejectedClaim?.(this, result.runId, result.error);

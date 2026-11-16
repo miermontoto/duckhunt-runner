@@ -739,9 +739,11 @@ written.
   first; a repo is cut at 20 000 paths or a 2 MB upload, and duckhunt is told it was cut.
 - The daemon lists every repo a platform announces after its first claim, again every 10 minutes and after
   each step in that repo, and uploads a repo only when its list changed, one repo at a time. Each platform
-  only receives the repos it announces. A failed upload is retried a minute later; a server without the
-  endpoint, or one that refuses that list, is not asked again until the list changes. A repo that can't be
-  listed (not a git checkout, too slow) is skipped with one log line. The run is never affected.
+  only receives the repos it announces, and nothing is sent while its server doesn't answer the claim. A
+  failed upload is retried a minute later, waiting twice as long after each failure in a row (10 minutes at
+  most); a server without the endpoint, or one that refuses that list, is not asked again until the list
+  changes. A repo that can't be listed (not a git checkout, too slow) is skipped with one log line and retried
+  the same way. The run is never affected.
 
 ### Going back in a conversation (0.17.0 or later)
 

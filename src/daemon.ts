@@ -1508,7 +1508,7 @@ export class RunnerDaemon {
     await sup.platform.result(run.id, { ...report, ...turn.start, ...withShadow, ...seg });
     console.log(`${log} ${tag} terminado (${report.status}${report.error ? `: ${report.error}` : ''})`);
     void this.syncSlashCommands(sup);
-    void this.syncRepoFiles(sup, (_, announced) => announced.filter((repo) => repo === run.repo));
+    void this.syncRepoFiles(sup, (_, announced) => announced.filter((repo) => run.repo !== null && sameRepoKey(repo, run.repo)));
   }
 
   // el worktree de la conversación a la foto del claim (t#564, rewind-files.ts): null si volvió; si no, el error con el
@@ -1553,7 +1553,7 @@ export class RunnerDaemon {
   }
 
   // sube el índice de ficheros (t#678, repo-files.ts) de los repos que `pick` elige entre los que anunció el último claim
-  // con respuesta de la plataforma (los que su server tiene en el mapa), cada uno con su checkout del mapa: nunca el
+  // si tuvo respuesta (los que su server tiene en el mapa), cada uno con su checkout del mapa: nunca el
   // worktree de una conversación. solo las plataformas que lo guardan; nunca lanza.
   private syncRepoFiles(sup: PlatformSupervisor, pick: (index: RepoFilesSync, announced: readonly string[]) => string[]): Promise<void> {
     const upload = sup.platform.repoFiles?.bind(sup.platform);

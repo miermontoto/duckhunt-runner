@@ -191,17 +191,19 @@ test('404 y 413 no se reintentan hasta que el índice cambie', async () => {
   }
 });
 
-test('409: se reintenta con un claim pasado REPO_FILES_RETRY_MS, no antes', async () => {
-  const { bodies, upload } = uploader([REPO_FILES_UPLOAD.retry]);
+test('409: se reintenta con un claim pasado REPO_FILES_RETRY_MS, el doble tras cada fallo seguido; guardado, ya no', async () => {
+  const { bodies, upload } = uploader([REPO_FILES_UPLOAD.retry, REPO_FILES_UPLOAD.retry]);
   const sync = new RepoFilesSync(upload, env);
-  const t0 = Date.now();
-  assert.deepEqual(sync.due([REPO], t0), [REPO], 'la primera vuelta');
+  assert.deepEqual(sync.due([REPO]), [REPO], 'la primera vuelta');
   await sync.sync([{ repo: REPO, dir: repo }]);
   assert.deepEqual(sync.due([REPO], Date.now()), [], 'antes de tiempo');
   assert.deepEqual(sync.due([REPO], Date.now() + REPO_FILES_RETRY_MS), [REPO]);
   await sync.sync([{ repo: REPO, dir: repo }]);
-  assert.equal(bodies.length, 2);
-  assert.deepEqual(sync.due([REPO], Date.now() + 2 * REPO_FILES_RETRY_MS), [], 'guardado: ya no hay reintento');
+  assert.deepEqual(sync.due([REPO], Date.now() + REPO_FILES_RETRY_MS), [], 'el segundo fallo seguido espera el doble');
+  assert.deepEqual(sync.due([REPO], Date.now() + 2 * REPO_FILES_RETRY_MS), [REPO]);
+  await sync.sync([{ repo: REPO, dir: repo }]);
+  assert.equal(bodies.length, 3);
+  assert.deepEqual(sync.due([REPO], Date.now() + 4 * REPO_FILES_RETRY_MS), [], 'guardado: ya no hay reintento');
 });
 
 test('due: todos en la primera vuelta y cada REPO_FILES_REFRESH_MS; entre medias, solo los nuevos', async () => {
@@ -219,10 +221,12 @@ test('un repo que no se puede listar se salta con un log (una vez) y no frena a 
   const { bodies, upload } = uploader();
   const sync = new RepoFilesSync(upload, env);
   const plain = fs.mkdtempSync(path.join(root, 'plain-'));
+  assert.equal(sync.due(['acme/plain', REPO]).length, 2, 'la primera vuelta');
   await sync.sync([{ repo: 'acme/plain', dir: plain }, { repo: REPO, dir: repo }]);
   await sync.sync([{ repo: 'acme/plain', dir: plain }]);
   assert.deepEqual(bodies.map((b) => b.repo), [REPO]);
   assert.equal(warn.mock.callCount(), 1, 'el mismo error no se repite');
+  assert.deepEqual(sync.due(['acme/plain', REPO], Date.now() + 2 * REPO_FILES_RETRY_MS), ['acme/plain'], 'se reintenta como un fallo de subida');
 });
 
 test('una subida a la vez: lo que llega con una vuelta en marcha entra en ella, un repo tras otro', async () => {
@@ -248,7 +252,7 @@ test('una subida a la vez: lo que llega con una vuelta en marcha entra en ella, 
 
 // --- el daemon ---
 
-test('el daemon sube el índice tras el primer claim con respuesta, del checkout del mapa', async (t) => {
+test('el daemon sube el índice tras el primer claim con respuesta, del checkout del mapa; sin respuesta, nada', async (t) => {
   t.mock.method(console, 'log', () => {});
   const dir = fs.mkdtempSync(path.join(root, 'daemon-'));
   process.env.DUCKHUNT_RUNNER_CONFIG = path.join(dir, 'runner.json');
@@ -277,4 +281,7 @@ test('el daemon sube el índice tras el primer claim con respuesta, del checkout
   await firstUpload;
   assert.deepEqual(bodies.map((b) => b.repo), [REPO]);
   assert.ok(bodies[0]!.files.includes('src/a.ts') && !bodies[0]!.files.includes('debug.log'));
+  platform.claims = [UNAVAILABLE];
+  await d.pollOnce(legacy);
+  assert.equal((legacy as unknown as { claimedRepos: unknown }).claimedRepos, null, 'con el server caído no se le manda nada');
 });
