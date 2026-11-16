@@ -163,10 +163,11 @@ test('el claim anuncia la máquina y su login anterior hasta que el server lo ac
   const second = server.calls.filter((c) => c.url.endsWith('/claim'))[1]!;
   assert.equal(second.body!.replacesClientId, undefined, 'y del siguiente claim');
   const state = readServerState(LEGACY_PLATFORM_ID);
-  assert.deepEqual([state?.clientId, state?.state, state?.runner], ['c2', 'paused', runner]);
+  // sin actualización pedida, el bloque se guarda con update: null (t#670).
+  assert.deepEqual([state?.clientId, state?.state, state?.runner], ['c2', 'paused', { ...runner, update: null }]);
   assert.equal(fs.statSync(serverStatePath(LEGACY_PLATFORM_ID)).mode & 0o777, 0o600);
   const lines = describeServerState(state, 'c2').join('\n');
-  assert.match(lines, /máquina #7 «servidor» · pausa sí · acepta conversations · tope de slots 1/);
+  assert.match(lines, /máquina #7 «servidor» · pausa sí · acepta conversations · slots 1$/m);
   assert.match(lines, /en pausa/);
 });
 

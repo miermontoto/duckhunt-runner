@@ -92,5 +92,14 @@ export const RUNNER_CAPABILITY = {
   // diff NETO de la conversación (de la foto de `run.since`, o de la del primer turno de su proceso, al final), con
   // `scope: run`. sin ella el claim no lleva la clave.
   runChanges: 'run_changes',
+  // t#670: el tope de slots que fija la persona en duckhunt (`runner.maxSlots` del claim) es el pool de la máquina, hasta
+  // RUNNER_DAEMON_SLOTS_MAX, y lo guarda para el siguiente arranque; sin tope, su defaults.maxConcurrent. sin ella el
+  // tope solo acota lo que anuncia (no puede subirlo).
+  remoteSlots: 'remote_slots',
+  // t#670 (claim.ts::LegacyClaimRunnerUpdate): se actualiza cuando el bloque runner trae `update`: deja de reclamar,
+  // espera a sus runs, comprueba que la versión arranca y reinicia en ella; si no puede, lo dice en el siguiente claim
+  // (`updateFailed`). solo la anuncia un daemon que sabe reiniciarse solo (lanzado con npx, en su servicio o sin otro
+  // supervisor) en una máquina que no lo apagó.
+  selfUpdate: 'self_update',
 } as const;
 export type RunnerCapability = (typeof RUNNER_CAPABILITY)[keyof typeof RUNNER_CAPABILITY];

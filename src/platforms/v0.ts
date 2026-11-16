@@ -90,6 +90,8 @@ function runnerBlockOf(raw: unknown): RunnerBlock | null {
     paused,
     accepts: accepts.filter((a): a is string => typeof a === 'string').join(','),
     maxSlots: typeof maxSlots === 'number' ? maxSlots : null,
+    // v0 no pide actualizaciones (t#670: solo el cable legacy).
+    update: null,
   };
 }
 

@@ -132,6 +132,8 @@ export class Duckhunt42Platform implements Platform {
               ...(a.browsers.health.length > 0 ? { health: a.browsers.health.map((h) => ({ type: RESOURCE_TYPE.browser, key: h.key, kind: h.kind })) } : {}),
             }
           : {}),
+        // la actualización que no se pudo hacer (t#670, LegacyClaimUpdateFailed del protocolo): sin ninguna, nada.
+        ...(a.updateFailed ? { updateFailed: a.updateFailed } : {}),
       });
     } catch (err) {
       if (err instanceof PlatformRejectedError) throw err;

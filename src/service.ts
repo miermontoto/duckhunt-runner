@@ -25,8 +25,12 @@ import { EXIT_CODE_UNPAIRED } from './daemon.js';
 import { runnerVersion } from './version.js';
 
 export const SERVICE_NAME = 'duckhunt-runner';
-const SYSTEMD_UNIT = `${SERVICE_NAME}.service`;
-const LAUNCHD_LABEL = 'info.duckhunt.runner';
+/** la unidad de systemd --user del daemon (self-update.ts la busca en el cgroup del proceso). */
+export const SYSTEMD_UNIT_NAME = `${SERVICE_NAME}.service`;
+/** el LaunchAgent del daemon (self-update.ts lo reconoce para no actualizarse dentro de él). */
+export const LAUNCHD_LABEL_ID = 'info.duckhunt.runner';
+const SYSTEMD_UNIT = SYSTEMD_UNIT_NAME;
+const LAUNCHD_LABEL = LAUNCHD_LABEL_ID;
 const PACKAGE_NAME = 'duckhunt-runner';
 // variables del entorno de quien instala que el servicio hereda (ver cabecera).
 const SERVICE_ENV_KEYS = ['PATH', 'DUCKHUNT_RUNNER_CONFIG', 'DUCKHUNT_RUNNER_HOME', 'CLAUDE_CONFIG_DIR', 'HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY'] as const;
@@ -36,7 +40,8 @@ const SERVICE_PATH_KEYS: ReadonlySet<string> = new Set(['DUCKHUNT_RUNNER_CONFIG'
 const EPHEMERAL_SEGMENTS = ['_npx', 'dlx'];
 const RESTART_SEC = 5;
 const LAUNCHD_THROTTLE_S = 60;
-const LOG_FILE = 'daemon.log';
+/** la salida del daemon fuera de systemd (launchd y el relevo de una actualización, self-update.ts), en su home. */
+export const DAEMON_LOG_FILE = 'daemon.log';
 const USAGE = 'uso: duckhunt-runner service install|remove';
 
 export type ServiceManager = 'systemd' | 'launchd';
@@ -54,14 +59,21 @@ export function serviceManager(platform: NodeJS.Platform = process.platform): Se
   }
 }
 
+/** ¿este daemon corre desde una caché efímera de npx o pnpm dlx? (su script vive en ella). */
+export const isEphemeralScript = (script: string): boolean => script.split(/[\\/]/).some((segment) => EPHEMERAL_SEGMENTS.includes(segment));
+
+/** npx (el que va con este node, si está) fijado a duckhunt-runner@`version`: falta el subcomando. */
+export function npxRunner(execPath: string, version: string): string[] {
+  const npx = path.join(path.dirname(execPath), process.platform === 'win32' ? 'npx.cmd' : 'npx');
+  return [fs.existsSync(npx) ? npx : 'npx', '--yes', `${PACKAGE_NAME}@${version}`];
+}
+
 /** el comando que arranca el daemon desde el servicio (ver cabecera): npx fijado a `version` si esto corre desde una
  *  caché efímera; si no, este node con su index.js. */
 export function daemonCommand(script: string, execPath: string, version: string | null): string[] {
-  const ephemeral = script.split(/[\\/]/).some((segment) => EPHEMERAL_SEGMENTS.includes(segment));
-  if (!ephemeral) return [execPath, fs.existsSync(script) ? fs.realpathSync(script) : script, 'start'];
+  if (!isEphemeralScript(script)) return [execPath, fs.existsSync(script) ? fs.realpathSync(script) : script, 'start'];
   if (!version) throw new Error('sin versión del daemon (package.json ilegible): no se puede fijar el comando del servicio');
-  const npx = path.join(path.dirname(execPath), process.platform === 'win32' ? 'npx.cmd' : 'npx');
-  return [fs.existsSync(npx) ? npx : 'npx', '--yes', `${PACKAGE_NAME}@${version}`, 'start'];
+  return [...npxRunner(execPath, version), 'start'];
 }
 
 /** el entorno que hereda el servicio (ver cabecera). */
@@ -138,7 +150,8 @@ ${vars}
 `;
 }
 
-function systemdUnitPath(): string {
+/** dónde vive la unidad de systemd --user del daemon. */
+export function systemdUnitPath(): string {
   return path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), 'systemd', 'user', SYSTEMD_UNIT);
 }
 
@@ -171,7 +184,14 @@ export function serviceRunning(manager: ServiceManager | null = serviceManager()
 
 /** dónde ver lo que escribe el servicio. */
 export function serviceLogsHint(manager: ServiceManager): string {
-  return manager === 'systemd' ? `journalctl --user -u ${SERVICE_NAME} -f` : `tail -f ${path.join(runnerHome(), LOG_FILE)}`;
+  return manager === 'systemd' ? `journalctl --user -u ${SERVICE_NAME} -f` : `tail -f ${path.join(runnerHome(), DAEMON_LOG_FILE)}`;
+}
+
+/** reescribe la unidad de systemd con duckhunt-runner@`version` y recarga systemd, SIN reiniciarla: la actualización
+ *  desde duckhunt (self-update.ts) sale después y Restart=always la arranca en la versión nueva. lanza si falla. */
+export function pinSystemdUnit(version: string): void {
+  fs.writeFileSync(systemdUnitPath(), systemdUnit([...npxRunner(process.execPath, version), 'start'], serviceEnv()));
+  execFileSync('systemctl', ['--user', 'daemon-reload'], { stdio: 'ignore' });
 }
 
 /** instala (o reescribe) el servicio con este daemon y lo (re)arranca. lanza si el gestor falla. */
@@ -189,7 +209,7 @@ export function installService(manager: ServiceManager): { file: string } {
     return { file };
   }
   const file = launchdPlistPath();
-  const logFile = path.join(runnerHome(), LOG_FILE);
+  const logFile = path.join(runnerHome(), DAEMON_LOG_FILE);
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.mkdirSync(path.dirname(logFile), { recursive: true });
   fs.writeFileSync(file, launchdPlist(command, env, logFile));

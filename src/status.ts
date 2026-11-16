@@ -43,6 +43,7 @@ const STATE_TEXT: Readonly<Record<string, string>> = {
   paused: 'en pausa (la tuya o la de esta máquina, desde duckhunt)',
   full: 'sin slot libre',
   upgrade_required: 'no recibe trabajo: actualiza duckhunt-runner o claude code',
+  updating: 'actualizándose desde duckhunt: sin trabajo nuevo hasta volver en la versión pedida',
 };
 
 const ago = (ms: number): string => {
@@ -58,7 +59,7 @@ export function describeServerState(state: ServerState | null, clientId: string 
   const lines = [
     `en duckhunt: hace ${ago(now - state.at)}${stale}`,
     r
-      ? `  máquina #${r.id}${r.name ? ` «${r.name}»` : ''} · pausa ${r.paused ? 'sí' : 'no'} · acepta ${r.accepts} · tope de slots ${r.maxSlots ?? 'el anunciado'}`
+      ? `  máquina #${r.id}${r.name ? ` «${r.name}»` : ''} · pausa ${r.paused ? 'sí' : 'no'} · acepta ${r.accepts} · slots ${r.maxSlots ?? 'los de la config'}${r.update ? ` · actualizar a ${r.update.version} pedido` : ''}`
       : '  sin los ajustes de la máquina (duckhunt anterior a 0.11)',
     `  estado: ${state.state === null ? 'recibe trabajo (nada en cola)' : (STATE_TEXT[state.state] ?? state.state)}`,
   ];
@@ -131,7 +132,7 @@ const exposedKeys = (p: PlatformConfig, type: string, mapped: readonly string[])
 export function platformsStatus(cfg: StoredConfig, findings: readonly RepoFinding[], now = Date.now()): string[] {
   const v2 = loadConfigV2();
   if (!v2) return ['plataformas: sin config'];
-  const slots = concurrency(cfg.defaults);
+  const slots = concurrency(cfg.defaults, readServerState(LEGACY_PLATFORM_ID)?.runner?.maxSlots ?? null);
   const day = readAudit(now - DAY_MS);
   return Object.entries(v2.platforms).flatMap(([id, p]) => {
     const legacy = id === LEGACY_PLATFORM_ID;
@@ -193,7 +194,9 @@ export async function statusCommand(args: string[] = []): Promise<void> {
     console.log(`máquina:    ${cfg.machineId ?? 'sin id (lo genera el daemon al arrancar)'}${cfg.machineId && !ownedHere(cfg) ? ` — generado en ${cfg.machineHost ?? 'otra máquina'}: haz \`login\` aquí para que sea otra máquina` : ''}`);
     if (cfg.clientId) describeServerState(readServerState(LEGACY_PLATFORM_ID), cfg.clientId).forEach((line) => console.log(line));
     console.log(`modelo:     el que pida duckhunt en cada run; si no pide ninguno, ${cfg.defaults.model ? `${cfg.defaults.model} (defaults.model)` : 'el default del cli'}`);
-    console.log(`slots:      ${concurrency(cfg.defaults)} run(s) a la vez (defaults.maxConcurrent)`);
+    const fixed = readServerState(LEGACY_PLATFORM_ID)?.runner?.maxSlots ?? null;
+    console.log(`slots:      ${concurrency(cfg.defaults, fixed)} run(s) a la vez (${fixed !== null ? 'fijados en duckhunt' : 'defaults.maxConcurrent'})`);
+    console.log(`actualizar: ${cfg.defaults.remoteUpdate === false ? 'solo a mano (defaults.remoteUpdate: false)' : 'también desde duckhunt si el daemon sabe reiniciarse solo (lanzado con npx, en su servicio o sin otro supervisor)'}`);
     console.log(`mapa:       ${cfg.defaults.remoteRepoEdits === false ? 'solo por la cli (defaults.remoteRepoEdits: false)' : 'también desde duckhunt (quitar repos, elegir carpeta)'}`);
   }
   const claude = await detectClaude();

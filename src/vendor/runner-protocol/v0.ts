@@ -183,6 +183,8 @@ export const V0_RUNNER_STATE = {
   full: 'full',
   disabled: 'disabled',
   upgradeRequired: 'upgrade_required',
+  // t#670: la máquina espera a actualizarse (solo con la capability self_update).
+  updating: 'updating',
 } as const;
 export type V0RunnerState = (typeof V0_RUNNER_STATE)[keyof typeof V0_RUNNER_STATE];
 

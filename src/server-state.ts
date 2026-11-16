@@ -1,5 +1,6 @@
 // lo último que duckhunt le dijo a este daemon de su máquina (0.11.0, t#465 P12): el bloque `runner` del
-// claim (el nombre que le puso la persona, su pausa, qué acepta y su tope de slots), el motivo de la
+// claim (el nombre que le puso la persona, su pausa, qué acepta, su tope de slots —desde 0.29.0 su pool, t#670— y la
+// actualización que pidió), el motivo de la
 // cabecera x-duckhunt-runner-state (en pausa, sin slot, actualizar) y los worktrees que su gc conservó con
 // trabajo (recuentos). el daemon lo escribe en el server-state.json de su plataforma (paths.ts; la legacy en
 // <runnerHome>/server-state.json, como siempre) (0600, atómico) cuando
@@ -15,6 +16,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { serverStatePath } from './paths.js';
+import { RUNNER_UPDATE_VERSION_RE } from './vendor/runner-protocol/index.js';
 
 const SERVER_STATE_MODE = 0o600;
 // sin cambios, se reescribe como mucho con esta cadencia (solo para que `status` sepa la edad).
@@ -29,6 +31,8 @@ export interface RunnerBlock {
   paused: boolean;
   accepts: string;
   maxSlots: number | null;
+  // la actualización que pidió la persona (t#670); null = ninguna (o un server anterior).
+  update: { version: string } | null;
 }
 
 /** trabajo que el gc conservó en el worktree de una conversación: recuentos por run, nunca paths. */
@@ -62,7 +66,15 @@ export function parseRunnerBlock(raw: unknown): RunnerBlock | null {
   const r = raw.runner;
   const id = intOrNull(r.id);
   if (id === null || id <= 0 || typeof r.paused !== 'boolean' || typeof r.accepts !== 'string') return null;
-  return { id, name: typeof r.name === 'string' ? r.name : null, paused: r.paused, accepts: r.accepts, maxSlots: intOrNull(r.maxSlots) };
+  const version = isObj(r.update) && typeof r.update.version === 'string' && RUNNER_UPDATE_VERSION_RE.test(r.update.version) ? r.update.version : null;
+  return {
+    id,
+    name: typeof r.name === 'string' ? r.name : null,
+    paused: r.paused,
+    accepts: r.accepts,
+    maxSlots: intOrNull(r.maxSlots),
+    update: version !== null ? { version } : null,
+  };
 }
 
 /** lo guardado para la plataforma, o null si no hay (o ilegible: se dice en el log). */

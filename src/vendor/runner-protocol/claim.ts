@@ -61,9 +61,10 @@ export type AgentRunIsolation = (typeof AGENT_RUN_ISOLATION)[keyof typeof AGENT_
 // ejecutar (agentes desactivados, o un miembro con la puerta de máquinas cerrada: t#465 P21). un daemon
 // que no la conoce la ignora (sigue en 204: 0.10.2 ni la lee, 0.11.0 la guarda tal cual para `status`).
 // a uno con RUNNER_CAPABILITY.logout (>= 0.11) el claim sin trabajo le responde 200 { run: null, runner,
-// state } con la misma cabecera.
+// state } con la misma cabecera. updating (t#670) = la persona pidió actualizar la máquina: no recibe trabajo hasta
+// volver en la versión pedida o decir que no pudo (solo a un daemon con RUNNER_CAPABILITY.selfUpdate).
 export const RUNNER_STATE_HEADER = 'x-duckhunt-runner-state';
-export const RUNNER_STATE = { upgradeRequired: 'upgrade_required', paused: 'paused', full: 'full', disabled: 'disabled' } as const;
+export const RUNNER_STATE = { upgradeRequired: 'upgrade_required', paused: 'paused', full: 'full', disabled: 'disabled', updating: 'updating' } as const;
 export type RunnerState = (typeof RUNNER_STATE)[keyof typeof RUNNER_STATE];
 
 /** lo que un daemon con toolset_v1 anuncia en el cuerpo del claim legacy además de lo de siempre (t#495, M5):
@@ -71,6 +72,32 @@ export type RunnerState = (typeof RUNNER_STATE)[keyof typeof RUNNER_STATE];
  *  sin más tope; inválido = ausente. ausente = un daemon que no lo sabe: se queda lo último que anunció. */
 export interface LegacyClaimAwsDefault {
   awsDefault?: boolean;
+}
+
+/** lo que un daemon con RUNNER_CAPABILITY.selfUpdate añade al cuerpo del claim cuando no pudo actualizarse a la versión
+ *  que pedía su bloque runner (t#670): la versión y por qué, sin paths (hasta RUNNER_UPDATE_ERROR_MAX_CHARS). el server
+ *  suelta la petición (la máquina vuelve a recibir trabajo) y enseña el motivo. inválido = ausente. */
+export interface LegacyClaimUpdateFailed {
+  updateFailed?: { version: string; error: string };
+}
+
+/** la actualización pendiente de la máquina (t#670): a qué versión del daemon. solo viaja con una petición (sin ella la
+ *  clave no está: el cable de siempre) y solo a un daemon con RUNNER_CAPABILITY.selfUpdate. */
+export interface LegacyClaimRunnerUpdate {
+  version: string;
+}
+// versión a la que se puede pedir actualizar: semver plano (lo que publica npm para duckhunt-runner, sin prerelease).
+export const RUNNER_UPDATE_VERSION_RE = /^\d{1,4}\.\d{1,4}\.\d{1,4}$/;
+
+/** ¿`candidate` es una versión a la que actualizar desde `current`? solo hacia delante y solo semver plano; sin versión
+ *  actual legible (un daemon que no la anuncia), cualquiera válida. el server lo mira al pedirla y el daemon al recibirla. */
+export function isNewerRunnerVersion(candidate: string, current: string | null): boolean {
+  if (!RUNNER_UPDATE_VERSION_RE.test(candidate)) return false;
+  if (current === null || !RUNNER_UPDATE_VERSION_RE.test(current)) return true;
+  const parts = (v: string): number[] => v.split('.').map(Number);
+  const [next, now] = [parts(candidate), parts(current)];
+  const diff = next.map((n, i) => n - (now[i] ?? 0)).find((d) => d !== 0);
+  return diff !== undefined && diff > 0;
 }
 
 /** aws del run: la cuenta (null si el entry solo trae región) y la región. */
@@ -153,6 +180,8 @@ export interface LegacyClaimRunner {
   paused: boolean;
   accepts: string;
   maxSlots: number | null;
+  // solo con una actualización pedida (t#670).
+  update?: LegacyClaimRunnerUpdate;
 }
 
 /** el claim con trabajo. */
