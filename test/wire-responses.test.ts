@@ -145,7 +145,7 @@ test('claim: 204 con motivo y 200 sin trabajo guardan lo que dijo el server; un 
   assert.equal(await d.claim(), null);
   assert.deepEqual([readServerState(LEGACY_PLATFORM_ID)?.state, readServerState(LEGACY_PLATFORM_ID)?.runner], ['full', null]);
   assert.equal(await d.claim(), null);
-  assert.deepEqual([readServerState(LEGACY_PLATFORM_ID)?.state, readServerState(LEGACY_PLATFORM_ID)?.runner], ['upgrade', runner]);
+  assert.deepEqual([readServerState(LEGACY_PLATFORM_ID)?.state, readServerState(LEGACY_PLATFORM_ID)?.runner], ['upgrade', { ...runner, update: null }]);
   assert.equal(await d.claim(), null);
   assert.equal(readServerState(LEGACY_PLATFORM_ID)?.state, 'upgrade', 'un 500 no lo toca');
   globalThis.fetch = (async (input: string | URL | Request) => {

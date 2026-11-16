@@ -1,7 +1,7 @@
 {
-  "version": "0.23.0",
-  "contentHash": "68f61b155604b1eacb00bda7031f7fe67048b4c2dc5a6e3ddc1689111787ea7e",
-  "commit": "a2bbd14ea7faca8c0fb90c158b1ef1a23c0c2e9a",
+  "version": "0.24.0",
+  "contentHash": "e01bb1f6b0631acc5ac17214d15951cb7ee09646e7cf762b6dcc1a8ad4e2cb5d",
+  "commit": "015037a4ffba9a1730ab3d726e547c400895d1ba",
   "files": {
     "index.ts": "9aace60953cf7508c2c1d875621ce7babe6bd3e172afe9f261e8df014f5138e5",
     "agent-credentials.ts": "222abc95a5de754cdabb145acc542eee796ee65ffb9ef658a9b51eee418d3eb1",
@@ -9,17 +9,17 @@
     "autonomy.ts": "584b2f22f5e470ea85c39eda98f39571e6719851b401fe87097cfbd3bdc19548",
     "aws.ts": "74fa1830ae9cb79884a8a558887d52c7f4fdd0113c226bea633fee32f07d207b",
     "backends.ts": "014b6083482cc34d9eedbf0f07478719abc7e2dbe18f32dccc270f9521c1886d",
-    "capabilities.ts": "2099f441eae45b0dc2ded1abae8c196284f133dc86b66369dc22ac3e85520924",
+    "capabilities.ts": "482c1a56d3c5b68133ebbeee8c71f1703c87cf1a2c8b9dd831f7d02b4b997456",
     "changes.ts": "ae33e872b8ef63ffa5165d06d43316ffefbcbdecac070bcdaafaf476c8935506",
-    "claim.ts": "0ca4c3d4a05a43c4e97b93055be562aa9ae7532b5cbd375149c97f6170b43c14",
+    "claim.ts": "080b83a821d256e23900a29f4ab6a04e68911374254a8100452f82eebedc7ae8",
     "errors.ts": "21caba41f35cc92a03fd8eaafec98c899aa99ee7af524bdfd7ad83c2a6794bf3",
     "events.ts": "903b09d8d32ba5acae703fb10d2bf296f3399193db85f3e0bd29f267ef6b0422",
-    "limits.ts": "1558e4881fdb3fe4c54312f2c48a42ee7247bbf5ac495d1731ad83a739ab2b76",
+    "limits.ts": "412f297046ad61b3aab8d82292d7d9fca4ae11c142813f33a82cebb38ab57705",
     "live.ts": "278e50f411e3c16c88a4a3b7ce3761dffa7869d2e30005e242a82e50d29cbe91",
     "resources.ts": "35fd39549fa713ccc70ee43d049fa12f052c40b24ea8c197c207810cbdbab829",
     "rewind.ts": "76f9b6c3e086c30aa80f4c3a07ae4bcd9aafbc9d88228113b193af1a4c00147c",
     "slash-commands.ts": "81a32d00199898c38c7a63ec9f61e1a184a29fd2645957505f46c73be7414f4a",
     "toolset.ts": "9cf2c383d05f8be6a163f7084b42e042a278b359c4b9ba92a9ad8fb671aef571",
-    "v0.ts": "090b656af63619b959ed377b3196da6bfff0259277464d1099736d45ef69c860"
+    "v0.ts": "95e3d5c83fc264d2d8c9522881ec75834b44868c8f5e930ccf67876b0a601e17"
   }
 }

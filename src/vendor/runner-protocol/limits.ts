@@ -18,10 +18,15 @@ export const RUNNER_CLAUDE_VERSION_MAX_CHARS = 80;
 export const RUNNER_CAPABILITIES_MAX = 64;
 export const RUNNER_CAPABILITY_MAX_CHARS = 40;
 
-// runs en paralelo que anuncia un daemon >= 0.5.0 (su defaults.maxConcurrent, hoy acotado a 8 en
-// el runner). tope holgado solo para acotar lo guardado: fuera de rango se ignora, un dato de
-// presencia nunca tumba un claim.
+// runs en paralelo que anuncia un daemon >= 0.5.0 (su pool: defaults.maxConcurrent o, con remote_slots, el tope que
+// fija duckhunt; acotado a RUNNER_DAEMON_SLOTS_MAX). tope holgado solo para acotar lo guardado: fuera de rango se
+// ignora, un dato de presencia nunca tumba un claim.
 export const RUNNER_SLOTS_MAX = 64;
+// el pool más grande que admite un daemon (t#670; 8 hasta entonces): cada claude son ~300-450 MB y todos gastan la misma
+// ventana del plan. con remote_slots, el máximo que la web ofrece a una máquina.
+export const RUNNER_DAEMON_SLOTS_MAX = 16;
+// el motivo de una actualización fallida (claim.ts::LegacyClaimUpdateFailed): se recorta, nunca tumba el claim.
+export const RUNNER_UPDATE_ERROR_MAX_CHARS = 300;
 
 // identidad de la máquina que anuncia un daemon >= 0.11.0 (t#465 P12, campos del claim que no son
 // capabilities): machine.id = uuid estable que genera y guarda en su config, y replacesClientId = el

@@ -73,6 +73,8 @@ export interface ClaimAnnounce {
   browsers: { keys: readonly string[]; health: readonly { key: string; kind: string }[] } | null;
   // null = el gc aún no recogió: no se anuncia.
   kept: readonly KeptWorktree[] | null;
+  // la actualización que pidió duckhunt y no se pudo hacer (t#670, solo el cable legacy la manda); null = ninguna.
+  updateFailed: { version: string; error: string } | null;
 }
 
 /** lo que la plataforma dijo de esta máquina al reclamar (server-state.ts). */

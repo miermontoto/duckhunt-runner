@@ -29,6 +29,7 @@ import path from 'node:path';
 import { filePatch, fromFile } from './config-legacy.js';
 import type { PlatformConfig } from './platforms/types.js';
 import type { ProvidersConfig } from './resources/browser/config.js';
+import { RUNNER_DAEMON_SLOTS_MAX } from './vendor/runner-protocol/index.js';
 
 // permisos del fichero de config: lleva el refresh token.
 const CONFIG_FILE_MODE = 0o600;
@@ -73,7 +74,8 @@ export interface RunnerDefaults {
   // modelo de esta máquina (--model) cuando duckhunt no pide ninguno: desde 0.12.0 el del claim (la
   // elección de la persona para esa conversación) manda sobre este. ausente = el default del cli.
   model?: string;
-  // runs en paralelo (slots). ausente = 1, el comportamiento de siempre: un run a la vez.
+  // runs en paralelo (slots). ausente = 1, el comportamiento de siempre: un run a la vez. desde 0.29.0 (t#670) es el
+  // valor por defecto: el tope que fije la persona en duckhunt para esta máquina manda sobre él.
   maxConcurrent?: number;
   // presupuesto por run (--max-budget-usd). ausente = automático: el flag solo se pasa si el
   // daemon corre con ANTHROPIC_API_KEY (coste real); con login de suscripción el coste es
@@ -82,6 +84,9 @@ export interface RunnerDefaults {
   // cambios del mapa de repos pedidos desde duckhunt (quitar un repo, elegir su carpeta entre las
   // que este daemon encontró; repo-commands.ts). ausente = permitidos; false = solo por la cli.
   remoteRepoEdits?: boolean;
+  // actualizarse desde duckhunt (t#670, self-update.ts): la persona lo pide en la web y el daemon drena y se reinicia en
+  // la versión nueva. ausente = permitido si sabe reiniciarse solo; false = solo a mano.
+  remoteUpdate?: boolean;
   // días que se guarda la auditoría local de cada plataforma (audit.ts, t#495 M6.6). ausente = 180.
   auditRetentionDays?: number;
   // el flip de toolset_v1 (t#495, M5): los runs de duckhunt que traen `toolset` se lanzan con el render del daemon
@@ -143,13 +148,16 @@ export type LocalConfig = Omit<RunnerConfig, keyof RunnerCredential>;
 /** el fichero tal cual, con los mapas ausentes vacíos: la credencial puede faltar (sin `login` aún). */
 export type StoredConfig = Partial<RunnerCredential> & LocalConfig;
 
-// tope de defaults.maxConcurrent: cada claude son ~300-450 MB y todos gastan la misma ventana del plan.
-export const MAX_CONCURRENT_LIMIT = 8;
+// tope del pool: cada claude son ~300-450 MB y todos gastan la misma ventana del plan (8 hasta 0.29.0, t#670).
+export const MAX_CONCURRENT_LIMIT = RUNNER_DAEMON_SLOTS_MAX;
 
-/** slots del daemon: defaults.maxConcurrent entero en [1, MAX_CONCURRENT_LIMIT]; ausente o inválido = 1. */
-export function concurrency(defaults: RunnerDefaults): number {
-  const n = defaults.maxConcurrent;
-  return typeof n === 'number' && Number.isSafeInteger(n) && n >= 1 ? Math.min(n, MAX_CONCURRENT_LIMIT) : 1;
+const validSlots = (n: unknown): n is number => typeof n === 'number' && Number.isSafeInteger(n) && n >= 1;
+
+/** slots del daemon, en [1, MAX_CONCURRENT_LIMIT]: los que fijó la persona en duckhunt (`fromServer`, el maxSlots del
+ *  bloque runner) o, sin ellos, defaults.maxConcurrent; ausente o inválido = 1. */
+export function concurrency(defaults: RunnerDefaults, fromServer: number | null = null): number {
+  const n = validSlots(fromServer) ? fromServer : defaults.maxConcurrent;
+  return validSlots(n) ? Math.min(n, MAX_CONCURRENT_LIMIT) : 1;
 }
 
 /** fichero de config: DUCKHUNT_RUNNER_CONFIG o ~/.duckhunt-runner.json. */

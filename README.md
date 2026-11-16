@@ -122,7 +122,7 @@ Every command:
 | `run [flags] "<prompt>"` | Runs an agent on this machine with no server (0.13.0 or later; see [Local runs](#local-runs-runner-run-0130-or-later)). `run` with no prompt still starts the daemon, with a deprecation warning. |
 
 Configuration lives in `~/.duckhunt-runner.json`. It holds the base URL, the OAuth credential, this
-machine's id, the repo and AWS maps, and optional defaults (`model`, `maxBudgetUsd`, `maxConcurrent`, `auditRetentionDays`, `toolsetRender`). Set `DUCKHUNT_RUNNER_CONFIG` to use
+machine's id, the repo and AWS maps, and optional defaults (`model`, `maxBudgetUsd`, `maxConcurrent`, `remoteRepoEdits`, `remoteUpdate`, `auditRetentionDays`, `toolsetRender`). Set `DUCKHUNT_RUNNER_CONFIG` to use
 another file (a second account, a test instance) and `DUCKHUNT_RUNNER_HOME` to move the state
 directory (`~/.duckhunt-runner`: the scratch directory, `--verbose` logs, the daemon lock, the
 per-run MCP configs and `server-state.json`, what duckhunt last said about this machine; from 0.13.0
@@ -192,7 +192,23 @@ macOS it writes `~/Library/LaunchAgents/info.duckhunt.runner.plist` and loads it
 `npx` when you ran it with `npx`), with your current `PATH` so it finds `claude`, `git` and `aws`, and
 with `DUCKHUNT_RUNNER_CONFIG`/`DUCKHUNT_RUNNER_HOME` if you set them. It does not restart a daemon that
 stopped because the machine was unpaired. `service remove` stops and deletes it. To upgrade, run
-`setup` or `service install` with the new version.
+`setup` or `service install` with the new version, or update it from duckhunt (below).
+
+### Updating from duckhunt
+
+From 0.29.0, a daemon started with `npx` can update itself when you ask for it in Settings → Agents →
+Connections ("update to <version>", shown when npm has a newer release). The machine stops taking new
+work, waits for the runs in progress to finish ("update now" stops them instead; you can continue
+those conversations by writing to them), checks that `npx duckhunt-runner@<version> --version`
+answers that version, and restarts on it: inside its own systemd unit (from `service install`) it
+rewrites the unit with the new version and systemd starts it again; with no service (`nohup`, `tmux`,
+a terminal) it launches the new daemon in the background, with its output in
+`~/.duckhunt-runner/daemon.log`, and the new one waits for the old one to exit before it starts. If
+the new version can't be fetched or doesn't start, the daemon keeps running the old one and duckhunt
+shows why. It doesn't offer this when it can't restart itself safely: installed globally or from a
+checkout (update it with your package manager), under launchd, pm2, a container or a systemd unit of
+your own (they would restart the old version next to the new one). To keep updates manual on a
+machine, set `"remoteUpdate": false` under `defaults` in its config.
 
 Or use whatever your machine already does for this — a `screen`/`tmux` session, your own systemd
 unit, `launchd`:
@@ -267,12 +283,16 @@ token, which duckhunt treats as a replay.
 
 ### Parallel runs
 
-By default the daemon works one run at a time. Set `defaults.maxConcurrent` in the config (1 to 8)
+By default the daemon works one run at a time. Set `defaults.maxConcurrent` in the config (1 to 16)
 to run several at once; a running daemon picks it up within a few seconds:
 
 ```json
 { "defaults": { "maxConcurrent": 3 } }
 ```
+
+From 0.29.0 you can also set it from duckhunt: "parallel runs" on the machine in Settings → Agents →
+Connections (1 to 16). That value wins over the config file, takes effect on the next claim and is
+kept across restarts; clear it to go back to `maxConcurrent`.
 
 Each Claude process takes a few hundred MB, and every parallel session draws on the same Claude plan
 limits. A conversation never runs twice at once: duckhunt keeps it as a single run. What the runs

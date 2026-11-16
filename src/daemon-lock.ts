@@ -68,7 +68,8 @@ function readHolder(file: string): DaemonLockHolder | null {
 }
 
 // EPERM = existe pero es de otro usuario: vivo (mejor no arrancar que revocar la credencial).
-function alive(pid: number): boolean {
+/** ¿vive el proceso `pid`? (el propio no cuenta; EPERM = vive, de otro usuario). */
+export function pidAlive(pid: number): boolean {
   if (pid === process.pid) return false;
   try {
     process.kill(pid, 0);
@@ -85,7 +86,7 @@ export function daemonLockHolder(): DaemonLockHolder | null {
   const boot = currentBootId();
   // de otro arranque: su pid puede ser ahora cualquier otro proceso.
   if (holder.bootId !== undefined && boot !== null && holder.bootId !== boot) return null;
-  return alive(holder.pid) ? holder : null;
+  return pidAlive(holder.pid) ? holder : null;
 }
 
 /** toma el lock o lanza diciendo quién lo tiene; devuelve con qué soltarlo (solo si sigue siendo suyo). */

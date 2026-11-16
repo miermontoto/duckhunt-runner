@@ -9,10 +9,13 @@
 // - budget: agotó su cuota del día (coste o segmentos, contados en su auditoría local: audit.ts). no reclama hasta
 //   medianoche (o hasta que la config le suba la cuota) y sus runs siguen; cuenta como usable (M6.6).
 // lo que es de la máquina (los slots, la config, los recursos, cómo se ejecuta un run) sigue en el daemon.
+// el último bloque runner que dijo su server (lastRunner, t#670) sobrevive a un reinicio: arranca con el de su
+// server-state.json, así el pool que fijó la persona en duckhunt vale desde el primer claim. un claim sin bloque (204,
+// un server anterior) no lo borra.
 
 import type { ClaimResponse } from '../claim.js';
 import type { RunLease } from '../run-lease.js';
-import { serverStateChanged, writeServerState, type KeptWorktree, type RunnerBlock, type ServerState } from '../server-state.js';
+import { readServerState, serverStateChanged, writeServerState, type KeptWorktree, type RunnerBlock, type ServerState } from '../server-state.js';
 import { CLAIM_RESULT, PlatformRejectedError, PROTOCOL, type ClaimAnnounce, type ClaimResult, type Platform } from './platform.js';
 
 export const PLATFORM_STATE = {
@@ -50,6 +53,8 @@ export class PlatformSupervisor {
   blocked = false;
   // lo último escrito en su server-state.json.
   private serverState: ServerState | null = null;
+  // el último bloque runner que dijo su server (ver cabecera); null = ninguno aún.
+  lastRunner: RunnerBlock | null = null;
   private wakeUp: (() => void) | null = null;
 
   constructor(
@@ -57,7 +62,22 @@ export class PlatformSupervisor {
     readonly platform: Platform,
     public state: PlatformState,
     private readonly hooks: SupervisorHooks,
-  ) {}
+  ) {
+    this.lastRunner = this.persistedRunner();
+  }
+
+  // el bloque runner del server-state.json de esta plataforma (la local no tiene server); null si no hay o no se lee.
+  private persistedRunner(): RunnerBlock | null {
+    if (this.platform.protocol === PROTOCOL.local) return null;
+    try {
+      const runner = readServerState(this.id)?.runner ?? null;
+      // uno guardado por un daemon anterior no trae update: se lee como ninguna.
+      return runner ? { ...runner, update: runner.update ?? null } : null;
+    } catch (err) {
+      console.error(`[runner] no se pudo leer el estado del server guardado: ${(err as Error).message}`);
+      return null;
+    }
+  }
 
   /** cuenta para seguir vivo (activa o en pausa). */
   get usable(): boolean {
@@ -94,6 +114,7 @@ export class PlatformSupervisor {
   recordServerState(state: string | null, runner: RunnerBlock | null): void {
     // la plataforma local (`runner run`, t#495 M7) no tiene server que diga nada de la máquina.
     if (this.platform.protocol === PROTOCOL.local) return;
+    if (runner) this.lastRunner = runner;
     const next: ServerState = { at: Date.now(), ...this.platform.identity(), state, runner, kept: this.keptWorktrees };
     if (!serverStateChanged(this.serverState, next)) return;
     try {

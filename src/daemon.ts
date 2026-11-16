@@ -124,6 +124,12 @@
 //   78 (no tiene credencial que muera), no sale de la config y su estado solo entra en el deny de las demás desde que
 //   existe en disco. sin daemon, `runner run` arranca este mismo núcleo solo con ella (localOnly): sin duckhunt ni
 //   las demás de la config, sin socket ni señales propias (las lleva el cli).
+// - la máquina desde duckhunt (0.29.0, t#670): con `remote_slots` el pool es el tope que fijó la persona (el maxSlots
+//   del último bloque runner de la legacy, que el supervisor guarda entre arranques); sin tope, defaults.maxConcurrent.
+//   con `self_update` (solo si sabe reiniciarse solo: self-update.ts) un bloque con `update` lo pone a DRENAR: ninguna
+//   plataforma reclama trabajo nuevo (la legacy sigue preguntando, el server no le da nada y así se entera de si la
+//   persona lo cancela), y sin runs comprueba la versión y se reinicia en ella; si no puede, sigue como estaba y lo
+//   dice en su siguiente claim (updateFailed) hasta que el server suelta la petición. las dos solo a la legacy.
 
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
@@ -181,13 +187,14 @@ import { compareRunIds } from './run-id.js';
 import { LEGACY_PLATFORM_ID, LOCAL_PLATFORM_ID, logsDir, platformHome, runConfigDir, scratchDir, slashCommandsPath } from './paths.js';
 import { SlashCommandCatalog } from './slash-commands.js';
 import { runnerVersion } from './version.js';
+import { processUpdater, UPDATE_MODE, UpdateError, type SelfUpdater } from './self-update.js';
 import { PlatformRejectedError, PROTOCOL, type ClaimAnnounce, type Platform, type PlatformContext, type PlatformFactories, type Protocol, type RunSegment } from './platforms/platform.js';
 import { DEFAULT_CEILING, EXPOSE_ALL, isExposed, LOCAL_PLATFORM_DEFAULTS, PLATFORM_DEFAULT_SLOTS, type PlatformConfig } from './platforms/types.js';
 import { credentialStore } from './platforms/credentials.js';
 import { PLATFORM_FACTORIES } from './platforms/factories.js';
 import { Scheduler } from './platforms/scheduler.js';
 import { PLATFORM_STATE, PlatformSupervisor, type SupervisorHooks } from './platforms/supervisor.js';
-import { REWIND_RESTORE_ERROR, RUN_CHANGES_SCOPE, RUNNER_LABEL_MAX_CHARS, type LegacyClaimChanges, type RunChangesReport, type ToolsetShadow, type RunInboxCommand, V0_BACKEND } from './vendor/runner-protocol/index.js';
+import { isNewerRunnerVersion, REWIND_RESTORE_ERROR, RUN_CHANGES_SCOPE, RUNNER_CAPABILITY, RUNNER_LABEL_MAX_CHARS, RUNNER_UPDATE_ERROR_MAX_CHARS, type LegacyClaimChanges, type RunChangesReport, type ToolsetShadow, type RunInboxCommand, V0_BACKEND } from './vendor/runner-protocol/index.js';
 import { shadowOf } from './toolset/shadow.js';
 import { intersectToolset } from './toolset/intersect.js';
 import { v0Announce } from './platforms/v0.js';
@@ -267,6 +274,8 @@ export interface DaemonOptions {
   localOnly?: boolean;
   // los clis de agente (t#440): el primero es el principal. por defecto, claude code.
   drivers?: AgentDriver[];
+  // cómo se actualiza (t#670, self-update.ts); ausente = el de este proceso. las pruebas pasan uno falso.
+  updater?: SelfUpdater;
 }
 
 // la parte de la config que el daemon recarga (sin la credencial de duckhunt, que un `runner run` no necesita).
@@ -406,6 +415,14 @@ export class RunnerDaemon {
   // están subiendo el suyo.
   private readonly slashCatalogs = new Map<string, SlashCommandCatalog>();
   private readonly slashUploads = new Set<string>();
+  // actualizarse desde duckhunt (t#670, ver cabecera): cómo (updater.mode null = no sabe: sin la capability), la versión
+  // a la que drena, si ya la está comprobando, la que no pudo (se anuncia hasta que el server la suelte) y el pool que
+  // dijo el último log.
+  private readonly updater: SelfUpdater;
+  private draining: string | null = null;
+  private updateInFlight = false;
+  private updateFailed: { version: string; error: string } | null = null;
+  private loggedSlots: number | null = null;
   // lo que cada supervisor necesita del daemon.
   private readonly hooks: SupervisorHooks = {
     announce: (sup) => this.announce(sup),
@@ -420,6 +437,7 @@ export class RunnerDaemon {
   ) {
     this.drivers = new DriverRegistry(opts.drivers ?? [new ClaudeDriver()]);
     this.factories = opts.factories ?? PLATFORM_FACTORIES;
+    this.updater = opts.updater ?? (opts.localOnly ? { ...processUpdater(), mode: null } : processUpdater());
     if (opts.localOnly) {
       this.cfg = localPart(cfg);
       this.legacyCredential = null;
@@ -449,9 +467,15 @@ export class RunnerDaemon {
     return sup;
   }
 
-  // slots del daemon: defaults.maxConcurrent de la config recargada.
+  // slots del daemon (el pool): el tope que fijó la persona en duckhunt (remote_slots, t#670) o, sin él,
+  // defaults.maxConcurrent de la config recargada.
   private get slots(): number {
-    return concurrency(this.cfg.defaults);
+    return concurrency(this.cfg.defaults, this.supervisors.get(LEGACY_PLATFORM_ID)?.lastRunner?.maxSlots ?? null);
+  }
+
+  // ¿anuncia self_update? sabe reiniciarse solo y la máquina no lo apagó.
+  private get selfUpdates(): boolean {
+    return this.updater.mode !== null && this.cfg.defaults.remoteUpdate !== false;
   }
 
   // cuota de una plataforma dentro del pool: la de su config; sin ella, la legacy todo el pool y una nueva
@@ -667,7 +691,8 @@ export class RunnerDaemon {
   private async pollOnce(sup: PlatformSupervisor): Promise<boolean> {
     sup.blocked = false;
     this.checkBudget(sup);
-    if (!sup.claiming) {
+    // drenando para actualizarse (t#670): solo la legacy pregunta (el server no le da trabajo).
+    if (!sup.claiming || (this.draining !== null && sup.id !== LEGACY_PLATFORM_ID)) {
       // un slot que se le guardaba (en pausa, sin cuota, retirada) pasa a la siguiente.
       this.scheduler.withdraw(sup.id);
       this.offerFreeSlots();
@@ -679,6 +704,7 @@ export class RunnerDaemon {
     }
     await this.collectWorktrees(sup);
     const claim = this.stopping ? null : await sup.claim();
+    if (sup.id === LEGACY_PLATFORM_ID && !this.stopping) this.followServer(claim !== null);
     // el server ya contestó (y la fila de la máquina existe): si no tiene el catálogo de ahora, se le sube aparte.
     void this.syncSlashCommands(sup);
     if (!claim) {
@@ -689,6 +715,57 @@ export class RunnerDaemon {
     }
     this.start(sup, claim);
     return true;
+  }
+
+  // lo que pide de la máquina el último bloque runner de la legacy (t#670, ver cabecera): el pool (el getter lo lee; aquí
+  // solo se avisa si cambió) y la actualización: empezar a drenar, cancelarla o, sin runs, reiniciarse. `claimed` = este
+  // claim trajo un run (cuenta como en curso: aún no está en leases).
+  private followServer(claimed: boolean): void {
+    if (this.loggedSlots !== this.slots) {
+      if (this.loggedSlots !== null) console.log(`[runner] slots: ${this.slots} run(s) a la vez`);
+      this.loggedSlots = this.slots;
+    }
+    const asked = this.legacy.lastRunner?.update?.version ?? null;
+    // el server ya soltó la que falló: se deja de anunciar (y se podría volver a pedir).
+    if (this.updateFailed && this.updateFailed.version !== asked) this.updateFailed = null;
+    const wanted = asked !== null && this.selfUpdates && this.updateFailed === null && isNewerRunnerVersion(asked, runnerVersion()) ? asked : null;
+    if (wanted !== this.draining) {
+      const busy = this.leases.length + (claimed ? 1 : 0);
+      if (wanted !== null) console.log(`[runner] duckhunt pide actualizar a ${wanted}: no reclamo nada nuevo${busy > 0 ? ` y espero a ${busy} run(s) en curso` : ''}`);
+      else if (!this.updateInFlight) console.log(`[runner] actualización a ${this.draining} cancelada: vuelvo a reclamar`);
+      this.draining = wanted;
+    }
+    if (this.draining !== null && !claimed && this.leases.length === 0 && !this.updateInFlight) void this.performUpdate(this.draining);
+  }
+
+  // sin runs en vuelo: comprueba la versión y deja listo el arranque en ella (self-update.ts); luego para y sale. si algo
+  // falla (o la persona la cancela mientras), sigue como estaba y el fallo viaja en el siguiente claim.
+  private async performUpdate(version: string): Promise<void> {
+    const { mode } = this.updater;
+    if (mode === null) return;
+    this.updateInFlight = true;
+    try {
+      console.log(`[runner] actualizando a ${version}: compruebo que se baja y arranca`);
+      await this.updater.verify(version);
+      if (this.draining !== version || this.leases.length > 0 || this.stopping) {
+        console.log(`[runner] actualización a ${version} interrumpida: sigo en ${runnerVersion() ?? '?'}`);
+        return;
+      }
+      await this.updater.restart(mode, version);
+      console.log(`[runner] actualizado a ${version}: este daemon sale y ${mode === UPDATE_MODE.systemd ? 'systemd lo arranca' : 'sigue el relevo'} en la versión nueva`);
+      this.stopping = true;
+      this.exitCode = 0;
+      this.wakeAll();
+    } catch (err) {
+      const error = err instanceof UpdateError ? err.message : 'no se pudo actualizar (detalles en el log de la máquina)';
+      if (!(err instanceof UpdateError)) console.error(`[runner] no se pudo actualizar a ${version}: ${(err as Error).message}`);
+      this.updateFailed = { version, error: clip(error, RUNNER_UPDATE_ERROR_MAX_CHARS) };
+      this.draining = null;
+      console.error(`[runner] no se pudo actualizar a ${version}: ${error}; sigo en ${runnerVersion() ?? '?'} y vuelvo a reclamar`);
+      this.legacy.wake();
+    } finally {
+      this.updateInFlight = false;
+    }
   }
 
   // los slots libres, uno a uno, a la siguiente plataforma en round-robin de las que esperan (platforms/scheduler.ts),
@@ -847,7 +924,10 @@ export class RunnerDaemon {
     return {
       label: this.label(sup),
       machineId: this.machineIdFor(sup),
-      capabilities: this.capabilities(),
+      // lo que solo hace la legacy (t#670): su tope es el pool y sus actualizaciones, las de la máquina.
+      capabilities: legacy
+        ? [...this.capabilities(), RUNNER_CAPABILITY.remoteSlots, ...(this.selfUpdates ? [RUNNER_CAPABILITY.selfUpdate] : [])]
+        : this.capabilities(),
       slots: this.quota(sup),
       version: runnerVersion(),
       claudeVersion: this.drivers.versionOf(V0_BACKEND.claudeCode),
@@ -862,6 +942,7 @@ export class RunnerDaemon {
       awsDefault: this.toolsetRender ? this.awsDefaultExposed(sup) : null,
       browsers: this.browsersFor(sup),
       kept: sup.keptWorktrees,
+      updateFailed: legacy ? this.updateFailed : null,
     };
   }
 

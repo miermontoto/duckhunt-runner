@@ -19,6 +19,7 @@
 import { interactiveAuth, NO_BROWSER_FLAG } from './browser-open.js';
 import { configPath, DEFAULT_BASE_URL, loadConfig } from './config.js';
 import { acquireDaemonLock } from './daemon-lock.js';
+import { awaitHandoff } from './self-update.js';
 import { login, parseLoginArgs } from './oauth.js';
 import { logoutCommand } from './logout.js';
 import { parsePlatformLoginArgs, platformLogin } from './platform-login.js';
@@ -179,6 +180,8 @@ async function startDaemon(verboseLog: boolean): Promise<void> {
     process.exitCode = 1;
     return;
   }
+  // el relevo de una actualización desde duckhunt (t#670) espera a que salga el daemon al que sustituye.
+  await awaitHandoff();
   process.once('exit', acquireDaemonLock());
   // salida explícita: los sockets keep-alive de fetch no deben alargar la parada.
   process.exit(await new RunnerDaemon(cfg, { verboseLog }).run());
