@@ -17,9 +17,11 @@ import type { RepoCommand, RepoCommandResult } from '../repo-commands.js';
 import type { RepoChoice, RepoIssue } from '../resources/repo/health.js';
 import type { KeptWorktree, RunnerBlock } from '../server-state.js';
 import type { StatusReport } from '../status-report.js';
+import type { RepoFilesOutcome } from '../repo-files.js';
 import type { SlashUploadOutcome } from '../slash-commands.js';
 import type {
   RunChangesReport,
+  RunnerRepoFiles,
   RunnerSlashCommands,
   RunInboxCommand,
   RunTurnBody,
@@ -132,6 +134,9 @@ export interface Platform {
   /** el catálogo de slash commands de la máquina (t#555), entero. solo las plataformas que lo guardan (hoy duckhunt-42);
    *  nunca lanza. */
   slashCommands?(catalog: RunnerSlashCommands): Promise<SlashUploadOutcome>;
+  /** el índice de ficheros de UN repo de la máquina (t#678), entero: reemplaza al que tenía. solo las plataformas que lo
+   *  guardan (hoy duckhunt-42); nunca lanza. */
+  repoFiles?(body: RunnerRepoFiles): Promise<RepoFilesOutcome>;
   /** cierre del segmento con reintento acotado; nunca lanza (lo que no llega lo cierra el server). */
   result(runId: string, report: StatusReport): Promise<void>;
   /** de estas conversaciones, las que siguen abiertas (lo que no sepa, abierto: el gc solo aplica el ttl). */

@@ -147,6 +147,7 @@ import {
   saveConfig,
   splitConfig,
   type LocalConfig,
+  type RepoConfig,
   type RunnerConfig,
   type RunnerConfigV2,
   type RunnerCredential,
@@ -185,6 +186,7 @@ import { applyRepoCommand, type RepoCommandResult } from './repo-commands.js';
 import { RunLease } from './run-lease.js';
 import { compareRunIds } from './run-id.js';
 import { LEGACY_PLATFORM_ID, LOCAL_PLATFORM_ID, logsDir, platformHome, runConfigDir, scratchDir, slashCommandsPath } from './paths.js';
+import { RepoFilesSync } from './repo-files.js';
 import { SlashCommandCatalog } from './slash-commands.js';
 import { runnerVersion } from './version.js';
 import { processUpdater, UPDATE_MODE, UpdateError, type SelfUpdater } from './self-update.js';
@@ -415,6 +417,9 @@ export class RunnerDaemon {
   // están subiendo el suyo.
   private readonly slashCatalogs = new Map<string, SlashCommandCatalog>();
   private readonly slashUploads = new Set<string>();
+  // índice de ficheros de los repos de cada plataforma (t#678, repo-files.ts): por supervisor, así un login nuevo (que
+  // puede ser otro server) empieza sin huellas.
+  private readonly repoFiles = new WeakMap<PlatformSupervisor, RepoFilesSync>();
   // actualizarse desde duckhunt (t#670, ver cabecera): cómo (updater.mode null = no sabe: sin la capability), la versión
   // a la que drena, si ya la está comprobando, la que no pudo (se anuncia hasta que el server la suelte) y el pool que
   // dijo el último log.
@@ -705,8 +710,10 @@ export class RunnerDaemon {
     await this.collectWorktrees(sup);
     const claim = this.stopping ? null : await sup.claim();
     if (sup.id === LEGACY_PLATFORM_ID && !this.stopping) this.followServer(claim !== null);
-    // el server ya contestó (y la fila de la máquina existe): si no tiene el catálogo de ahora, se le sube aparte.
+    // el server ya contestó (y la fila de la máquina existe): si no tiene el catálogo de ahora, se le sube aparte. y el
+    // índice de ficheros de los repos que toquen (la vuelta entera, los nuevos o los reintentos).
     void this.syncSlashCommands(sup);
+    void this.syncRepoFiles(sup, (index, announced) => index.due(announced));
     if (!claim) {
       this.scheduler.release(sup.id);
       // sin trabajo: el turno pasa en el acto a la siguiente que espera slot.
@@ -1501,6 +1508,7 @@ export class RunnerDaemon {
     await sup.platform.result(run.id, { ...report, ...turn.start, ...withShadow, ...seg });
     console.log(`${log} ${tag} terminado (${report.status}${report.error ? `: ${report.error}` : ''})`);
     void this.syncSlashCommands(sup);
+    void this.syncRepoFiles(sup, (_, announced) => announced.filter((repo) => run.repo !== null && sameRepoKey(repo, run.repo)));
   }
 
   // el worktree de la conversación a la foto del claim (t#564, rewind-files.ts): null si volvió; si no, el error con el
@@ -1542,6 +1550,21 @@ export class RunnerDaemon {
     } finally {
       this.slashUploads.delete(sup.id);
     }
+  }
+
+  // sube el índice de ficheros (t#678, repo-files.ts) de los repos que `pick` elige entre los que anunció el último claim
+  // si tuvo respuesta (los que su server tiene en el mapa), cada uno con su checkout del mapa: nunca el
+  // worktree de una conversación. solo las plataformas que lo guardan; nunca lanza.
+  private syncRepoFiles(sup: PlatformSupervisor, pick: (index: RepoFilesSync, announced: readonly string[]) => string[]): Promise<void> {
+    const upload = sup.platform.repoFiles?.bind(sup.platform);
+    if (!upload || !sup.claimedRepos) return Promise.resolve();
+    const index = this.repoFiles.get(sup) ?? new RepoFilesSync(upload, scrubEnv(process.env));
+    this.repoFiles.set(sup, index);
+    const checkouts = pick(index, sup.claimedRepos).flatMap((repo) => {
+      const ref = this.refOf(sup, RESOURCE_TYPE.repo, repo) as RepoConfig | null;
+      return ref ? [{ repo, dir: ref.path }] : [];
+    });
+    return index.sync(checkouts);
   }
 
   // el catálogo de la plataforma, cargado de su fichero la primera vez.
