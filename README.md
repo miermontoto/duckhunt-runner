@@ -61,7 +61,7 @@ A run from a duckhunt that does not send the neutral form yet launches exactly a
 ## Setup
 
 ```sh
-npx duckhunt-runner@0.27.0 setup
+npx duckhunt-runner@0.28.0 setup
 ```
 
 Pin the version: the daemon runs `claude -p` with a shell on your machine, so install the release you
@@ -96,9 +96,9 @@ Running `setup` again is safe, and it is how you move the service to a new versi
 Step by step, the same thing is three commands:
 
 ```sh
-npx duckhunt-runner@0.27.0 login
-npx duckhunt-runner@0.27.0 repos discover ~/dev
-npx duckhunt-runner@0.27.0 start
+npx duckhunt-runner@0.28.0 login
+npx duckhunt-runner@0.28.0 repos discover ~/dev
+npx duckhunt-runner@0.28.0 start
 ```
 
 Every command:
@@ -202,7 +202,7 @@ unit, `launchd`:
 Description=duckhunt runner
 
 [Service]
-ExecStart=/usr/bin/npx duckhunt-runner@0.27.0 start
+ExecStart=/usr/bin/npx duckhunt-runner@0.28.0 start
 Restart=always
 # 78: this machine was unpaired (or its credential expired); it needs a new `login`, not a restart.
 RestartPreventExitStatus=78
@@ -761,7 +761,7 @@ worktrees (`<checkout>/.runner/worktrees/<id>/`), and sees only what you expose 
 ### Adding one
 
 ```sh
-npx duckhunt-runner@0.27.0 login https://platform.example --as acme --name "Acme"
+npx duckhunt-runner@0.28.0 login https://platform.example --as acme --name "Acme"
 ```
 
 `login <url> --as [id] [--name <name>] [--trusted]` reads the platform's discovery document and its
