@@ -61,12 +61,13 @@ A run from a duckhunt that does not send the neutral form yet launches exactly a
 ## Setup
 
 ```sh
-npx duckhunt-runner@0.28.0 setup
+npx duckhunt-runner@latest setup
 ```
 
-Pin the version: the daemon runs `claude -p` with a shell on your machine, so install the release you
-mean to run (Settings → Agents → Connections shows the command pinned to the version duckhunt
-recommends, and ticks off each step as this machine pairs and comes online).
+Run it with `@latest`: npm looks the newest release up on every run, never an old copy from the npx
+cache (Settings → Agents → Connections shows the same command and ticks off each step as this machine
+pairs and comes online). What runs unattended stays pinned: the service that `setup` installs runs
+the exact version that installed it (see [Keeping it running](#keeping-it-running)).
 
 `setup` (0.28.0 or later) walks you through the whole thing in one go:
 
@@ -96,9 +97,9 @@ Running `setup` again is safe, and it is how you move the service to a new versi
 Step by step, the same thing is three commands:
 
 ```sh
-npx duckhunt-runner@0.28.0 login
-npx duckhunt-runner@0.28.0 repos discover ~/dev
-npx duckhunt-runner@0.28.0 start
+npx duckhunt-runner@latest login
+npx duckhunt-runner@latest repos discover ~/dev
+npx duckhunt-runner@latest start
 ```
 
 Every command:
@@ -202,7 +203,9 @@ unit, `launchd`:
 Description=duckhunt runner
 
 [Service]
-ExecStart=/usr/bin/npx duckhunt-runner@0.28.0 start
+# pin the release you mean to run (`npx duckhunt-runner@latest --version` prints the newest): a service
+# restarts on its own, so it should never pick up a new release behind your back.
+ExecStart=/usr/bin/npx duckhunt-runner@<version> start
 Restart=always
 # 78: this machine was unpaired (or its credential expired); it needs a new `login`, not a restart.
 RestartPreventExitStatus=78
@@ -761,7 +764,7 @@ worktrees (`<checkout>/.runner/worktrees/<id>/`), and sees only what you expose 
 ### Adding one
 
 ```sh
-npx duckhunt-runner@0.28.0 login https://platform.example --as acme --name "Acme"
+npx duckhunt-runner@latest login https://platform.example --as acme --name "Acme"
 ```
 
 `login <url> --as [id] [--name <name>] [--trusted]` reads the platform's discovery document and its

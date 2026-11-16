@@ -70,7 +70,7 @@ uso:
 
 config en ~/.duckhunt-runner.json (otra con DUCKHUNT_RUNNER_CONFIG=<fichero>); scratch, logs y
 configs de run en ~/.duckhunt-runner/ (otro con DUCKHUNT_RUNNER_HOME=<dir>).
-instala fijando la versión: npx duckhunt-runner@${runnerVersion() ?? '<versión>'} <comando>.
+sin instalar: npx duckhunt-runner@latest <comando> (el servicio de \`service install\` fija la versión que lo instaló).
 `;
 
 async function main(): Promise<void> {
