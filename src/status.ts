@@ -24,7 +24,7 @@ import { EXPOSE_ALL, PLATFORM_DEFAULT_SLOTS, type PlatformConfig } from './platf
 import { LEGACY_RESOURCE_KEYS } from './config-legacy.js';
 import type { RepoFinding } from './resources/repo/health.js';
 import { RESOURCE_TYPE } from './resources/types.js';
-import { LEGACY_PLATFORM_ID, scratchDir } from './paths.js';
+import { attachmentsRoot, LEGACY_PLATFORM_ID, scratchDir } from './paths.js';
 import { daemonLockHolder } from './daemon-lock.js';
 import { detectClaude } from './claude.js';
 import { canBypassPermissions } from './claim.js';
@@ -215,6 +215,8 @@ export async function statusCommand(args: string[] = []): Promise<void> {
     console.log(`capacidades: ${announcedCapabilities({ hasAws: aws !== null, supported: claude.supported, claudeVersion: claude.version, bypassPermissions: canBypassPermissions(), remoteRepoEdits: cfg?.defaults.remoteRepoEdits, toolsetRender: cfg?.defaults.toolsetRender }).join(' ')}`);
   }
   console.log(`scratch:    ${scratchDir(LEGACY_PLATFORM_ID)}`);
+  // los adjuntos que bajan las conversaciones (t#680): una carpeta por conversación, sin crearla.
+  console.log(`adjuntos:   ${attachmentsRoot(LEGACY_PLATFORM_ID)}/<conversación>`);
   if (!cfg) return;
   const repos = Object.entries(cfg.repos);
   console.log(`repos:      ${repos.length === 0 ? 'ninguno mapeado (`repos discover <dir>`)' : ''}`);

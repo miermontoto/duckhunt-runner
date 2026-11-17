@@ -15,10 +15,12 @@
 // slash commands de la máquina (t#555, slash-commands.ts) e índice de ficheros de sus repos (repo-files.ts). volver atrás en una conversación (t#564, rewind.ts). backends
 // de agente de la máquina (t#440, backends.ts: capabilities por backend, atestaciones y clases de run) y la coincidencia
 // de las reglas «siempre aquí» (approval-match.ts), que comparten el server y el puente de aprobaciones del daemon.
+// adjuntos de una conversación en la máquina (t#680, attachments.ts).
 // non-goals por ahora: validación (zod), que cada lado hace con lo suyo.
 
 export * from './agent-credentials.js';
 export * from './approval-match.js';
+export * from './attachments.js';
 export * from './autonomy.js';
 export * from './aws.js';
 export * from './backends.js';

@@ -130,6 +130,12 @@
 //   plataforma reclama trabajo nuevo (la legacy sigue preguntando, el server no le da nada y así se entera de si la
 //   persona lo cancela), y sin runs comprueba la versión y se reinicia en ella; si no puede, sigue como estaba y lo
 //   dice en su siguiente claim (updateFailed) hasta que el server suelta la petición. las dos solo a la legacy.
+// - adjuntos de una conversación (t#680, attachments.ts): con el bloque `attachments` en el claim, el daemon los baja a
+//   <platformHome>/attachments/<runId>/ antes de tomar los turnos del cwd (no lo tocan) y sustituye
+//   RUN_ATTACHMENTS_DIR_TOKEN del prompt por esa ruta: la única excepción a pasar el prompt tal cual, y sin el bloque no
+//   la hay. es neutral (el driver recibe el claim ya con la ruta) y nunca falla el segmento: lo que no baja se anota y
+//   el agente lo lee por mcp. el gc de conversaciones borra la carpeta con la conversación cerrada (o inactiva), tenga
+//   worktree o no.
 
 import { execFile } from 'node:child_process';
 import fs from 'node:fs';
@@ -169,6 +175,7 @@ import { sameRepoKey } from './repo-key.js';
 import { AuditLog, AUDIT_OUTCOME, claimedRecord, closedRecord, DAY_MS, nextMidnight, outcomeCode, pruneAudit, rejectedRecord, retentionDays, toolsetSummary, type AuditSubject, type ClaimedRecord } from './audit.js';
 import { clearLegacyTmpConfigs, clearRunMcpConfigs } from './run-mcp-config.js';
 import { CONVERSATION_GC_INTERVAL_MS, listWorktreeCandidates, removeWorktrees, selectForRemoval, type WorktreeCandidate } from './resources/repo/gc.js';
+import { attachmentFolders, removeAttachmentFolders, syncAttachments, withAttachmentsDir } from './attachments.js';
 import { KeyedMutex } from './keyed-mutex.js';
 import { describeFinding, REPO_HEALTH_INTERVAL_MS, repoChoices, repoFindings, repoIssues, scanRepos, type RepoChoice, type RepoIssue } from './resources/repo/health.js';
 import { ProviderRegistry } from './resources/registry.js';
@@ -185,7 +192,7 @@ import { RELEASE, RESOURCE_TYPE, ResourceUnavailableError, type ReleaseOutcome }
 import { applyRepoCommand, type RepoCommandResult } from './repo-commands.js';
 import { RunLease } from './run-lease.js';
 import { compareRunIds } from './run-id.js';
-import { LEGACY_PLATFORM_ID, LOCAL_PLATFORM_ID, logsDir, platformHome, runConfigDir, scratchDir, slashCommandsPath } from './paths.js';
+import { attachmentsPath, LEGACY_PLATFORM_ID, LOCAL_PLATFORM_ID, logsDir, platformHome, runConfigDir, scratchDir, slashCommandsPath } from './paths.js';
 import { RepoFilesSync } from './repo-files.js';
 import { SlashCommandCatalog } from './slash-commands.js';
 import { runnerVersion } from './version.js';
@@ -1249,12 +1256,18 @@ export class RunnerDaemon {
     sup.lastGcAt = Date.now();
     try {
       const candidates = listWorktreeCandidates(Object.values(this.cfg.repos).map((r) => r.path), sup.id);
-      if (candidates.length === 0) {
+      // las carpetas de adjuntos (t#680): una conversación sin repo no tiene worktree, así que se enumeran aparte y se
+      // preguntan en la misma consulta.
+      const folders = attachmentFolders(sup.id);
+      if (candidates.length === 0 && folders.length === 0) {
         sup.keptWorktrees = [];
         return;
       }
-      const open = await sup.platform.openConversations(candidates.filter((c) => c.kind === 'conversation').map((c) => c.runId));
+      const conversations = new Set([...candidates.filter((c) => c.kind === 'conversation'), ...folders].map((c) => c.runId));
+      const open = await sup.platform.openConversations([...conversations]);
       const inFlight = new Set([...sup.leases].map((lease) => lease.runId));
+      const dropped = removeAttachmentFolders(selectForRemoval(folders, open, Date.now(), inFlight), this.tagOf(sup));
+      if (dropped > 0) console.log(`${this.tagOf(sup)} gc: adjuntos de ${dropped} conversación(es) recogidos`);
       const targets = selectForRemoval(candidates, open, Date.now(), inFlight);
       if (targets.length === 0) {
         sup.keptWorktrees = [];
@@ -1381,6 +1394,8 @@ export class RunnerDaemon {
     if (!this.toolsetRender && claim.toolsetShadow?.toolset.grants.some((g) => g.type === RESOURCE_TYPE.browser)) {
       note('la sesión de navegador del run no se usa: defaults.toolsetRender está en false (solo en sombra)');
     }
+    // los adjuntos (t#680, ver cabecera): antes de los turnos del cwd, que no tocan. el driver lanza con este claim.
+    const launched = await this.withAttachments(sup, claim, lease, note);
 
     const lockStart = Date.now();
     const releaseLocks = await holdLocks(res.locks, this.cwdLocks, lease.killed, note);
@@ -1456,7 +1471,7 @@ export class RunnerDaemon {
       if (restoreError !== null) throw restoreError;
       resourceMcp = await res.mcp();
       const spec: SegmentSpec = {
-        claim,
+        claim: launched,
         res,
         resourceMcp,
         lease,
@@ -1509,6 +1524,25 @@ export class RunnerDaemon {
     console.log(`${log} ${tag} terminado (${report.status}${report.error ? `: ${report.error}` : ''})`);
     void this.syncSlashCommands(sup);
     void this.syncRepoFiles(sup, (_, announced) => announced.filter((repo) => run.repo !== null && sameRepoKey(repo, run.repo)));
+  }
+
+  // los adjuntos del claim en la carpeta de su conversación y el prompt con su ruta (t#680, attachments.ts). sin el bloque,
+  // el claim tal cual. nunca lanza: una carpeta que no se pudo preparar se anota y el prompt nombra igual su ruta (el
+  // agente cae en mcp). un run cancelado mientras baja corta la bajada.
+  private async withAttachments(sup: PlatformSupervisor, claim: ClaimResponse, lease: RunLease, note: (text: string) => void): Promise<ClaimResponse> {
+    if (!claim.attachments) return claim;
+    const { files } = claim.attachments;
+    const dir = attachmentsPath(sup.id, claim.run.id);
+    const get = sup.platform.attachment?.bind(sup.platform);
+    const abort = new AbortController();
+    void lease.killed.then(() => abort.abort());
+    try {
+      const { ready } = await syncAttachments(files, dir, get ? (id, signal) => get(claim.run.id, id, signal) : null, note, abort.signal);
+      if (files.length > 0) note(`adjuntos: ${ready} de ${files.length} en la carpeta del run`);
+    } catch (err) {
+      note(`adjuntos sin carpeta en la máquina (${(err as Error).message}): el agente los lee por mcp`);
+    }
+    return withAttachmentsDir(claim, dir);
   }
 
   // el worktree de la conversación a la foto del claim (t#564, rewind-files.ts): null si volvió; si no, el error con el

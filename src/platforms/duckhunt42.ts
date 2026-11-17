@@ -5,6 +5,8 @@
 // - ids de run: por dentro texto (run-id.ts); /runs/<id> sale con el mismo texto y los dos cuerpos que llevan ids
 //   (/conversations y keptWorktrees del claim) los pasan a número: uno opaco no llega nunca a este cable.
 // - el diff de cada turno (t#514): POST /runs/<id>/changes, solo si el claim trajo el bloque `changes`.
+// - los adjuntos de la conversación (t#680): GET /runs/<id>/attachments/<aid>, el cuerpo son los bytes. solo si el claim
+//   trajo el bloque `attachments`; el plazo cubre también la lectura del cuerpo.
 // - el claim: 204 = nada que hacer (server anterior a t#465 P12, o en pausa, sin slot, actualizar: la cabecera);
 //   200 { run: null } = sin trabajo con la fila de esta máquina; un json ilegible cuenta como reclamado (y no se
 //   puede cerrar: lo cierra el sweeper del server); un claim que no parsea se devuelve como invalid con su id.
@@ -25,6 +27,7 @@ import type { RunnerCredential } from '../config.js';
 import {
   RUNNER_CLAUDE_VERSION_MAX_CHARS,
   RUNNER_REPO_FILES_PATH,
+  RUNNER_RUN_ATTACHMENTS_PATH,
   RUNNER_SLASH_COMMANDS_PATH,
   RUNNER_STATE_HEADER,
   type RunChangesReport,
@@ -44,6 +47,7 @@ import {
   CLAIM_RESULT,
   PlatformRejectedError,
   PROTOCOL,
+  type AttachmentFetch,
   type ClaimAnnounce,
   type ClaimResult,
   type HeartbeatVerdict,
@@ -85,6 +89,8 @@ const isInboxCommand = (v: unknown): v is RunInboxCommand => {
   if (c.kind === RUN_INBOX_KIND.stopTask) return INBOX_ID_RE.test(c.id) && typeof c.taskId === 'string' && AGENT_RUN_EVENT_ID_RE.test(c.taskId);
   return c.kind === RUN_INBOX_KIND.message && INBOX_MESSAGE_ID_RE.test(c.id) && typeof c.text === 'string' && c.text.length > 0 && c.text.length <= INBOX_MESSAGE_MAX_CHARS;
 };
+// bajada de un adjunto (t#680): hasta RUN_ATTACHMENT_MAX_BYTES (10 MiB) en una red lenta, cuerpo incluido.
+const ATTACHMENT_TIMEOUT_MS = 120_000;
 const HTTP_TOO_MANY = 429;
 const HTTP_SERVER_ERROR = 500;
 const KEEP: HeartbeatVerdict = { stop: false };
@@ -235,6 +241,14 @@ export class Duckhunt42Platform implements Platform {
       return null;
     });
     if (res && !res.ok) console.error(`[runner] diff del turno del run ${runId} rechazado: ${await failureReason(res)}`);
+  }
+
+  // un adjunto de la conversación (t#680): un intento, sin excepción (el daemon lo anota y sigue; el agente tiene mcp).
+  async attachment(runId: string, id: number, signal: AbortSignal): Promise<AttachmentFetch> {
+    const res = await this.transport.get(`/runs/${runId}${RUNNER_RUN_ATTACHMENTS_PATH}/${id}`, ATTACHMENT_TIMEOUT_MS, signal).catch((err: Error) => err);
+    if (res instanceof Error) return { ok: false, reason: `inaccesible (${res.message})` };
+    if (!res.ok || res.body === null) return { ok: false, reason: `el server respondió ${await failureReason(res)}` };
+    return { ok: true, body: res.body };
   }
 
   // cierre con reintento acotado: es lo único del run que el server no puede reconstruir.
