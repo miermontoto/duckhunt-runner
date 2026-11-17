@@ -26,6 +26,7 @@ import type {
   RunInboxCommand,
   RunTurnBody,
   RunDeliveredBody,
+  RunContextFields,
 } from '../vendor/runner-protocol/index.js';
 import type { Exposure, ToolsetCeiling } from './types.js';
 
@@ -50,6 +51,12 @@ export class PlatformRejectedError extends Error {
 
 /** segmento del run en cada llamada (servers anteriores a los segmentos: {}). */
 export type RunSegment = { segment?: number };
+
+/** lo que acompaña a las tool calls en el progreso de un segmento: dónde trabaja (el primer envío de cada proceso) y el
+ *  contexto de lo que va de segmento (t#682). */
+export interface RunProgressExtra extends RunContextFields {
+  workdir?: string;
+}
 
 /** lo que la máquina anuncia a la plataforma en cada claim (sin paths: claves, recuentos y salud). */
 export interface ClaimAnnounce {
@@ -118,7 +125,7 @@ export interface Platform {
   claim(a: ClaimAnnounce): Promise<ClaimResult>;
   heartbeat(runId: string, seg: RunSegment): Promise<HeartbeatVerdict>;
   /** lanza si no llegó (el daemon lo loguea: fuego y olvido). */
-  progress(runId: string, toolCalls: number, seg: RunSegment, workdir?: string): Promise<void>;
+  progress(runId: string, toolCalls: number, seg: RunSegment, extra?: RunProgressExtra): Promise<void>;
   /** status http del lote (EventUploader decide reintentar o parar). lanza en error de red. */
   events(runId: string, events: SeqEvent[], seg: RunSegment): Promise<number>;
   /** el buzón del proceso vivo (t#636, live.ts): long-poll de las órdenes de la persona. [] = venció sin ninguna; null = el

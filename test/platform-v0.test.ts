@@ -271,8 +271,8 @@ fs.appendFileSync(path.join(caseDir, 'spawns.jsonl'), JSON.stringify({ argv: arg
 const prompt = args[args.length - 1];
 const finish = () => {
   out({ type: 'system', subtype: 'init', session_id: 'sess-new', model: 'claude-opus-5-5' });
-  out({ type: 'assistant', message: { content: [{ type: 'text', text: 'miro el problema' }] } });
-  out({ type: 'result', subtype: 'success', is_error: false, result: 'hecho', total_cost_usd: 0.5, num_turns: 2, session_id: 'sess-new' });
+  out({ type: 'assistant', message: { content: [{ type: 'text', text: 'miro el problema' }], usage: { input_tokens: 3, cache_read_input_tokens: 40000, cache_creation_input_tokens: 2000, output_tokens: 97 } } });
+  out({ type: 'result', subtype: 'success', is_error: false, result: 'hecho', total_cost_usd: 0.5, num_turns: 2, session_id: 'sess-new', modelUsage: { 'claude-opus-5-5': { costUSD: 0.5, contextWindow: 1000000 } } });
 };
 const hold = /HOLD:(\\S+)/.exec(prompt);
 if (!hold) finish();
@@ -367,6 +367,8 @@ test('de punta a punta: discovery → claim → lease → events → result, con
     assert.deepEqual([result.segment, result.status, result.result], [1, 'done', 'hecho']);
     assert.deepEqual(result.session, { handle: 'sess-new', resumed: false });
     assert.equal((result.usage as Obj).costUsd, 0.5);
+    // el contexto del segmento (t#682) viaja dentro de usage.
+    assert.deepEqual((result.usage as Obj).context, { usedTokens: 42_100, windowTokens: 1_000_000 });
     const [spawn] = spawnsOf(dir);
     const allowed = spawn!.argv[spawn!.argv.indexOf('--allowedTools') + 1]!.split(',');
     assert.ok(!allowed.includes('Bash') && !allowed.includes('Edit'), 'las listas del claim nunca llegan a claude');
@@ -376,6 +378,9 @@ test('de punta a punta: discovery → claim → lease → events → result, con
     const before = server.seen.length;
     await sup.platform.result('r_e2e', { status: 'done', segment: 1 });
     assert.equal(server.seen.length, before + 1);
+    // el progreso sale en el lease, con el contexto de lo que va de segmento (t#682).
+    await sup.platform.progress('r_e2e', 3, { segment: 1 }, { context: { usedTokens: 9_000, windowTokens: null, compactions: 1 } });
+    assert.deepEqual(server.seen.at(-1), { path: '/api/runner/v0/runs/r_e2e/lease', protocol: '0', body: { segment: 1, toolCalls: 3, context: { usedTokens: 9_000, windowTokens: null, compactions: 1 } } });
   } finally {
     await server.close();
   }

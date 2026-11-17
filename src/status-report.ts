@@ -3,18 +3,20 @@
 // daba 400 y el run se quedaba colgado en running → lost → failed).
 // volver atrás (0.17.0, t#564): el informe lleva el uuid del último mensaje del asistente (dónde podrá retomarse) y, con
 // rewind_files, el árbol y el HEAD con los que empezó el segmento (los pone el daemon: no salen del intento).
+// uso de contexto (t#682): el del hilo principal al cerrar, con las compactaciones de todo el proceso; el daemon les resta
+// las de los turnos que ya informó (como a las tool calls).
 
 import { configPath } from './config.js';
 import { maskSecrets } from './secret-mask.js';
-import type { StreamState } from './claude.js';
-import type { ToolsetShadow } from './vendor/runner-protocol/index.js';
+import { streamContext, type StreamState } from './claude.js';
+import type { RunContextFields, ToolsetShadow } from './vendor/runner-protocol/index.js';
 
 // por qué el daemon mató al proceso: cancel del server, timeout wall clock o parada del daemon.
 export type KillReason = 'cancel' | 'timeout' | 'shutdown';
 
 export type RunStatus = 'done' | 'failed' | 'canceled';
 
-export interface StatusReport {
+export interface StatusReport extends RunContextFields {
   status: RunStatus;
   result?: string;
   error?: string;
@@ -60,6 +62,8 @@ const clipEnd = (s: string, max: number): string => (s.length > max ? `${s.slice
 export function reportFor(attempt: Attempt, resumed: boolean | undefined): StatusReport {
   const s = attempt.stream;
   const sessionId = s.result?.sessionId ?? s.sessionId;
+  // sin result (proceso caído), la ventana que aprendió de un turno anterior del mismo modelo.
+  const context = streamContext(s, s.result?.model ?? s.initModel, 0);
   const base: StatusReport = {
     status: 'failed',
     toolCalls: s.toolCalls,
@@ -69,6 +73,7 @@ export function reportFor(attempt: Attempt, resumed: boolean | undefined): Statu
     ...(s.result?.model ? { model: s.result.model } : {}),
     ...(resumed !== undefined ? { resumed } : {}),
     ...(s.lastAssistantUuid ? { lastMessageUuid: s.lastAssistantUuid } : {}),
+    ...(context ? { context } : {}),
     ...(attempt.stderrTail ? { stderrTail: attempt.stderrTail } : {}),
   };
   if (attempt.killedBy === 'cancel') return { ...base, status: 'canceled', error: 'cancelado desde el server' };

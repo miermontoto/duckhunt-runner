@@ -48,6 +48,7 @@ import {
   type ClaimResult,
   type HeartbeatVerdict,
   type Platform,
+  type RunProgressExtra,
   type RunSegment,
   type UnpairOutcome,
 } from './platform.js';
@@ -184,8 +185,10 @@ export class Duckhunt42Platform implements Platform {
     return KEEP;
   }
 
-  async progress(runId: string, toolCalls: number, seg: RunSegment, workdir?: string): Promise<void> {
-    await this.transport.post(`/runs/${runId}/progress`, { toolCalls, ...(workdir ? { workdir } : {}), ...seg });
+  // el contexto (t#682) el server lo guarda solo junto al segmento.
+  async progress(runId: string, toolCalls: number, seg: RunSegment, extra: RunProgressExtra = {}): Promise<void> {
+    const { workdir, context } = extra;
+    await this.transport.post(`/runs/${runId}/progress`, { toolCalls, ...(workdir ? { workdir } : {}), ...(context ? { context } : {}), ...seg });
   }
 
   async events(runId: string, events: SeqEvent[], seg: RunSegment): Promise<number> {

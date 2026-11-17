@@ -21,6 +21,7 @@ import { RUNNER_CAPABILITY, type RunnerCapability } from './capabilities.js';
 import { AGENT_RUN_ERROR_CODE } from './errors.js';
 import type { AgentRunEventKind } from './events.js';
 import type { ToolsetShadow, ToolsetV1 } from './toolset.js';
+import type { RunContextFields, RunContextUsage } from './usage.js';
 
 /** nombre del protocolo en el documento de discovery. */
 export const AGENT_RUNNER_PROTOCOL = 'agent-runner';
@@ -238,8 +239,8 @@ export interface ClaimResponseV0 {
   state?: V0RunnerState;
 }
 
-/** POST runs/{id}/lease: latido y progreso juntos. */
-export interface LeaseRequestV0 {
+/** POST runs/{id}/lease: latido y progreso juntos (con el contexto de lo que va de segmento, t#682). */
+export interface LeaseRequestV0 extends RunContextFields {
   segment: number;
   toolCalls?: number;
   workdir?: string;
@@ -273,7 +274,8 @@ export interface ResultRequestV0 {
   status: V0ResultStatus;
   result?: string;
   error?: string;
-  usage?: { costUsd?: number; numTurns?: number; toolCalls?: number };
+  // context: el del segmento (usage.ts, t#682).
+  usage?: { costUsd?: number; numTurns?: number; toolCalls?: number; context?: RunContextUsage };
   model?: string;
   session?: { handle: string; resumed: boolean };
   stderrTail?: string;

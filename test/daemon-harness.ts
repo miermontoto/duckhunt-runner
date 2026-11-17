@@ -9,7 +9,7 @@ import type { ClaudeInfo } from '../src/claude.js';
 import type { RunnerConfig } from '../src/config.js';
 import { RunnerDaemon, type DaemonOptions } from '../src/daemon.js';
 import { LEGACY_PLATFORM_ID } from '../src/paths.js';
-import type { Platform, RunSegment } from '../src/platforms/platform.js';
+import type { Platform, RunProgressExtra, RunSegment } from '../src/platforms/platform.js';
 import type { PlatformState } from '../src/platforms/supervisor.js';
 import type { RunLease } from '../src/run-lease.js';
 import type { KeptWorktree } from '../src/server-state.js';
@@ -32,7 +32,7 @@ export interface DaemonInternals {
   pollOnce(sup: SupervisorInternals): Promise<boolean>;
   executeRun(sup: SupervisorInternals, claim: ClaimResponse, lease: RunLease): Promise<void>;
   startHeartbeat(sup: SupervisorInternals, lease: RunLease, heartbeatMs: number, seg: RunSegment): NodeJS.Timeout;
-  postProgress(sup: SupervisorInternals, runId: string, toolCalls: number, seg: RunSegment, workdir?: string): void;
+  postProgress(sup: SupervisorInternals, runId: string, toolCalls: number, seg: RunSegment, extra?: RunProgressExtra): void;
   addSupervisor(platform: Platform): SupervisorInternals;
   // la parte de la config que se recarga en caliente (mapas, defaults).
   readonly cfg: { repos: Readonly<Record<string, unknown>> };

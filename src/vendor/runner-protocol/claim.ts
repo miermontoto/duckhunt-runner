@@ -146,9 +146,11 @@ export interface LegacyClaimRun {
   // solo a un daemon con RUNNER_CAPABILITY.effort (r#563, effort.ts), tras model: el esfuerzo de razonamiento del
   // segmento (RUN_EFFORT), null = el de la máquina. un valor que no conoce se ignora con un aviso, como un modelo raro.
   effort?: RunEffort | null;
-  // con la misma capability, tras effort y solo si el server fija algo para el árbol de subagentes del segmento: el
-  // modelo y el esfuerzo de TODO subagente que lance (el daemon los pone en el entorno del cli:
-  // CLAUDE_CODE_SUBAGENT_MODEL y CLAUDE_CODE_SUBAGENT_EFFORT). una clave ausente o null = lo que decida el cli.
+  // con la misma capability, tras effort y solo si el server fija algo para el árbol de subagentes del segmento: su
+  // modelo y su esfuerzo POR DEFECTO (el daemon los pone en el entorno del cli: CLAUDE_CODE_SUBAGENT_MODEL y
+  // CLAUDE_CODE_SUBAGENT_EFFORT). es un valor por defecto, no un tope (leído en el cli 2.1.326): el `model` o el
+  // `effort` de la llamada a Agent y los del frontmatter de la definición del agente ganan, y en un workflow manda
+  // CLAUDE_CODE_WORKFLOW_SUBAGENT_MODEL. una clave ausente o null = lo que decida el cli.
   subagents?: { model?: string | null; effort?: RunEffort | null };
   // solo a un daemon con RUNNER_CAPABILITY.autonomy (t#527, autonomy.ts), tras model: el nivel de la conversación en
   // edición (null = el kit fijo, dontAsk). el permission mode que viaja es el suyo.
