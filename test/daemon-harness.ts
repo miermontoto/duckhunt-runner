@@ -78,8 +78,9 @@ export function setSecretDeny(d: unknown, rules: string[]): void {
   claudeDriverOf(d).secretDeny = rules;
 }
 
-/** el deny de todo kit de un segmento de `sup` (run-config, lo privado de las demás plataformas, el vault del navegador). */
-export function runDenyOf(d: unknown, sup: { id: string }): string[] {
+/** el deny de todo kit de un segmento de `sup` (run-config, lo privado de las demás plataformas, el vault del navegador
+ *  y los adjuntos ajenos a `runId`). */
+export function runDenyOf(d: unknown, sup: { id: string }, runId: string | null = null): string[] {
   const configured = (): string[] => (d as { configuredPlatforms(): string[] }).configuredPlatforms();
-  return claudeDriverOf(d).platformDeny({ id: sup.id, configured });
+  return claudeDriverOf(d).platformDeny({ id: sup.id, configured }, runId);
 }

@@ -106,5 +106,9 @@ export const RUNNER_CAPABILITY = {
   // (`updateFailed`). solo la anuncia un daemon que sabe reiniciarse solo (lanzado con npx, en su servicio o sin otro
   // supervisor) en una máquina que no lo apagó.
   selfUpdate: 'self_update',
+  // t#680 (attachments.ts): baja los adjuntos de la conversación (`attachments` del claim) a una carpeta del run y
+  // sustituye RUN_ATTACHMENTS_DIR_TOKEN en el prompt por su ruta. sin ella el claim no lleva la clave y el agente los
+  // lee por mcp.
+  attachments: 'attachments',
 } as const;
 export type RunnerCapability = (typeof RUNNER_CAPABILITY)[keyof typeof RUNNER_CAPABILITY];

@@ -54,6 +54,10 @@
 //   árbol de subagentes. van al argv (--effort) y al env del cli (claude-args.ts::claudeRunEnv), así que pasan por
 //   isRunEffort y MODEL_RE como run.model: un valor raro se ignora con un aviso y el segmento sigue con lo de la
 //   máquina. nunca invalidan el claim.
+// - adjuntos (t#680, attachments.ts del protocolo, capability `attachments`): el bloque `attachments` se re-valida aquí
+//   (nombre de un tramo, tamaño y sha256 con forma, sin repetidos, hasta RUN_ATTACHMENTS_MAX): lo que no cumple se
+//   descarta con un aviso (va al feed) y el agente lo lee por mcp; nunca tumba el claim. un bloque presente pero
+//   ilegible cuenta como presente sin ficheros: su prompt ya nombra la carpeta (RUN_ATTACHMENTS_DIR_TOKEN).
 
 import { runIdFromLegacy } from './run-id.js';
 import {
@@ -99,6 +103,12 @@ import {
   type RunEffort,
   RUN_INBOX_WAIT_MS,
   type LegacyClaimLive,
+  RUN_ATTACHMENT_MAX_BYTES,
+  RUN_ATTACHMENT_NAME_MAX_CHARS,
+  RUN_ATTACHMENT_NAME_RE,
+  RUN_ATTACHMENTS_MAX,
+  type LegacyClaimAttachment,
+  type LegacyClaimAttachments,
 } from './vendor/runner-protocol/index.js';
 import { parseToolsetV1 } from './toolset/parse.js';
 import { sameRepoKey } from './repo-key.js';
@@ -332,6 +342,9 @@ export interface ClaimResponse {
   restore?: LegacyClaimRestore;
   // t#636, fase 2 (live.ts): el proceso atiende el buzón del run (stdin en stream-json). ausente = el de siempre.
   live?: LegacyClaimLive;
+  // t#680 (attachments.ts): los adjuntos de la conversación que el daemon baja a la carpeta del run, ya re-validados.
+  // ausente = sin bloque: el prompt no lleva RUN_ATTACHMENTS_DIR_TOKEN y pasa tal cual.
+  attachments?: LegacyClaimAttachments;
   mcp: McpServer;
   // avisos de la validación local (rama ignorada…): el daemon los loguea y los sube al feed.
   warnings: string[];
@@ -456,6 +469,50 @@ function liveConfig(v: unknown): LegacyClaimLive | null {
   const wait = posInt(v.waitMs);
   // t#636, fase 3: `turns` solo cuenta como true.
   return wait === null ? null : { waitMs: Math.min(wait, RUN_INBOX_WAIT_MS), ...(v.turns === true ? { turns: true as const } : {}) };
+}
+
+// sha256 de un adjunto: hex de 64 (en minúsculas tras normalizar).
+const SHA256_HEX_RE = /^[0-9a-f]{64}$/;
+
+// un adjunto con su forma (ver cabecera), o el motivo por el que se queda en el camino mcp.
+function attachmentOf(v: unknown): LegacyClaimAttachment | string {
+  if (!isObj(v)) return 'adjunto sin forma';
+  const id = posInt(v.id);
+  if (id === null) return 'adjunto sin id';
+  const name = str(v.name);
+  if (name === null || name.length > RUN_ATTACHMENT_NAME_MAX_CHARS || !RUN_ATTACHMENT_NAME_RE.test(name)) return `adjunto ${id}: nombre ${shownValue(v.name)} no utilizable`;
+  const size = v.size;
+  if (typeof size !== 'number' || !Number.isSafeInteger(size) || size < 0) return `adjunto ${id} (${name}): tamaño no válido`;
+  if (size > RUN_ATTACHMENT_MAX_BYTES) return `adjunto ${id} (${name}): ${size} bytes, por encima del tope de ${RUN_ATTACHMENT_MAX_BYTES}`;
+  const sha256 = typeof v.sha256 === 'string' ? v.sha256.toLowerCase() : '';
+  if (!SHA256_HEX_RE.test(sha256)) return `adjunto ${id} (${name}): sha256 no válido`;
+  return { id, name, size, sha256 };
+}
+
+// el bloque attachments (ver cabecera): ausente o null = ninguno. solo se miran los RUN_ATTACHMENTS_MAX primeros (el
+// resto, un aviso), así los avisos tampoco crecen sin tope.
+function attachmentsOf(v: unknown, warnings: string[]): LegacyClaimAttachments | null {
+  if (v === undefined || v === null) return null;
+  const raw: unknown[] | null = isObj(v) && Array.isArray(v.files) ? v.files : null;
+  if (raw === null) warnings.push('bloque attachments ilegible: los adjuntos se leen por mcp');
+  const listed = raw ?? [];
+  if (listed.length > RUN_ATTACHMENTS_MAX) warnings.push(`${listed.length - RUN_ATTACHMENTS_MAX} adjunto(s) por encima del tope de ${RUN_ATTACHMENTS_MAX}: se leen por mcp`);
+  const files = listed
+    .slice(0, RUN_ATTACHMENTS_MAX)
+    .map(attachmentOf)
+    .reduce<{ ids: Set<number>; kept: LegacyClaimAttachment[] }>(
+      (acc, a) => {
+        if (typeof a === 'string') warnings.push(`${a}: se lee por mcp`);
+        else if (acc.ids.has(a.id)) warnings.push(`adjunto ${a.id} repetido: se ignora`);
+        else {
+          acc.ids.add(a.id);
+          acc.kept.push(a);
+        }
+        return acc;
+      },
+      { ids: new Set(), kept: [] },
+    ).kept;
+  return { files };
 }
 
 function changesConfig(v: unknown): LegacyClaimChanges | null {
@@ -613,6 +670,7 @@ export function parseClaimBody(raw: unknown, id: string, machine: ClaimMachine =
   const resumeAt = resumeAtOf(r.resumeAt, sessionId);
   const extraRepos = extraReposOf(r.extraRepos, { kind, profile, repo }, warnings);
   const restore = restoreOf(raw.restore, { kind, profile, isolation, repo, extraRepos });
+  const attachments = attachmentsOf(raw.attachments, warnings);
 
   return {
     run: {
@@ -652,6 +710,7 @@ export function parseClaimBody(raw: unknown, id: string, machine: ClaimMachine =
     ...(permissions !== null ? { permissions } : {}),
     ...(restore !== null ? { restore } : {}),
     ...(live !== null ? { live } : {}),
+    ...(attachments !== null ? { attachments } : {}),
     mcp: { serverName, url, token, expiresAt: numOrNull(mcp.expiresAt) ?? 0 },
     warnings,
     toolset: null,

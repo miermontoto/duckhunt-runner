@@ -63,14 +63,15 @@ export function listWorktreeCandidates(repoPaths: string[], platform: string): W
 }
 
 /** candidatos a borrar: conversación cerrada según el server, o cualquiera inactivo más del ttl.
- *  los runs en vuelo en este daemon (`inFlight`) nunca. */
-export function selectForRemoval(
-  candidates: WorktreeCandidate[],
+ *  los runs en vuelo en este daemon (`inFlight`) nunca. vale para todo lo que vive con una conversación (sus worktrees y
+ *  la carpeta de sus adjuntos, t#680). */
+export function selectForRemoval<C extends Pick<WorktreeCandidate, 'kind' | 'runId' | 'lastUsedAt'>>(
+  candidates: C[],
   open: ReadonlySet<string>,
   now: number,
   inFlight: ReadonlySet<string> = new Set(),
   ttlMs = CONVERSATION_IDLE_TTL_MS,
-): WorktreeCandidate[] {
+): C[] {
   return candidates.filter((c) => !inFlight.has(c.runId) && (now - c.lastUsedAt > ttlMs || (c.kind === 'conversation' && !open.has(c.runId))));
 }
 

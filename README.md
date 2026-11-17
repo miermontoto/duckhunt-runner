@@ -129,7 +129,8 @@ directory (`~/.duckhunt-runner`: the scratch directory, `--verbose` logs, the da
 per-run MCP configs and `server-state.json`, what duckhunt last said about this machine; from 0.13.0
 also `audit/`, `platforms/<id>/` for other platforms, `browser-vault/` for saved browser sessions and
 `sockets/` for `runner run`; from 0.16.0 `slash-commands.json`, the catalogue of slash commands your runs
-load, one per platform). `--version` prints the daemon version.
+load, one per platform; from 0.32.0 `attachments/`, the files of each conversation, also one per platform).
+`--version` prints the daemon version.
 
 From 0.13.0 the same file can also hold `platforms` (other platforms and your settings for each, see
 [Platforms](#platforms-0130-or-later)), `resources` (resource types other than repos and AWS: today
@@ -490,7 +491,8 @@ duckhunt denies `Read` on a fixed list of home-relative credential paths in ever
 because the server never learns your paths. The daemon adds the ones only this machine knows, without
 sending them anywhere: its real config file (also when `DUCKHUNT_RUNNER_CONFIG` moves it), its state
 directory (the logs, the lock, `server-state.json` and the run configs; not the scratch directory,
-which is the working directory of runs without a repo), `$CLAUDE_CONFIG_DIR/.credentials.json`,
+which is the working directory of runs without a repo, nor `attachments/`, denied per conversation: see
+[Attachments](#attachments-0320-or-later)), `$CLAUDE_CONFIG_DIR/.credentials.json`,
 `AWS_SHARED_CREDENTIALS_FILE` and `AWS_CONFIG_FILE` when they are set, and the real path behind any
 of the listed ones that is a symlink (dotfiles). A path that a Claude permission rule cannot express
 (commas, brackets, wildcards) is skipped with a warning at startup. From 0.13.0 that includes the
@@ -760,6 +762,28 @@ written.
   most); a server without the endpoint, or one that refuses that list, is not asked again until the list
   changes. A repo that can't be listed (not a git checkout, too slow) is skipped with one log line and retried
   the same way. The run is never affected.
+
+### Attachments (0.32.0 or later)
+
+Files attached to a duckhunt conversation travel inside the message, and any agent can read them through
+duckhunt's MCP (`duckhunt-attachment-read`). On top of that, the daemon downloads them to a folder of the
+conversation, so the agent opens them with its own file tools, whatever CLI runs it.
+
+- The folder is `~/.duckhunt-runner/attachments/<run>/` (`platforms/<id>/attachments/<run>/` for another
+  platform), outside every checkout, and each file is `<id>-<name>`. duckhunt names the folder in the prompt
+  with a placeholder and the daemon replaces it with this path: the only change it makes to a prompt, and only
+  when the claim brings attachments.
+- Every claim brings the whole list of the conversation. Each file is downloaded with the machine's
+  credential, checked against the size and SHA-256 duckhunt announced, and not downloaded again while it is
+  there with that hash; a file that left the list is deleted. A name that isn't one plain segment, a file over
+  10 MiB and anything past 20 files are left out with a note in the feed.
+- A failed download is a note in the feed and the step goes on: the agent can still read that file through
+  MCP.
+- Every run, `edit` included, is denied the folders of the other conversations present when its step
+  starts, and those of other platforms. A conversation that downloads its files while another one's step is
+  already running is denied to that one from its next step.
+- The folder goes with the conversation: when duckhunt says it is closed, or after 7 days without use, with
+  or without a repo.
 
 ### Going back in a conversation (0.17.0 or later)
 
