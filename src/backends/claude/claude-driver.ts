@@ -60,6 +60,7 @@ export function turnEndedOf(ev: StreamLine, stream: StreamState, at: TurnBase): 
       ...(typeof ev.result === 'string' ? { result: maskSecrets(ev.result).slice(0, TURN_RESULT_MAX_CHARS) } : {}),
       ...(stream.lastAssistantUuid ? { lastMessageUuid: stream.lastAssistantUuid } : {}),
       ...(context ? { context } : {}),
+      ...(stream.usageLimits ? { limits: stream.usageLimits } : {}),
     },
   };
 }
@@ -268,6 +269,7 @@ export class ClaudeDriver implements AgentDriver {
       toolCalls: () => stream.toolCalls,
       // el del bucle principal (el modelo del init): su ventana, la que dijo el `result` de un turno anterior (t#682).
       context: () => streamContext(stream, stream.initModel, io.turnBase().compactions),
+      limits: () => stream.usageLimits ?? undefined,
       closed: () => {
         inboxAbort.abort();
         session?.end();

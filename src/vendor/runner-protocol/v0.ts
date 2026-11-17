@@ -22,6 +22,7 @@ import { AGENT_RUN_ERROR_CODE } from './errors.js';
 import type { AgentRunEventKind } from './events.js';
 import type { ToolsetShadow, ToolsetV1 } from './toolset.js';
 import type { RunContextFields, RunContextUsage } from './usage.js';
+import type { BackendUsageLimits, UsageLimitsFields } from './usage-limits.js';
 
 /** nombre del protocolo en el documento de discovery. */
 export const AGENT_RUNNER_PROTOCOL = 'agent-runner';
@@ -239,8 +240,8 @@ export interface ClaimResponseV0 {
   state?: V0RunnerState;
 }
 
-/** POST runs/{id}/lease: latido y progreso juntos (con el contexto de lo que va de segmento, t#682). */
-export interface LeaseRequestV0 extends RunContextFields {
+/** POST runs/{id}/lease: latido y progreso juntos (con el contexto de lo que va de segmento, t#682, y los límites del backend). */
+export interface LeaseRequestV0 extends RunContextFields, UsageLimitsFields {
   segment: number;
   toolCalls?: number;
   workdir?: string;
@@ -276,6 +277,8 @@ export interface ResultRequestV0 {
   error?: string;
   // context: el del segmento (usage.ts, t#682).
   usage?: { costUsd?: number; numTurns?: number; toolCalls?: number; context?: RunContextUsage };
+  // los límites de la suscripción del backend en su última lectura (usage-limits.ts): de la cuenta, no del segmento.
+  limits?: BackendUsageLimits;
   model?: string;
   session?: { handle: string; resumed: boolean };
   stderrTail?: string;

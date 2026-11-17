@@ -1,9 +1,9 @@
 {
-  "version": "0.29.0",
+  "version": "0.30.0",
   "contentHash": "b0d0a96aede36589dba075434aba82df36f6a23b28078b084084ca715ed821ec",
-  "commit": "8d74898c86d834bc484d09d2d717b7df879a6da2",
+  "commit": "5ad57c8924bc19bb8e447789dd777e67b03fe26e",
   "files": {
-    "index.ts": "40ca003c7b8dd260a93c956a6ad499542e34e7b6c4301ecc4f7cf9d47a8d4407",
+    "index.ts": "c5144b76cb0b48399f432dc28da2351212c7a4b681be28f14715dbf7095eca78",
     "agent-credentials.ts": "222abc95a5de754cdabb145acc542eee796ee65ffb9ef658a9b51eee418d3eb1",
     "approval-match.ts": "b298d231cb8100ddd7eff23c970383750354375bacbdaea735561460a4aaf93b",
     "attachments.ts": "3ad683c3112c0a7650518527e45ebe40504c59e675d762532838e8173786af58",
@@ -18,13 +18,14 @@
     "errors.ts": "21caba41f35cc92a03fd8eaafec98c899aa99ee7af524bdfd7ad83c2a6794bf3",
     "events.ts": "2ae07eeace3397ff309294b412ee05b86675223c96d057ee67a9df4070fcd966",
     "limits.ts": "412f297046ad61b3aab8d82292d7d9fca4ae11c142813f33a82cebb38ab57705",
-    "live.ts": "ca7c4ffc27ac8229ccfb850af3c82e301d2475d9279eb5037aaedae143e68f1c",
+    "live.ts": "ef24c72d5cedeca5b0c5b36f00ccce76b9aeb631136b58d46b5499dcb2f57872",
     "resources.ts": "35fd39549fa713ccc70ee43d049fa12f052c40b24ea8c197c207810cbdbab829",
     "repo-files.ts": "72cd5d8ac27e72a54d37ca836ad4ad6c25b9200252a333678bbabb42c589c828",
     "rewind.ts": "76f9b6c3e086c30aa80f4c3a07ae4bcd9aafbc9d88228113b193af1a4c00147c",
     "slash-commands.ts": "81a32d00199898c38c7a63ec9f61e1a184a29fd2645957505f46c73be7414f4a",
     "toolset.ts": "9cf2c383d05f8be6a163f7084b42e042a278b359c4b9ba92a9ad8fb671aef571",
+    "usage-limits.ts": "1f5ce5821bb05fe66e8981fcadc01fc00e53be7b0aa533707ce9b86d4d9f8192",
     "usage.ts": "aab3158a0edcd1af9ce4c8f188615b408119d5436147ec96e9f14467860b3e54",
-    "v0.ts": "0f5adf7e7ef35676043941a64c883260f461d100f55e0c6d0b5c2f93d9e02210"
+    "v0.ts": "69e2df09eb12223f40b546313d84755d4372a08648989fcb30aef1e9eebfeead"
   }
 }

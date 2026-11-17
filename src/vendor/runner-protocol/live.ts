@@ -20,6 +20,7 @@
 //   mitad de turno se acusa con POST …/delivered. el coste, el diff y la vuelta atrás siguen siendo por segmento.
 
 import type { RunContextFields } from './usage.js';
+import type { UsageLimitsFields } from './usage-limits.js';
 
 export const RUN_INBOX_KIND = {
   stopTask: 'stop_task',
@@ -52,7 +53,7 @@ export interface LegacyClaimLive {
 }
 
 /** lo que el daemon cuenta de un turno al cerrarlo dentro del proceso (los campos del status de un segmento). */
-export interface RunTurnReport extends RunContextFields {
+export interface RunTurnReport extends RunContextFields, UsageLimitsFields {
   // el total de la sesión hasta ese `result` (como en el status: el server pone la base).
   costUsd?: number;
   numTurns?: number;

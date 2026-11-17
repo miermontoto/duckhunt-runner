@@ -15,7 +15,7 @@ import { clip } from '../feed.js';
 import { signalGroup, type RunLease } from '../run-lease.js';
 import type { RunProgressExtra } from '../platforms/platform.js';
 import type { KillReason } from '../status-report.js';
-import type { RunContextUsage } from '../vendor/runner-protocol/index.js';
+import type { BackendUsageLimits, RunContextUsage } from '../vendor/runner-protocol/index.js';
 import type { AgentStdin } from './agent-driver.js';
 
 const KILL_GRACE_MS = 10_000;
@@ -30,7 +30,9 @@ const STDERR_TAIL_MAX_CHARS = 4000;
 const WORKDIR_MAX_CHARS = 300;
 
 // lo que distingue un progreso del anterior: si no cambia, no se envía.
-const progressKey = (toolCalls: number, context: RunContextUsage | undefined): string => JSON.stringify([toolCalls, context ?? null]);
+// sin `observedAt`: una lectura idéntica a la ya enviada no es un cambio.
+const progressKey = (toolCalls: number, context: RunContextUsage | undefined, limits: BackendUsageLimits | undefined): string =>
+  JSON.stringify([toolCalls, context ?? null, limits ? { ...limits, observedAt: 0 } : null]);
 
 /** lo que el driver lanza. */
 export interface AgentProcess {
@@ -51,6 +53,8 @@ export interface ProcessSession {
   toolCalls(): number;
   // el contexto del agente principal en lo que va de turno (t#682); undefined = aún nada que decir.
   context(): RunContextUsage | undefined;
+  // los límites de la suscripción del backend en su última lectura (la de la cuenta, no del turno); undefined = ninguna.
+  limits(): BackendUsageLimits | undefined;
   // el proceso cerró sus pipes: lo último antes de resolver.
   closed(): void;
 }
@@ -121,10 +125,10 @@ export function spawnAgent(proc: AgentProcess, lease: RunLease, io: ProcessIo, o
       if (logFile !== null) fs.writeSync(logFile, `${JSON.stringify({ type: 'stderr', line })}\n`);
     });
 
-    // progreso: tool calls del segmento y su contexto (throttled) + la nota de workdir en el primer envío. sale cuando
+    // progreso: tool calls del segmento, su contexto y los límites de la cuenta (throttled) + la nota de workdir en el primer envío. sale cuando
     // cambia cualquiera de los dos (t#682: una respuesta larga sin tools también llena el contexto).
     io.progress(0, { workdir: clip(io.workdir, WORKDIR_MAX_CHARS) });
-    let reported = progressKey(0, undefined);
+    let reported = progressKey(0, undefined, undefined);
     let lastProgressAt = Date.now();
     const progress = setInterval(() => {
       const now = Date.now();
@@ -132,11 +136,12 @@ export function spawnAgent(proc: AgentProcess, lease: RunLease, io: ProcessIo, o
       // las del turno en curso (t#636, fase 3: el proceso puede haber partido turnos).
       const turnCalls = session.toolCalls() - io.toolCallsAt();
       const context = session.context();
-      const key = progressKey(turnCalls, context);
+      const limits = session.limits();
+      const key = progressKey(turnCalls, context, limits);
       if (key === reported) return;
       reported = key;
       lastProgressAt = now;
-      io.progress(turnCalls, context ? { context } : {});
+      io.progress(turnCalls, { ...(context ? { context } : {}), ...(limits ? { limits } : {}) });
     }, PROGRESS_TICK_MS);
 
     const timeout = setTimeout(

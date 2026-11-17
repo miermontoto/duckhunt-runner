@@ -19,6 +19,9 @@ import { runnerVersion } from '../src/version.js';
 
 const BASE = 'https://duckhunt.test';
 const API = `${BASE}/api/runner`;
+// los límites de la suscripción del backend (usage-limits.ts): plano junto al contexto.
+const LIMITS = { backend: 'claude_code', observedAt: 1_794_900_000_000, windows: [{ id: 'five_hour', usedRatio: 0.07, resetsAt: 1_794_943_200_000, windowMins: 300, status: 'allowed' as const }] };
+const LIMITS_JSON = JSON.stringify(LIMITS);
 const MACHINE = '6f1d7c1e-5b0a-4c34-9b8e-2a3f7c1d9e01';
 // MIN_HEARTBEAT_MS del daemon: el latido nunca va más rápido.
 const HEARTBEAT_FLOOR_MS = 5_000;
@@ -113,9 +116,9 @@ test('cuerpos del cable legacy byte a byte iguales a los del daemon con ids num�
   assert.deepEqual([...(await d.openConversations(['12', '34']))], ['12']);
   await d.postEvents('88', [{ seq: 5, kind: 'text', body: 'hola' }], { segment: 3 });
   // el contexto (t#682): plano junto al coste en el status y en el progreso.
-  await d.postStatus('88', { status: 'done', result: 'listo', costUsd: 0.25, numTurns: 2, toolCalls: 3, sessionId: 's-1', model: 'opus', resumed: true, context: { usedTokens: 42_000, windowTokens: 1_000_000, compactions: 1 }, segment: 3 });
+  await d.postStatus('88', { status: 'done', result: 'listo', costUsd: 0.25, numTurns: 2, toolCalls: 3, sessionId: 's-1', model: 'opus', resumed: true, context: { usedTokens: 42_000, windowTokens: 1_000_000, compactions: 1 }, limits: LIMITS, segment: 3 });
   d.postProgress('88', 0, { segment: 3 }, { workdir: 'worktree · feat/x' });
-  d.postProgress('88', 2, { segment: 3 }, { context: { usedTokens: 9_000, windowTokens: null } });
+  d.postProgress('88', 2, { segment: 3 }, { context: { usedTokens: 9_000, windowTokens: null }, limits: LIMITS });
   const timer = d.startHeartbeat(new RunLease('88'), 1, { segment: 3 });
   t.mock.timers.tick(HEARTBEAT_FLOOR_MS);
   clearInterval(timer);
@@ -127,9 +130,9 @@ test('cuerpos del cable legacy byte a byte iguales a los del daemon con ids num�
     `/claim {"runnerLabel":"fa","repos":["acme/api"],"awsAccounts":["123456789012"],"capabilities":["events","checkout","repo_edit","secret_paths","seed_budget","aws_strict","worktree_report","logout","toolset_v1","toolset_render","turn_changes","run_changes","attachments","remote_slots"],"slots":2,${version}"machine":{"id":"${MACHINE}"},"keptWorktrees":[{"runId":3,"dirtyFiles":2,"unpushedCommits":0},{"runId":12,"dirtyFiles":0,"unpushedCommits":1}],"awsDefault":false}`,
     '/conversations {"runIds":[12,34]}',
     '/runs/88/events {"events":[{"seq":5,"kind":"text","body":"hola"}],"segment":3}',
-    '/runs/88/status {"status":"done","result":"listo","costUsd":0.25,"numTurns":2,"toolCalls":3,"sessionId":"s-1","model":"opus","resumed":true,"context":{"usedTokens":42000,"windowTokens":1000000,"compactions":1},"segment":3}',
+    '/runs/88/status {"status":"done","result":"listo","costUsd":0.25,"numTurns":2,"toolCalls":3,"sessionId":"s-1","model":"opus","resumed":true,"context":{"usedTokens":42000,"windowTokens":1000000,"compactions":1},"limits":' + LIMITS_JSON + ',"segment":3}',
     '/runs/88/progress {"toolCalls":0,"workdir":"worktree · feat/x","segment":3}',
-    '/runs/88/progress {"toolCalls":2,"context":{"usedTokens":9000,"windowTokens":null},"segment":3}',
+    '/runs/88/progress {"toolCalls":2,"context":{"usedTokens":9000,"windowTokens":null},"limits":' + LIMITS_JSON + ',"segment":3}',
     '/runs/88/heartbeat {"segment":3}',
   ]);
 });

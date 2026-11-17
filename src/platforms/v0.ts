@@ -216,8 +216,8 @@ export class V0Platform implements Platform {
 
   async progress(runId: string, toolCalls: number, seg: RunSegment, extra: RunProgressExtra = {}): Promise<void> {
     const doc = await this.doc();
-    const { workdir, context } = extra;
-    await this.transport.post(v0RunPath(doc.endpoints.lease, runId), { ...seg, toolCalls, ...(workdir ? { workdir } : {}), ...(context ? { context } : {}) });
+    const { workdir, context, limits } = extra;
+    await this.transport.post(v0RunPath(doc.endpoints.lease, runId), { ...seg, toolCalls, ...(workdir ? { workdir } : {}), ...(context ? { context } : {}), ...(limits ? { limits } : {}) });
   }
 
   async events(runId: string, events: SeqEvent[], seg: RunSegment): Promise<number> {
@@ -245,6 +245,8 @@ export class V0Platform implements Platform {
     };
     const body = {
       segment: r.segment,
+      // los límites de la cuenta van en la raíz, no dentro de usage.
+      ...(r.limits !== undefined ? { limits: r.limits } : {}),
       status: r.status,
       ...(r.result !== undefined ? { result: r.result } : {}),
       ...(r.error !== undefined ? { error: r.error } : {}),
