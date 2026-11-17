@@ -419,6 +419,22 @@ run reports back is the one its main loop used (the CLI's init event), not the s
 the CLI also calls for titles and summaries. `status` prints the capabilities this machine announces
 (`capacidades`, `model` among them) and `start` logs them when it starts.
 
+### Effort (0.31.0 or later)
+
+Reasoning effort is a second choice next to the model, and duckhunt can also resolve both on its own
+for each step (`auto`). The daemon only ever receives the resolved level (`low`, `medium`, `high`,
+`xhigh` or `max`) and passes it to the CLI as `--effort`, resumed sessions included. When duckhunt asks
+for none, the CLI uses this machine's own effort (the `effortLevel` of your Claude settings, or its
+default). duckhunt may also fix the model and effort of the run's subagents: the daemon passes them as
+`CLAUDE_CODE_SUBAGENT_MODEL` and `CLAUDE_CODE_SUBAGENT_EFFORT` in the CLI's environment. They are
+defaults, not caps: a subagent whose definition sets its own `model` or `effort`, or a call that asks
+for one, keeps it. The daemon never takes these variables, or `CLAUDE_CODE_EFFORT_LEVEL`, from its own
+environment. Anything that is not a known level or a model alias or id is ignored with a note in the
+feed, and the run goes on with this machine's choice.
+
+It announces the `effort` capability only when `claude --help` lists `--effort`, and duckhunt only sends
+an effort or a subagent tier to daemons that announce it.
+
 ### Profiles
 
 Each conversation has a profile, chosen when it starts. The Claude CLI enforces it (tool allowlist,

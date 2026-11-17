@@ -1,7 +1,8 @@
 // integración con el cli de claude (0.12.0, t#465): qué flags cuenta como soportados según `claude
 // --help` (un flag entero, nunca un trozo de otro), qué capacidades anuncia el daemon con ese kit
-// (`model` solo con --model) y qué modelo reporta un run: el del evento init (el bucle principal) y,
-// sin él, el de modelUsage que más costó, nunca el haiku auxiliar por ir primero.
+// (`model` solo con --model, `effort` desde 0.31.0 solo con --effort) y qué modelo reporta un run: el
+// del evento init (el bucle principal) y, sin él, el de modelUsage que más costó, nunca el haiku
+// auxiliar por ir primero.
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
@@ -69,6 +70,20 @@ test('capacidades: model solo si el cli lista --model; prompt y las suyas solo c
   assert.deepEqual(caps(HELP, { toolsetRender: false }), full.filter((c) => c !== 'toolset_render'));
   const old = caps('  --model <model>\n  --permission-mode <mode>', { hasAws: false, remoteRepoEdits: false });
   assert.ok(old.includes('model') && !old.includes('prompt') && !old.includes('aws') && !old.includes('repo_edit'));
+});
+
+test('capacidades (0.31.0, r#563): effort solo si el cli lista --effort, tras las de antes', () => {
+  // la línea tal cual sale en `claude --help` de 2.1.326.
+  const withEffort = `${HELP}\n  --effort <level>                      Effort level for the current session\n                                        (low, medium, high, xhigh, max)`;
+  assert.ok(OPTIONAL_FLAGS.includes('--effort'));
+  assert.ok(supportedFlags(withEffort).has('--effort'));
+  assert.ok(!supportedFlags(HELP).has('--effort'));
+  assert.ok(!supportedFlags('  --effort-budget <n>').has('--effort'), 'un flag futuro más largo');
+  const caps = (help: string): string[] => announcedCapabilities({ hasAws: true, supported: supportedFlags(help) });
+  assert.ok(!caps(HELP).includes('effort'), 'sin el flag el server no manda run.effort ni run.subagents');
+  assert.deepEqual(caps(withEffort), [...caps(HELP), 'effort'], 'las de antes no cambian de orden');
+  // no depende del perfil prompt (como model): un cli con --effort y sin los flags de prompt la anuncia igual.
+  assert.ok(caps('  --effort <level>\n  --permission-mode <mode>').includes('effort'));
 });
 
 const line = (o: object): string => JSON.stringify(o);

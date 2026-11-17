@@ -24,7 +24,8 @@ export interface MachineKit {
 }
 
 /** capacidades del claim: prompt (y lo que va con él) solo si el cli puede cumplir su perfil, model solo con --model,
- *  autonomy solo con un cli >= PERMISSION_PROMPT_TOOL_MIN_VERSION, rewind solo con uno >= REWIND_CLI_MIN_VERSION. */
+ *  effort solo con --effort, autonomy solo con un cli >= PERMISSION_PROMPT_TOOL_MIN_VERSION, rewind solo con uno >=
+ *  REWIND_CLI_MIN_VERSION. */
 export function announcedCapabilities(kit: MachineKit): RunnerCapability[] {
   const prompt = PROMPT_REQUIRED_FLAGS.every((f) => kit.supported.has(f));
   const autonomy = prompt && supportsPermissionPromptTool(kit.claudeVersion ?? null);
@@ -66,6 +67,9 @@ export function announcedCapabilities(kit: MachineKit): RunnerCapability[] {
     ...(prompt && kit.supported.has('--input-format') ? [RUNNER_CAPABILITY.liveInput] : []),
     // hablar con el run mientras corre (t#636, fase 3): además, un cli que acusa los mensajes de stdin.
     ...(prompt && kit.supported.has('--input-format') && kit.supported.has('--replay-user-messages') ? [RUNNER_CAPABILITY.liveTurns] : []),
+    // el esfuerzo por segmento y el tier de subagentes (r#563, claude-args.ts): como model, solo con el flag (--effort). no
+    // depende de la versión del cli: va antes de las que sí.
+    ...(kit.supported.has('--effort') ? [RUNNER_CAPABILITY.effort] : []),
     // autonomía de las conversaciones en edición (t#527): con prompt y un cli que acepta --permission-prompt-tool;
     // bypass además fuera de root (el cli lo rechaza).
     ...(autonomy ? [RUNNER_CAPABILITY.autonomy] : []),

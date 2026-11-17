@@ -47,6 +47,7 @@ export const BACKEND_SCOPED_CAPABILITIES: readonly BackendCapability[] = [
   RUNNER_CAPABILITY.seedBudget,
   BACKEND_CAPABILITY.seedBudgetTokens,
   RUNNER_CAPABILITY.model,
+  RUNNER_CAPABILITY.effort,
   RUNNER_CAPABILITY.autonomy,
   RUNNER_CAPABILITY.autonomyBypass,
   RUNNER_CAPABILITY.rewind,

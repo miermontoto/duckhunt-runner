@@ -49,6 +49,11 @@
 //   uuid (va al argv). `restore` (capability `rewind_files`) es la foto {tree, head} a la que volver ANTES del turno
 //   (rewind-files.ts): solo en un prompt run de edición con repo en su worktree, nunca en el checkout de la persona,
 //   y con ids de objeto git. lo que no cumple invalida el claim: el server nunca lo manda así.
+// - esfuerzo (0.31.0, r#563, capability `effort`, effort.ts del protocolo): `run.effort` es el nivel de razonamiento
+//   del segmento (RUN_EFFORT, ya resuelto: «auto» nunca viaja) y `run.subagents` el modelo y el esfuerzo de todo su
+//   árbol de subagentes. van al argv (--effort) y al env del cli (claude-args.ts::claudeRunEnv), así que pasan por
+//   isRunEffort y MODEL_RE como run.model: un valor raro se ignora con un aviso y el segmento sigue con lo de la
+//   máquina. nunca invalidan el claim.
 
 import { runIdFromLegacy } from './run-id.js';
 import {
@@ -76,6 +81,8 @@ import {
   RUNNER_CAPABILITY,
   GIT_OBJECT_ID_RE,
   GRANT_ACCESS,
+  isRunEffort,
+  RUN_EFFORT_LEVELS,
   RUN_MESSAGE_UUID_RE,
   TOOLSET_V1,
   type AgentAutonomy,
@@ -89,6 +96,7 @@ import {
   type LegacyClaimPermissions,
   type LegacyClaimRestore,
   type RunnerCapability,
+  type RunEffort,
   RUN_INBOX_WAIT_MS,
   type LegacyClaimLive,
 } from './vendor/runner-protocol/index.js';
@@ -108,8 +116,10 @@ import type { ResourceRequest } from './resources/types.js';
 // en todo kit de lectura (secret-paths.ts), aplica el presupuesto a las plantillas (seed_budget), corre con la
 // aws vacía una cuenta sin mapear (resources/aws.ts), anuncia el trabajo que su gc conservó (keptWorktrees) y
 // sabe desvincularse (`logout`, y lee el bloque runner del claim); 0.12.0 (t#465) pasa a claude el modelo que
-// pide el claim (run.model) con --model, y `model` se anuncia solo si `claude --help` lista --model.
-export { RUNNER_CAPABILITY, type RunnerCapability };
+// pide el claim (run.model) con --model, y `model` se anuncia solo si `claude --help` lista --model; 0.31.0 (r#563)
+// pasa el esfuerzo (run.effort) con --effort y el del árbol de subagentes (run.subagents) por el env, y `effort` se
+// anuncia solo si `claude --help` lista --effort.
+export { RUNNER_CAPABILITY, type RunnerCapability, type RunEffort };
 
 // dónde trabaja un prompt run con repo (lo elige el usuario al abrir la conversación): el worktree
 // conv-<id> aislado o el checkout tal cual (su rama y sus cambios). ausente o desconocido = worktree,
@@ -255,6 +265,10 @@ export interface ClaimedRun {
   segment: number | null;
   // modelo que pide duckhunt (0.12.0; null = ninguno: el de la config o el default del cli).
   model: string | null;
+  // esfuerzo de razonamiento que pide duckhunt (0.31.0, r#563; null = ninguno: el de la máquina o el default del cli).
+  effort: RunEffort | null;
+  // modelo y esfuerzo de todo subagente del segmento (0.31.0; null = el server no fija ninguno: lo que decida el cli).
+  subagents: RunSubagents | null;
   // nivel de autonomía de una conversación en edición (0.15.0, t#527; null = el kit fijo, dontAsk).
   autonomy: AgentAutonomy | null;
   // uuid del mensaje en el que retomar la sesión en una nueva (0.17.0, t#564; null = reanudar entera o no reanudar).
@@ -267,6 +281,12 @@ export interface ClaimedRun {
 /** un repo adicional del run (t#597): su clave del mapa, su rama (null = la por defecto del remoto) y su acceso (read = Edit
  *  y Write negadas en su directorio). */
 export type ExtraRepo = LegacyClaimExtraRepo;
+
+/** el tier del árbol de subagentes (r#563): con al menos uno de los dos; null en uno = lo que decida el cli. */
+export interface RunSubagents {
+  model: string | null;
+  effort: RunEffort | null;
+}
 
 export interface EventsConfig {
   enabled: boolean;
@@ -355,6 +375,29 @@ const isObj = (v: unknown): v is Obj => typeof v === 'object' && v !== null && !
 const str = (v: unknown): string | null => (typeof v === 'string' ? v : null);
 const posInt = (v: unknown): number | null => (typeof v === 'number' && Number.isSafeInteger(v) && v > 0 ? v : null);
 const posNum = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : null);
+const isModelId = (v: unknown): v is string => typeof v === 'string' && MODEL_RE.test(v);
+
+/** un valor del claim que acaba en argv o en el env del cli: el que pasa `valid`; ausente o null = null sin aviso, otro =
+ *  null con el aviso de `warn` (recibe el valor ya recortado para el feed). */
+function claimValue<T>(v: unknown, valid: (x: unknown) => x is T, warnings: string[], warn: (shown: string) => string): T | null {
+  if (v === undefined || v === null) return null;
+  if (valid(v)) return v;
+  warnings.push(warn(shownValue(v)));
+  return null;
+}
+
+// el tier del árbol de subagentes (r#563): un bloque que no es un objeto se ignora con aviso, cada clave se valida sola y
+// sin ninguna válida no hay tier (null: el cli decide, como sin el bloque).
+function subagentsOf(v: unknown, warnings: string[]): RunSubagents | null {
+  if (v === undefined || v === null) return null;
+  if (!isObj(v)) {
+    warnings.push(`subagentes ${shownValue(v)} ignorados (no es un objeto): sus modelos y esfuerzos los decide el cli`);
+    return null;
+  }
+  const model = claimValue(v.model, isModelId, warnings, (s) => `modelo de subagentes ${s} ignorado (no es un alias ni un id de modelo): lo decide el cli`);
+  const effort = claimValue(v.effort, isRunEffort, warnings, (s) => `esfuerzo de subagentes ${s} ignorado (no es ${RUN_EFFORT_LEVELS.join(' | ')}): lo decide el cli`);
+  return model === null && effort === null ? null : { model, effort };
+}
 
 // un valor del claim para un aviso o un error: de un texto, su principio; de lo demás, solo su tipo.
 const shownValue = (v: unknown): string => (typeof v === 'string' ? JSON.stringify(v.slice(0, WARNING_VALUE_CHARS)) : `(${typeof v})`);
@@ -539,11 +582,10 @@ export function parseClaimBody(raw: unknown, id: string, machine: ClaimMachine =
   const profile = r.profile === PROMPT_PROFILE.read || r.profile === PROMPT_PROFILE.edit ? r.profile : null;
   if (kind === RUN_KIND.prompt && profile === null) throw new Error('claim inválido: prompt run sin perfil read|edit');
   const autonomy = autonomyOf(r.autonomy, kind, profile);
-  const model = typeof r.model === 'string' && MODEL_RE.test(r.model) ? r.model : null;
-  if (r.model !== undefined && r.model !== null && model === null) {
-    // de un valor que no es texto solo su tipo: el aviso va al feed.
-    warnings.push(`modelo ${shownValue(r.model)} ignorado (no es un alias ni un id de modelo): el run usa el modelo de esta máquina`);
-  }
+  // de un valor que no es texto solo su tipo: el aviso va al feed.
+  const model = claimValue(r.model, isModelId, warnings, (s) => `modelo ${s} ignorado (no es un alias ni un id de modelo): el run usa el modelo de esta máquina`);
+  const effort = claimValue(r.effort, isRunEffort, warnings, (s) => `esfuerzo ${s} ignorado (no es ${RUN_EFFORT_LEVELS.join(' | ')}): el run usa el esfuerzo de esta máquina`);
+  const subagents = subagentsOf(r.subagents, warnings);
 
   const prompt = str(raw.prompt);
   if (!prompt || !prompt.trim()) throw new Error('claim inválido: prompt vacío');
@@ -590,6 +632,8 @@ export function parseClaimBody(raw: unknown, id: string, machine: ClaimMachine =
       isolation,
       segment,
       model,
+      effort,
+      subagents,
       autonomy,
       resumeAt,
       extraRepos,

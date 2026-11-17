@@ -6,6 +6,7 @@
 // no estos tipos: los fixtures lo comprueban byte a byte.
 
 import type { AgentAutonomy, LegacyClaimPermissions } from './autonomy.js';
+import type { RunEffort } from './effort.js';
 import type { LegacyClaimRestore } from './rewind.js';
 import type { LegacyClaimLive } from './live.js';
 import type { LegacyClaimChanges } from './changes.js';
@@ -142,6 +143,13 @@ export interface LegacyClaimRun {
   segment: number | null;
   // solo a un daemon con RUNNER_CAPABILITY.model: alias o id del modelo, null = el de la máquina.
   model?: string | null;
+  // solo a un daemon con RUNNER_CAPABILITY.effort (r#563, effort.ts), tras model: el esfuerzo de razonamiento del
+  // segmento (RUN_EFFORT), null = el de la máquina. un valor que no conoce se ignora con un aviso, como un modelo raro.
+  effort?: RunEffort | null;
+  // con la misma capability, tras effort y solo si el server fija algo para el árbol de subagentes del segmento: el
+  // modelo y el esfuerzo de TODO subagente que lance (el daemon los pone en el entorno del cli:
+  // CLAUDE_CODE_SUBAGENT_MODEL y CLAUDE_CODE_SUBAGENT_EFFORT). una clave ausente o null = lo que decida el cli.
+  subagents?: { model?: string | null; effort?: RunEffort | null };
   // solo a un daemon con RUNNER_CAPABILITY.autonomy (t#527, autonomy.ts), tras model: el nivel de la conversación en
   // edición (null = el kit fijo, dontAsk). el permission mode que viaja es el suyo.
   autonomy?: AgentAutonomy | null;
