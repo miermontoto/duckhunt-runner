@@ -34,6 +34,8 @@ export const OPTIONAL_FLAGS = [
   '--setting-sources',
   // 0.12.0: el modelo que pide duckhunt por run (capability `model`).
   '--model',
+  // 0.31.0 (r#563): el esfuerzo de razonamiento que pide duckhunt por segmento (capability `effort`).
+  '--effort',
   // t#597: los repos adicionales de una conversación como directorios de trabajo (capability `multi_repo`).
   '--add-dir',
   // t#636: lo que dicen los subagentes, con su parent_tool_use_id (capability `subagents`).

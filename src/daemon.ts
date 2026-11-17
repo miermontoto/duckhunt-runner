@@ -79,6 +79,8 @@
 //   de la máquina. también al reanudar: --model con --resume cambia el modelo de la sesión desde ese
 //   turno, y el reintento desde cero usa el mismo. el modelo que se reporta en /status es el que de
 //   verdad usó el bucle principal (claude.ts::reportedModel).
+// - esfuerzo por segmento (0.31.0, r#563): anuncia `effort` si el cli lista --effort y pasa a claude el del claim
+//   (--effort) y el tier de subagentes (su env, claude-args.ts::claudeRunEnv); sin ellos, lo de la máquina.
 // - recursos (t#495, M2): el cwd del run (y lo que se suelta al cerrar) sale del ciclo de vida de recursos
 //   (resources/lifecycle.ts) con las peticiones que se derivan del claim legacy (resources/legacy.ts): todo o
 //   nada, al revés al soltar, y los turnos exclusivos ordenados. el plan que ve claude es el de siempre
@@ -1336,7 +1338,7 @@ export class RunnerDaemon {
     const tag = `run ${run.id}`;
     const log = this.tagOf(sup);
     console.log(
-      `${log} ${tag} reclamado (${run.kind}${run.profile ? `, perfil ${run.profile}` : ''}, entry ${run.entryId}${claim.tier ? `, tier ${claim.tier}` : ''}${run.repo ? `, repo ${run.repo}${run.branch ? `@${run.branch}` : ''}` : ''}${run.sessionId ? `, sesión ${run.sessionId}` : ''}${run.model ? `, modelo ${run.model}` : ''})`,
+      `${log} ${tag} reclamado (${run.kind}${run.profile ? `, perfil ${run.profile}` : ''}, entry ${run.entryId}${claim.tier ? `, tier ${claim.tier}` : ''}${run.repo ? `, repo ${run.repo}${run.branch ? `@${run.branch}` : ''}` : ''}${run.sessionId ? `, sesión ${run.sessionId}` : ''}${run.model ? `, modelo ${run.model}` : ''}${run.effort ? `, esfuerzo ${run.effort}` : ''})`,
     );
     // env base del run: el del usuario saneado. el perfil aws de su cuenta (o la aws vacía de una cuenta sin
     // mapear, aws_strict) lo pone el recurso aws (resources/aws.ts) y se suelta al cerrar el segmento.
