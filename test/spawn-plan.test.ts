@@ -1027,6 +1027,36 @@ test('varios repos: en lectura van como --add-dir sin escritura; uno que la máq
   assert.ok(flagValue(read!.argv, '--disallowedTools').includes(`Write(/${web}/**)`), 'un adicional de lectura nunca se escribe');
 });
 
+// sin repo principal (t#686, scratch_extra_repos): una conversación sin repo a la que se le sumó uno. el cwd sigue en el
+// scratch (su sesión vive ahí) y el sumado va como --add-dir en su worktree; ningún grant de repo pasa a ser el cwd.
+test('sin repo principal: el adicional va como --add-dir y el cwd sigue en el scratch', async (t) => {
+  t.mock.method(console, 'log', () => {});
+  t.mock.method(console, 'warn', () => {});
+  t.mock.method(console, 'error', () => {});
+  const name = 'multi-repo/scratch';
+  const base = multiFx('prompt-read-extra-repos');
+  const run = base.run as { id: number };
+  const toolset = base.toolset as { grants: { type: string; key: string }[] };
+  // como lo manda el server a un run sin principal: sin su grant y con repo null.
+  const raw = { ...base, run: { ...run, repo: null, branch: null }, toolset: { ...toolset, grants: toolset.grants.filter((g) => g.key !== 'org/api') } };
+  await runCase({
+    name,
+    raw,
+    cfg: (c, dir) => {
+      const checkout = path.join(dir, 'web');
+      git(dir, 'clone', '-q', origin, checkout);
+      return { ...c, repos: { ...c.repos, 'Org/Web': { path: checkout } } };
+    },
+  });
+  const [spawn] = browserSpawns(name);
+  assert.ok(spawn, 'claude se lanzó');
+  const web = conversationWorktree(path.join(caseDir(name), 'web'), run.id);
+  assert.notEqual(fs.realpathSync(spawn.cwd), web, 'el sumado no es el cwd');
+  const at = spawn.argv.indexOf('--add-dir');
+  assert.ok(at > 0, 'va como directorio adicional');
+  assert.equal(fs.realpathSync(spawn.argv[at + 1]!), web);
+});
+
 // el diff y la vuelta atrás de los repos adicionales (t#597, 0.15.0): con `changes.extraRepos` el informe del turno lleva
 // también los ficheros de cada adicional (con su `repo` y sus cabeceras bajo él) y el status, la foto de cada uno.
 test('varios repos: el diff del turno lleva los ficheros de los adicionales con su repo; el status, su foto', async (t) => {

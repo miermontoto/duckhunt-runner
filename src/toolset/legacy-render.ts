@@ -55,7 +55,9 @@ export interface LegacyRender {
 function requestsOf(grants: readonly ToolsetGrant[], run: ClaimedRun): ResourceRequest[] {
   const legacy = legacyRequests(run);
   const granted = (type: string): ToolsetGrant | undefined => grants.find((g) => g.type === type);
-  const repo = granted(REPO_TYPE);
+  // el grant del principal es el primero de repo, solo si el run tiene principal: sin él (t#686) todos son adicionales y
+  // el cwd sigue en el scratch (uno tomado por principal cambiaría el cwd y la sesión no se reanudaría).
+  const repo = run.repo === null ? undefined : granted(REPO_TYPE);
   const aws = granted(AWS_TYPE);
   const access = (g: ToolsetGrant): ResourceRequest['access'] => g.access ?? ACCESS.read;
   // los repos adicionales (t#597): cada uno con el menor acceso de su grant (el efectivo: ya pasado por el techo) y del

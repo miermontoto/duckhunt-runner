@@ -726,21 +726,22 @@ export function parseClaimBody(raw: unknown, id: string, machine: ClaimMachine =
 const ACCESS_FULL = GRANT_ACCESS.full;
 const ACCESS_READ = GRANT_ACCESS.read;
 
-// repos adicionales de un prompt run con repo (t#597): cada uno con una clave del mapa y una rama utilizable (si no, la
-// por defecto, con aviso). el acceso se cierra hacia abajo: solo `full` en un run de edición abre la escritura; cualquier
-// otro valor (o un run de lectura) es read. más de RUN_EXTRA_REPOS_MAX, uno sin forma o sin repo principal tumban el
-// claim; el principal o uno repetido se ignoran con aviso.
+// repos adicionales de un prompt run (t#597): cada uno con una clave del mapa y una rama utilizable (si no, la por
+// defecto, con aviso). el acceso se cierra hacia abajo: solo `full` en un run de edición abre la escritura; cualquier
+// otro valor (o un run de lectura) es read. más de RUN_EXTRA_REPOS_MAX, uno sin forma o un run que no es prompt tumban el
+// claim; el principal o uno repetido se ignoran con aviso. sin repo principal (t#686, scratch_extra_repos: una
+// conversación sin repo a la que se le sumó uno) van sobre el scratch, que sigue siendo el cwd.
 function extraReposOf(v: unknown, run: { kind: string; profile: PromptProfile | null; repo: string | null }, warnings: string[]): ExtraRepo[] {
   if (v === undefined || v === null) return [];
   if (!Array.isArray(v)) throw new Error('claim inválido: run.extraRepos no es una lista');
   if (v.length === 0) return [];
   if (v.length > RUN_EXTRA_REPOS_MAX) throw new Error(`claim inválido: más de ${RUN_EXTRA_REPOS_MAX} repos adicionales`);
   const primary = run.repo;
-  if (run.kind !== RUN_KIND.prompt || primary === null) throw new Error('claim inválido: repos adicionales sin repo principal');
+  if (run.kind !== RUN_KIND.prompt) throw new Error('claim inválido: repos adicionales en un run que no es prompt');
   return v.reduce<ExtraRepo[]>((out, item) => {
     const repo = isObj(item) ? str(item.repo) : null;
     if (!isObj(item) || repo === null || !REPO_KEY_RE.test(repo)) throw new Error(`claim inválido: repo adicional ${shownValue(isObj(item) ? item.repo : item)}`);
-    if (sameRepoKey(repo, primary) || out.some((o) => sameRepoKey(o.repo, repo))) {
+    if ((primary !== null && sameRepoKey(repo, primary)) || out.some((o) => sameRepoKey(o.repo, repo))) {
       warnings.push(`repo adicional ${repo} repetido: se ignora`);
       return out;
     }
