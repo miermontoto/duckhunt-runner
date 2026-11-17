@@ -101,6 +101,9 @@ export type ClaimResult = { commandsPending: boolean } & (
   | { kind: typeof CLAIM_RESULT.unavailable }
 );
 
+/** un adjunto de la conversación (t#680, attachments.ts): sus bytes en stream, o el motivo de que no llegue (al feed). */
+export type AttachmentFetch = { ok: true; body: AsyncIterable<Uint8Array> } | { ok: false; reason: string };
+
 /** latido de un run: seguir, o pararlo con el motivo (para el log). */
 export type HeartbeatVerdict = { stop: false } | { stop: true; reason: string };
 
@@ -137,6 +140,9 @@ export interface Platform {
   /** el índice de ficheros de UN repo de la máquina (t#678), entero: reemplaza al que tenía. solo las plataformas que lo
    *  guardan (hoy duckhunt-42); nunca lanza. */
   repoFiles?(body: RunnerRepoFiles): Promise<RepoFilesOutcome>;
+  /** los bytes de un adjunto de la conversación (t#680, attachments.ts). solo las plataformas cuyo claim trae el bloque
+   *  `attachments` (hoy duckhunt-42); nunca lanza: lo que no llega, el agente lo lee por mcp. */
+  attachment?(runId: string, id: number, signal: AbortSignal): Promise<AttachmentFetch>;
   /** cierre del segmento con reintento acotado; nunca lanza (lo que no llega lo cierra el server). */
   result(runId: string, report: StatusReport): Promise<void>;
   /** de estas conversaciones, las que siguen abiertas (lo que no sepa, abierto: el gc solo aplica el ttl). */

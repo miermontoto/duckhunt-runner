@@ -23,7 +23,7 @@ import { allRunConfigDirs, backendsRoot } from '../../paths.js';
 import { mergeShellVerdicts, readShellGuard, readShellLog, readShellNote } from '../../read-shell-guard.js';
 import type { RunMcp } from '../../resources/lifecycle.js';
 import { permissionMcpServers, readDenyRule, readOnlyDirDeny, runConfigDeny, writeRunMcpConfig } from '../../run-mcp-config.js';
-import { browserVaultDeny, otherPlatformsDeny, otherScratchDeny, secretPathsDeny } from '../../secret-paths.js';
+import { attachmentsDeny, browserVaultDeny, otherPlatformsDeny, otherScratchDeny, secretPathsDeny } from '../../secret-paths.js';
 import { maskSecrets } from '../../secret-mask.js';
 import { claudeConfigDir, resolveSlashCommands } from '../../slash-commands.js';
 import { reportFor, type Attempt } from '../../status-report.js';
@@ -167,7 +167,7 @@ export class ClaudeDriver implements AgentDriver {
         skipPermissions: res.cwd.skipPermissions,
         payingWithApiKey: !!process.env.ANTHROPIC_API_KEY,
         mirroredDeny: deny,
-        runConfigDeny: this.platformDeny(spec.platform),
+        runConfigDeny: this.platformDeny(spec.platform, run.id),
         secretPathsDeny: this.secretDeny,
         withoutShell: shell.dropShell,
         permissionPromptTool: supportsPermissionPromptTool(this.info.version),
@@ -204,17 +204,26 @@ export class ClaudeDriver implements AgentDriver {
     };
   }
 
-  // el run-config de todas las plataformas, el scratch y lo privado de las demás, y el vault de las sesiones de
-  // navegador (t#495, M7) a todo kit, no solo a los de lectura: una edición tampoco lo lee. con una sola plataforma, lo
-  // de las demás es vacío: el deny de siempre.
-  /** el deny de todo kit de un segmento de `platform` (por intento: una plataforma añadida en caliente queda cubierta). */
-  platformDeny(platform: SegmentSpec['platform']): string[] {
+  // el run-config de todas las plataformas, el scratch y lo privado de las demás, el vault de las sesiones de
+  // navegador (t#495, M7) y los adjuntos de las demás conversaciones (t#680) a todo kit, no solo a los de lectura: una
+  // edición tampoco lo lee. con una sola plataforma y sin adjuntos ajenos, lo de las demás es vacío: el deny de siempre.
+  /** el deny de todo kit de un segmento de `platform` (por intento: una plataforma añadida en caliente queda cubierta).
+   *  `runId` = la conversación del segmento: sus adjuntos son los únicos que no se niegan. */
+  platformDeny(platform: SegmentSpec['platform'], runId: string | null): string[] {
     const configured = platform.configured();
     // los homes de agente por conversación (t#440, <runnerHome>/backends/): aún no existen; se niegan desde ya para que
     // un run de lectura no lea la auth/sesión de los futuros backends. dir, puede no existir (readDenyRule no toca fs).
     // constante de la máquina (como el run-config), va DELANTE: lo que crece al añadir una plataforma se añade detrás.
     const backendsDeny = [readDenyRule(backendsRoot(), true)].filter((r): r is string => r !== null);
-    return [...backendsDeny, ...allRunConfigDirs().flatMap(runConfigDeny), ...otherScratchDeny(platform.id, configured), ...otherPlatformsDeny(platform.id, configured), ...browserVaultDeny()];
+    return [
+      ...backendsDeny,
+      ...allRunConfigDirs().flatMap(runConfigDeny),
+      ...otherScratchDeny(platform.id, configured),
+      ...otherPlatformsDeny(platform.id, configured),
+      ...browserVaultDeny(),
+      // lo último: crece con cada conversación con adjuntos.
+      ...attachmentsDeny(platform.id, runId, configured),
+    ];
   }
 
   // un intento: claude en su grupo de procesos, con su stream-json → contadores + feed y, con `live` (t#636, fase 2), el

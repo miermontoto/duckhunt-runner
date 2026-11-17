@@ -9,6 +9,7 @@ import type { AgentAutonomy, LegacyClaimPermissions } from './autonomy.js';
 import type { RunEffort } from './effort.js';
 import type { LegacyClaimRestore } from './rewind.js';
 import type { LegacyClaimLive } from './live.js';
+import type { LegacyClaimAttachments } from './attachments.js';
 import type { LegacyClaimChanges } from './changes.js';
 import type { GrantAccess, ToolsetV1 } from './toolset.js';
 
@@ -222,6 +223,9 @@ export interface LegacyClaimBody {
   restore?: LegacyClaimRestore;
   // solo a un daemon con RUNNER_CAPABILITY.liveInput (t#636, live.ts), tras restore: el proceso atiende el buzón del run.
   live?: LegacyClaimLive;
+  // solo a un daemon con RUNNER_CAPABILITY.attachments (t#680, attachments.ts), tras live y solo si la conversación
+  // cita alguno: los ficheros que deja en la carpeta del run.
+  attachments?: LegacyClaimAttachments;
   mcp: LegacyClaimMcp;
   runner?: LegacyClaimRunner;
 }

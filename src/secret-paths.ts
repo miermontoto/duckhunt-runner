@@ -26,6 +26,11 @@
 // el vault de sesiones de navegador (t#495, M7: cookies y tokens vivos), con su realpath, solo si existe o hay alguna
 // sesión configurada: sin navegador el deny es el de siempre. el de por defecto vive en runnerHome (ya lo cubre la
 // lista de lo presente); uno en otra ruta (providers.browser.vaultDir) va aparte, detrás de todo lo demás.
+// los adjuntos de las conversaciones (t#680, attachments/<runId>/ de cada plataforma) tampoco van en secretPathsDeny: cada
+// run lee los suyos, y un deny de la carpeta entera ganaría a cualquier permiso. van por segmento (attachmentsDeny): las
+// carpetas de los demás runs de su plataforma presentes al lanzarlo y la raíz entera de las demás plataformas (exista o
+// no). riesgo aceptado: una conversación de la MISMA plataforma que baje sus adjuntos mientras corre el segmento de otra
+// no entra en el deny de esa hasta su siguiente segmento (un deny de la raíz ganaría a la carpeta propia: deny manda).
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -34,7 +39,18 @@ import { configPath, loadConfigV2, runnerHome } from './config.js';
 import { readDenyRule } from './run-mcp-config.js';
 import { vaultDirOf } from './resources/browser/config.js';
 import { RESOURCE_TYPE } from './resources/types.js';
-import { auditPath, LEGACY_PLATFORM_ID, PLATFORM_ID_RE, PLATFORM_PRIVATE_ENTRIES, PLATFORM_SCRATCH_SUBDIR, PLATFORMS_DIR_NAME, platformHome, scratchPath } from './paths.js';
+import {
+  attachmentsRoot,
+  auditPath,
+  LEGACY_PLATFORM_ID,
+  PLATFORM_ATTACHMENTS_SUBDIR,
+  PLATFORM_ID_RE,
+  PLATFORM_PRIVATE_ENTRIES,
+  PLATFORM_SCRATCH_SUBDIR,
+  PLATFORMS_DIR_NAME,
+  platformHome,
+  scratchPath,
+} from './paths.js';
 
 // lo que el daemon escribe en su estado aunque aún no exista al arrancar (logs con --verbose, el lock y
 // lo último que dijo el server): directorios con `/` final.
@@ -109,15 +125,19 @@ function privateEntries(dir: string, always: readonly string[], skip: readonly s
   return Array.from(new Set([...present, ...always])).map((rel) => entry(dir, rel));
 }
 
-// lo que hay en el estado del daemon, salvo el scratch, más lo que escribirá. platforms/ no se niega entero:
-// dentro está el scratch de cada plataforma, que es el cwd de sus runs; se niega lo privado de cada una.
+// lo de una plataforma que no es privado: su scratch (el cwd de sus runs sin repo) y sus adjuntos (los de cada run, por
+// segmento: attachmentsDeny).
+const PLATFORM_SHARED = [PLATFORM_SCRATCH_SUBDIR, PLATFORM_ATTACHMENTS_SUBDIR];
+
+// lo que hay en el estado del daemon, salvo el scratch y los adjuntos, más lo que escribirá. platforms/ no se niega
+// entero: dentro está el scratch de cada plataforma, que es el cwd de sus runs; se niega lo privado de cada una.
 function runnerHomeEntries(home: string): Candidate[] {
   const platforms = path.join(home, PLATFORMS_DIR_NAME);
   return [
-    ...privateEntries(home, RUNNER_HOME_PRIVATE, [PLATFORM_SCRATCH_SUBDIR, PLATFORMS_DIR_NAME]),
+    ...privateEntries(home, RUNNER_HOME_PRIVATE, [...PLATFORM_SHARED, PLATFORMS_DIR_NAME]),
     ...listed(platforms)
       .filter((d) => d.isDirectory())
-      .flatMap((d) => privateEntries(path.join(platforms, d.name), PLATFORM_PRIVATE_ENTRIES, [PLATFORM_SCRATCH_SUBDIR])),
+      .flatMap((d) => privateEntries(path.join(platforms, d.name), PLATFORM_PRIVATE_ENTRIES, PLATFORM_SHARED)),
   ];
 }
 
@@ -202,4 +222,17 @@ export function otherPlatformsDeny(own: string, configured: readonly string[]): 
   return denyRules(
     otherPlatforms(own, configured).flatMap((id) => [...PLATFORM_PRIVATE_ENTRIES.map((rel) => entry(platformHome(id), rel)), { path: auditPath(id), dir: true }]),
   );
+}
+
+/** deny de Read de los adjuntos ajenos a la conversación `runId` de `own` (t#680, ver cabecera): las carpetas de los
+ *  demás runs de `own` presentes ahora y la raíz de adjuntos de cada otra plataforma. por segmento y a todo kit. con una
+ *  sola plataforma y sin carpetas ajenas en disco, vacío: el deny de siempre. `runId` null niega todas las de `own`. */
+export function attachmentsDeny(own: string, runId: string | null, configured: readonly string[]): string[] {
+  const root = attachmentsRoot(own);
+  const siblings = listed(root)
+    .filter((d) => d.name !== runId)
+    .map((d) => ({ path: path.join(root, d.name), dir: d.isDirectory() }));
+  // la raíz de las demás aunque aún no exista (como su scratch): una que la cree durante el segmento ya está negada.
+  const others = otherPlatforms(own, configured).map((id) => ({ path: attachmentsRoot(id), dir: true }));
+  return denyRules([...siblings, ...others]);
 }

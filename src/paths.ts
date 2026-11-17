@@ -12,6 +12,8 @@
 // - la config, el lock del daemon y runnerHome son de la máquina, no de una plataforma: siguen en config.ts.
 // - la auditoría local (t#495, M6.6) es de toda plataforma, la legacy incluida: <runnerHome>/audit/<id>/.
 // - los directorios se crean al pedirlos (como antes en config.ts); run-config, 0700 aunque ya existiera.
+// - los adjuntos de cada conversación (t#680, attachments.ts) viven en <platformHome>/attachments/<runId>/: fuera de
+//   todo checkout, del run-config y del scratch (que comparten los runs sin repo). los crea quien los baja.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -30,6 +32,8 @@ const LOGS_SUBDIR = 'logs';
 const RUN_CONFIG_SUBDIR = 'run-config';
 const SERVER_STATE_FILE = 'server-state.json';
 const SLASH_COMMANDS_FILE = 'slash-commands.json';
+// adjuntos bajados de las conversaciones (t#680): una carpeta por run.
+const ATTACHMENTS_SUBDIR = 'attachments';
 // permisos del directorio de los mcp-config de los runs: llevan el token per-run.
 const RUN_CONFIG_DIR_MODE = 0o700;
 // auditoría local por plataforma (t#495, M6.6): <runnerHome>/audit/<id>/, 0700 (lleva qué corrió cada plataforma).
@@ -78,6 +82,16 @@ export function scratchPath(platform: string): string {
  *  conocimiento de infra (alarmas sin código) acumula entre runs, y no se mezcla con el de otra plataforma. */
 export function scratchDir(platform: string): string {
   return ensureDir(scratchPath(platform));
+}
+
+/** raíz de los adjuntos de las conversaciones de una plataforma (t#680), sin crearla. */
+export function attachmentsRoot(platform: string): string {
+  return path.join(platformHome(platform), ATTACHMENTS_SUBDIR);
+}
+
+/** carpeta de los adjuntos de una conversación (t#680), sin crearla. `runId` ya validado (run-id.ts::RUN_ID_RE). */
+export function attachmentsPath(platform: string, runId: string): string {
+  return path.join(attachmentsRoot(platform), runId);
 }
 
 /** logs de los runs con --verbose. */
@@ -168,4 +182,6 @@ export function checkoutExcludePattern(platform: string): string {
  *  el scratch, que es el cwd de sus runs sin repo. lo que aún no existe también (lo escribirá). */
 export const PLATFORM_PRIVATE_ENTRIES: readonly string[] = [`${LOGS_SUBDIR}/`, `${RUN_CONFIG_SUBDIR}/`, SERVER_STATE_FILE];
 export const PLATFORM_SCRATCH_SUBDIR = SCRATCH_SUBDIR;
+// los adjuntos tampoco son privados de la plataforma: cada run lee los suyos (el deny de los ajenos va por segmento).
+export const PLATFORM_ATTACHMENTS_SUBDIR = ATTACHMENTS_SUBDIR;
 export const PLATFORMS_DIR_NAME = PLATFORMS_SUBDIR;
