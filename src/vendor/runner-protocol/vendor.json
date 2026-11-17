@@ -1,7 +1,7 @@
 {
   "version": "0.29.0",
   "contentHash": "b0d0a96aede36589dba075434aba82df36f6a23b28078b084084ca715ed821ec",
-  "commit": "fa88ff030e00a58cd876d854ae116c2b7e18f0dd",
+  "commit": "8d74898c86d834bc484d09d2d717b7df879a6da2",
   "files": {
     "index.ts": "40ca003c7b8dd260a93c956a6ad499542e34e7b6c4301ecc4f7cf9d47a8d4407",
     "agent-credentials.ts": "222abc95a5de754cdabb145acc542eee796ee65ffb9ef658a9b51eee418d3eb1",
@@ -16,7 +16,7 @@
     "effort.ts": "ffed195492916ccaa26671a067a318d16029066aa75c863be27ea783a4b7f694",
     "end-turn.ts": "be29cee32188261ccd26debf24dbb8d05698c70c9fea642d4794f488b4abf5c2",
     "errors.ts": "21caba41f35cc92a03fd8eaafec98c899aa99ee7af524bdfd7ad83c2a6794bf3",
-    "events.ts": "903b09d8d32ba5acae703fb10d2bf296f3399193db85f3e0bd29f267ef6b0422",
+    "events.ts": "2ae07eeace3397ff309294b412ee05b86675223c96d057ee67a9df4070fcd966",
     "limits.ts": "412f297046ad61b3aab8d82292d7d9fca4ae11c142813f33a82cebb38ab57705",
     "live.ts": "ca7c4ffc27ac8229ccfb850af3c82e301d2475d9279eb5037aaedae143e68f1c",
     "resources.ts": "35fd39549fa713ccc70ee43d049fa12f052c40b24ea8c197c207810cbdbab829",

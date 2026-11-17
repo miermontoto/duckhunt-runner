@@ -45,7 +45,15 @@ export interface AgentRunEventTask {
   type: AgentRunTaskType;
   status: AgentRunTaskStatus;
   name?: string;
+  // lo que corre un subagente (id del modelo que reportó el cli y esfuerzo del árbol) y los tokens que lleva gastados
+  // (total_tokens del usage del hito). opcionales: un daemon anterior no los manda y el cli no siempre los dice.
+  model?: string;
+  effort?: string;
+  tokens?: number;
 }
+// topes del modelo y del esfuerzo de una tarea, y de sus tokens (un entero positivo razonable).
+export const AGENT_RUN_TASK_POWER_MAX_CHARS = 80;
+export const AGENT_RUN_TASK_TOKENS_MAX = 1_000_000_000;
 // tope del body de un evento (el server recorta tras enmascarar) y del nombre de la tool.
 export const AGENT_RUN_EVENT_BODY_MAX_CHARS = 4000;
 // body crudo más largo que esto se rechaza (400) en vez de recortarse: el daemon ya recorta.

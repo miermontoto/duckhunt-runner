@@ -29,6 +29,8 @@ import {
   AGENT_RUN_EVENT_KIND,
   AGENT_RUN_EVENT_TOOL_MAX_CHARS,
   AGENT_RUN_TASK_NAME_MAX_CHARS,
+  AGENT_RUN_TASK_POWER_MAX_CHARS,
+  AGENT_RUN_TASK_TOKENS_MAX,
   AGENT_RUN_TASK_STATUS,
   AGENT_RUN_TASK_TYPE,
   type AgentRunEventKind,
@@ -60,6 +62,10 @@ export interface FeedContext {
   // nombre del servidor mcp de la plataforma (mcp.serverName del claim): sus tools no se redactan.
   // ausente = toda tool se redacta.
   platformServer?: string;
+  // esfuerzo con el que corre el árbol de subagentes (run.subagents.effort o, sin él, el del run): viaja en sus hitos.
+  subagentEffort?: string;
+  // modelo que reportó cada subagente en sus mensajes, por la tool call que lo lanzó: estado del run, solo local.
+  subagentModels?: Map<string, string>;
 }
 
 // tope del nombre de la tool (AGENT_RUN_EVENT_TOOL_MAX_CHARS del protocolo).
@@ -272,6 +278,14 @@ const taskStatusOf = (subtype: string, status: unknown): AgentRunTaskStatus => {
   if (STOPPED_RE.test(s)) return AGENT_RUN_TASK_STATUS.stopped;
   return FAILED_RE.test(s) ? AGENT_RUN_TASK_STATUS.failed : AGENT_RUN_TASK_STATUS.completed;
 };
+// un id de modelo o un nivel de esfuerzo que puede viajar (letras, cifras y . _ [ ] -); otra cosa, null.
+const POWER_RE = /^[A-Za-z0-9._\[\]-]+$/;
+const powerOf = (v: unknown): string | null => (typeof v === 'string' && v.length <= AGENT_RUN_TASK_POWER_MAX_CHARS && POWER_RE.test(v) ? v : null);
+// total_tokens del usage de un hito (task_progress y task_notification); null sin cifra válida.
+const tokensOf = (usage: unknown): number | null => {
+  const n = typeof usage === 'object' && usage !== null ? (usage as Record<string, unknown>).total_tokens : null;
+  return typeof n === 'number' && Number.isInteger(n) && n >= 0 && n <= AGENT_RUN_TASK_TOKENS_MAX ? n : null;
+};
 const textOf = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null);
 
 // el evento task de un hito (ver cabecera); null sin un id de tarea que pueda viajar.
@@ -282,6 +296,11 @@ function taskEvent(ev: StreamLine, ctx: FeedContext): FeedEvent | null {
   const type = (typeof ev.task_type === 'string' ? TASK_TYPE_OF.get(ev.task_type) : undefined) ?? AGENT_RUN_TASK_TYPE.other;
   const name = textOf(ev.workflow_name);
   const toolUseId = cliId(ev.tool_use_id);
+  // modelo, esfuerzo y tokens solo de un subagente: el modelo es el que reportaron sus propios mensajes.
+  const isAgent = type === AGENT_RUN_TASK_TYPE.agent;
+  const model = isAgent && toolUseId ? powerOf(ctx.subagentModels?.get(toolUseId)) : null;
+  const effort = isAgent ? powerOf(ctx.subagentEffort) : null;
+  const tokens = tokensOf(ev.usage);
   // el non-goal del feed (nunca salida de tools): en marcha, solo la descripción corta de lo que hace (la escribe el
   // agente, como el argumento de una tool); al acabar, el resumen SOLO de un workflow, cuyo interior no viaja. el de un
   // subagente ya llegó como su prosa (--forward-subagent-text) y el de un comando puede llevar su salida: nunca.
@@ -290,7 +309,12 @@ function taskEvent(ev: StreamLine, ctx: FeedContext): FeedEvent | null {
   return {
     kind: FEED_KIND.task,
     body: workflowSummary ? sanitize(workflowSummary, ctx, ctx.bodyMaxChars) : description ? sanitize(oneLine(description), ctx, ctx.toolArgMaxChars) : '',
-    task: { id, type, status: taskStatusOf(subtype, ev.status), ...(name ? { name: sanitize(oneLine(name), ctx, AGENT_RUN_TASK_NAME_MAX_CHARS) } : {}) },
+    task: { id, type, status: taskStatusOf(subtype, ev.status),
+      ...(name ? { name: sanitize(oneLine(name), ctx, AGENT_RUN_TASK_NAME_MAX_CHARS) } : {}),
+      ...(model ? { model } : {}),
+      ...(effort ? { effort } : {}),
+      ...(tokens !== null ? { tokens } : {}),
+    },
     ...(toolUseId ? { toolUseId } : {}),
   };
 }
@@ -303,6 +327,8 @@ export function feedEventsFromStream(ev: StreamLine, ctx: FeedContext): FeedEven
   }
   if (ev.type !== 'assistant' || !Array.isArray(ev.message?.content)) return [];
   const parent = cliId(ev.parent_tool_use_id);
+  const model = powerOf(ev.message.model);
+  if (parent !== null && model !== null) ctx.subagentModels?.set(parent, model);
   return ev.message.content.map((c) => eventFromContent(c, ctx, parent)).filter((e): e is FeedEvent => e !== null);
 }
 
