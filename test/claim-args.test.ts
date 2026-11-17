@@ -637,7 +637,11 @@ test('varios repos: parseClaim valida run.extraRepos y cierra el acceso hacia ab
   assert.equal(badBranch.run.extraRepos[0]?.branch, null);
   assert.ok(badBranch.warnings.some((w) => w.includes('de org/web ignorada')));
   assert.throws(() => extras(['a/1', 'a/2', 'a/3', 'a/4'].map((repo) => ({ repo, branch: null, access: 'read' }))), /más de 3 repos adicionales/);
-  assert.throws(() => extras([{ repo: 'org/web', branch: null, access: 'read' }], { repo: null }), /sin repo principal/);
+  // sin repo principal (t#686, scratch_extra_repos): van sobre el scratch, sin perder la criba de repetidos.
+  assert.deepEqual(
+    extras([{ repo: 'org/web', branch: null, access: 'read' }, { repo: 'Org/Web', branch: null, access: 'read' }], { repo: null }).run.extraRepos,
+    [{ repo: 'org/web', branch: null, access: 'read' }],
+  );
   assert.throws(() => extras([{ repo: 'no-es-una-clave', branch: null, access: 'read' }]), /repo adicional/);
   assert.throws(() => extras({ repo: 'org/web' }), /no es una lista/);
 });

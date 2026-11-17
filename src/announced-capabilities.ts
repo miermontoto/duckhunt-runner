@@ -63,6 +63,9 @@ export function announcedCapabilities(kit: MachineKit): RunnerCapability[] {
     RUNNER_CAPABILITY.attachments,
     // varios repos por conversación (t#597): con prompt y un cli que acepta --add-dir; con ellos, su diff y su vuelta atrás.
     ...(prompt && kit.supported.has('--add-dir') ? [RUNNER_CAPABILITY.multiRepo, RUNNER_CAPABILITY.extraRepoChanges] : []),
+    // t#686: los adicionales también sobre el scratch de un run sin repo (conversación a la que se le sumó uno). al final:
+    // el orden de las anteriores no cambia para el server.
+    ...(prompt && kit.supported.has('--add-dir') ? [RUNNER_CAPABILITY.scratchExtraRepos] : []),
     // subagentes y workflows (t#636): con prompt y un cli que reenvía lo de los subagentes con su padre. no depende de la
     // versión del cli: va antes de las que sí (autonomía, rewind), que siguen al final.
     ...(prompt && kit.supported.has('--forward-subagent-text') ? [RUNNER_CAPABILITY.subagents] : []),

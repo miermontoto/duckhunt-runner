@@ -1,7 +1,7 @@
 {
-  "version": "0.27.0",
-  "contentHash": "e01bb1f6b0631acc5ac17214d15951cb7ee09646e7cf762b6dcc1a8ad4e2cb5d",
-  "commit": "db36c2f744f653dd26e9f0d372cb3bbc55aeb9ab",
+  "version": "0.28.0",
+  "contentHash": "151862482e1176c615030b08d7a4f06f046dd39e96f0b34c3d909b927ba4095b",
+  "commit": "7bf5fca0f2695d3dc9a7795a62019ee8e3323a94",
   "files": {
     "index.ts": "73867ba71a1635cb01a38fcb2eef733b471f710672e4a86c377e6f772f93a93e",
     "agent-credentials.ts": "222abc95a5de754cdabb145acc542eee796ee65ffb9ef658a9b51eee418d3eb1",
@@ -10,7 +10,7 @@
     "autonomy.ts": "584b2f22f5e470ea85c39eda98f39571e6719851b401fe87097cfbd3bdc19548",
     "aws.ts": "74fa1830ae9cb79884a8a558887d52c7f4fdd0113c226bea633fee32f07d207b",
     "backends.ts": "dcd38d7468bd41722f07738908931909f180cee32dd232bbb223b128d8c06449",
-    "capabilities.ts": "9ea6e18cf00b92d0d3b8bbcd1844a492e343db3be9e5cabe3451e3430b402c62",
+    "capabilities.ts": "7593405a080ceaa4bbea84da44c206c3370ecb2957d5984ad30985b9762a9dc7",
     "changes.ts": "ae33e872b8ef63ffa5165d06d43316ffefbcbdecac070bcdaafaf476c8935506",
     "claim.ts": "b5563f30dbfbcafc015e13f6d7c1f143ae19410dbb048787dbd87c5bf36e5d57",
     "effort.ts": "ffed195492916ccaa26671a067a318d16029066aa75c863be27ea783a4b7f694",
