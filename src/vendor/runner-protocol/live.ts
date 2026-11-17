@@ -19,6 +19,8 @@
 //   segmento con el informe de ese turno y abre el siguiente, marcado como continuación del proceso. un mensaje tomado a
 //   mitad de turno se acusa con POST …/delivered. el coste, el diff y la vuelta atrás siguen siendo por segmento.
 
+import type { RunContextFields } from './usage.js';
+
 export const RUN_INBOX_KIND = {
   stopTask: 'stop_task',
   message: 'message',
@@ -50,7 +52,7 @@ export interface LegacyClaimLive {
 }
 
 /** lo que el daemon cuenta de un turno al cerrarlo dentro del proceso (los campos del status de un segmento). */
-export interface RunTurnReport {
+export interface RunTurnReport extends RunContextFields {
   // el total de la sesión hasta ese `result` (como en el status: el server pone la base).
   costUsd?: number;
   numTurns?: number;

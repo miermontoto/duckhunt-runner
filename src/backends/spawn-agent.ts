@@ -13,7 +13,9 @@ import fs from 'node:fs';
 import readline from 'node:readline';
 import { clip } from '../feed.js';
 import { signalGroup, type RunLease } from '../run-lease.js';
+import type { RunProgressExtra } from '../platforms/platform.js';
 import type { KillReason } from '../status-report.js';
+import type { RunContextUsage } from '../vendor/runner-protocol/index.js';
 import type { AgentStdin } from './agent-driver.js';
 
 const KILL_GRACE_MS = 10_000;
@@ -26,6 +28,9 @@ const STDERR_TAIL_LINES = 20;
 const STDERR_TAIL_MAX_CHARS = 4000;
 // la nota de workdir del primer progreso de cada proceso.
 const WORKDIR_MAX_CHARS = 300;
+
+// lo que distingue un progreso del anterior: si no cambia, no se envía.
+const progressKey = (toolCalls: number, context: RunContextUsage | undefined): string => JSON.stringify([toolCalls, context ?? null]);
 
 /** lo que el driver lanza. */
 export interface AgentProcess {
@@ -44,6 +49,8 @@ export interface ProcessSession {
   line(text: string): void;
   // las tool calls que lleva el proceso (para el progreso).
   toolCalls(): number;
+  // el contexto del agente principal en lo que va de turno (t#682); undefined = aún nada que decir.
+  context(): RunContextUsage | undefined;
   // el proceso cerró sus pipes: lo último antes de resolver.
   closed(): void;
 }
@@ -64,7 +71,7 @@ export interface ProcessIo {
   readonly verboseLog: (() => string) | null;
   // la nota de dónde trabaja el run (el primer progreso la lleva recortada).
   readonly workdir: string;
-  progress(toolCalls: number, workdir?: string): void;
+  progress(toolCalls: number, extra?: RunProgressExtra): void;
   // las tool calls con que empezó el turno en curso.
   toolCallsAt(): number;
 }
@@ -114,18 +121,22 @@ export function spawnAgent(proc: AgentProcess, lease: RunLease, io: ProcessIo, o
       if (logFile !== null) fs.writeSync(logFile, `${JSON.stringify({ type: 'stderr', line })}\n`);
     });
 
-    // progreso: tool calls del segmento (throttled) + la nota de workdir en el primer envío.
-    io.progress(0, clip(io.workdir, WORKDIR_MAX_CHARS));
-    let reportedToolCalls = 0;
+    // progreso: tool calls del segmento y su contexto (throttled) + la nota de workdir en el primer envío. sale cuando
+    // cambia cualquiera de los dos (t#682: una respuesta larga sin tools también llena el contexto).
+    io.progress(0, { workdir: clip(io.workdir, WORKDIR_MAX_CHARS) });
+    let reported = progressKey(0, undefined);
     let lastProgressAt = Date.now();
     const progress = setInterval(() => {
       const now = Date.now();
+      if (now - lastProgressAt < PROGRESS_MIN_INTERVAL_MS) return;
       // las del turno en curso (t#636, fase 3: el proceso puede haber partido turnos).
       const turnCalls = session.toolCalls() - io.toolCallsAt();
-      if (turnCalls === reportedToolCalls || now - lastProgressAt < PROGRESS_MIN_INTERVAL_MS) return;
-      reportedToolCalls = turnCalls;
+      const context = session.context();
+      const key = progressKey(turnCalls, context);
+      if (key === reported) return;
+      reported = key;
       lastProgressAt = now;
-      io.progress(reportedToolCalls);
+      io.progress(turnCalls, context ? { context } : {});
     }, PROGRESS_TICK_MS);
 
     const timeout = setTimeout(

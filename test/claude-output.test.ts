@@ -5,7 +5,8 @@
 // el claude falso (fakes/fake-claude.ts) reproduce transcripts enlatados: el prompt (o el primer mensaje de stdin) dice
 // cuál (SCRIPT:<nombre>). cubren init, el agente principal y un subagente (parent_tool_use_id), tareas, result con éxito,
 // sin presupuesto (error_max_budget_usd), con error y sin result, una reanudación fallida con su reintento, y un result y
-// un stderr enormes con secretos dentro (clampReport, maskSecrets y el recorte de 20k del texto de un turno).
+// un stderr enormes con secretos dentro (clampReport, maskSecrets y el recorte de 20k del texto de un turno). el uso de
+// contexto (t#682) sale del usage del hilo principal (el de un subagente no cuenta) y de las compactaciones de cada tramo.
 // UPDATE_CLAUDE_OUTPUT=1 lo reescribe (solo para capturar, nunca para tapar una diferencia).
 
 import assert from 'node:assert/strict';
@@ -107,28 +108,35 @@ const result = (subtype: string, isError: boolean, text: string, extra: Record<s
   num_turns: 4,
   duration_ms: 1234,
   session_id: SID,
-  modelUsage: { 'claude-opus-5-5': { inputTokens: 10, outputTokens: 20, costUSD: 1.25 } },
+  modelUsage: { 'claude-opus-5-5': { inputTokens: 10, outputTokens: 20, costUSD: 1.25, contextWindow: 1_000_000 } },
   ...extra,
 });
+// el usage de una llamada al modelo (t#682): input sin caché, lo leído y lo escrito en caché, y la salida.
+const withUsage = (ev: Record<string, unknown>, input: number, read: number, created: number, output: number): Record<string, unknown> => ({
+  ...ev,
+  message: { ...(ev.message as Record<string, unknown>), usage: { input_tokens: input, cache_read_input_tokens: read, cache_creation_input_tokens: created, output_tokens: output } },
+});
+// una compactación del contexto: la del agente principal o, con `parent`, la de un subagente.
+const compacted = (parent: string | null = null): Record<string, unknown> => ({ type: 'system', subtype: 'compact_boundary', session_id: SID, parent_tool_use_id: parent, compact_metadata: { trigger: 'auto', pre_tokens: 180_000 } });
 
 // un turno completo: catálogo slash en el init, agente principal con tools (también de mcp), un subagente con su
 // parent_tool_use_id y su tarea, y un result con éxito.
 const fullTurn: Script = {
   stdout: [
     init({ slash_commands: ['revisa', 'herr:lint', 'compact', 'review'], skills: ['review', 'herr:doc'], plugins: [{ name: 'herr', path: '<plugin>' }] }),
-    say('miro el repo', { uuid: UUID_FIRST }),
+    withUsage(say('miro el repo', { uuid: UUID_FIRST }), 3, 20_000, 1_500, 40),
     use('toolu_read', 'Read', { file_path: '<home>/notas.md' }),
     toolResult('toolu_read', 'contenido'),
     use('toolu_mcp', 'mcp__duckhunt__duckhunt-entry-get', { id: 42 }),
     toolResult('toolu_mcp', '{"id":42}'),
     use('toolu_sub', 'Agent', { description: 'busca los tests', prompt: 'encuentra los tests del login', subagent_type: 'Explore' }),
     { type: 'system', subtype: 'task_started', task_id: 'task1', tool_use_id: 'toolu_sub', task_type: 'local_agent', description: 'busca los tests', session_id: SID },
-    say('busco en test/', { parent_tool_use_id: 'toolu_sub', uuid: UUID_SUB }),
+    withUsage(say('busco en test/', { parent_tool_use_id: 'toolu_sub', uuid: UUID_SUB }), 5, 90_000, 0, 30),
     use('toolu_grep', 'Grep', { pattern: 'login', path: 'test' }, { parent_tool_use_id: 'toolu_sub' }),
     toolResult('toolu_grep', 'test/login.test.ts', 'toolu_sub'),
     { type: 'system', subtype: 'task_notification', task_id: 'task1', status: 'completed', session_id: SID },
     toolResult('toolu_sub', 'test/login.test.ts'),
-    say('listo', { uuid: UUID_LAST }),
+    withUsage(say('listo', { uuid: UUID_LAST }), 2, 24_000, 800, 120),
     result('success', false, 'hecho: el login falla por el token'),
   ],
 };
@@ -161,11 +169,19 @@ const SCRIPTS: Record<string, Script> = {
   'live-turns': {
     stdout: [
       init(),
-      use('toolu_bg', 'Agent', { description: 'en segundo plano', prompt: 'mira los logs', run_in_background: true }, { uuid: UUID_FIRST }),
+      compacted(),
+      compacted('toolu_old'),
+      withUsage(use('toolu_bg', 'Agent', { description: 'en segundo plano', prompt: 'mira los logs', run_in_background: true }, { uuid: UUID_FIRST }), 1, 30_000, 2_000, 60),
       { type: 'system', subtype: 'task_started', task_id: 'bgtask1', tool_use_id: 'toolu_bg', task_type: 'local_agent', description: 'en segundo plano', session_id: SID },
       result('success', false, huge(`lanzado ${secretLine}`)),
     ],
-    onMessage: [say('leo tu mensaje', { uuid: UUID_LAST }), { type: 'system', subtype: 'task_notification', task_id: 'bgtask1', status: 'completed', session_id: SID }, result('success', false, 'segundo turno', { total_cost_usd: 2.5 })],
+    // el segundo turno compacta una vez más: su informe lleva solo esa (el proceso lleva dos).
+    onMessage: [
+      compacted(),
+      withUsage(say('leo tu mensaje', { uuid: UUID_LAST }), 4, 33_000, 500, 80),
+      { type: 'system', subtype: 'task_notification', task_id: 'bgtask1', status: 'completed', session_id: SID },
+      result('success', false, 'segundo turno', { total_cost_usd: 2.5 }),
+    ],
   },
   // proceso vivo, fase 2: parar la tarea de fondo desde el buzón (control_request stop_task).
   'live-stop': {

@@ -16,7 +16,7 @@ import { announcedCapabilities } from '../../announced-capabilities.js';
 import type { AttemptFacts } from '../../audit.js';
 import { PROMPT_PROFILE, RUN_KIND, type ClaimResponse } from '../../claim.js';
 import { buildClaudeArgs, claudeRunEnv } from '../../claude-args.js';
-import { consumeStreamLine, detectClaude, newStreamState, reportedModel, supportsPermissionPromptTool, supportsRewind, type ClaudeInfo, type StreamLine, type StreamState } from '../../claude.js';
+import { consumeStreamLine, detectClaude, newStreamState, reportedModel, streamContext, supportsPermissionPromptTool, supportsRewind, type ClaudeInfo, type StreamLine, type StreamState } from '../../claude.js';
 import { feedEventsFromStream } from '../../feed.js';
 import { LiveSession, type LiveTurnHooks } from '../../live-session.js';
 import { allRunConfigDirs, backendsRoot } from '../../paths.js';
@@ -29,7 +29,7 @@ import { claudeConfigDir, resolveSlashCommands } from '../../slash-commands.js';
 import { reportFor, type Attempt } from '../../status-report.js';
 import { mirroredDeny, READ_MIRRORED_TOOLS, settingsFilesFor, WRITE_TOOLS } from '../../user-permissions.js';
 import { V0_BACKEND } from '../../vendor/runner-protocol/index.js';
-import type { AgentDriver, AgentStdin, HostFacts, PreparedSegment, SegmentIo, SegmentOutcome, SegmentSpec, TurnEnded } from '../agent-driver.js';
+import type { AgentDriver, AgentStdin, HostFacts, PreparedSegment, SegmentIo, SegmentOutcome, SegmentSpec, TurnBase, TurnEnded } from '../agent-driver.js';
 import { spawnAgent, type ProcessSession } from '../spawn-agent.js';
 
 const CLAUDE_COMMAND = 'claude';
@@ -38,22 +38,27 @@ const TURN_RESULT_MAX_CHARS = 20_000;
 
 const finite = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
 
-/** lo que un `result` cuenta de su turno (t#636, fase 3): el total de la sesión, sus vueltas y las tool calls desde `toolCallsAt`. */
-export function turnEndedOf(ev: StreamLine, stream: StreamState, toolCallsAt: number): TurnEnded {
+/**
+ * lo que un `result` cuenta de su turno (t#636, fase 3): el total de la sesión, sus vueltas, las tool calls desde
+ * `at.toolCalls` y el contexto con las compactaciones desde `at.compactions` (t#682). `stream` ya consumió el `result`.
+ */
+export function turnEndedOf(ev: StreamLine, stream: StreamState, at: TurnBase): TurnEnded {
   const cost = finite(ev.total_cost_usd);
   const turns = finite(ev.num_turns);
   const model = reportedModel(stream.initModel, ev.modelUsage);
+  const context = streamContext(stream, model, at.compactions);
   return {
-    toolCallsTotal: stream.toolCalls,
+    totals: { toolCalls: stream.toolCalls, compactions: stream.compactions },
     report: {
       ...(cost !== undefined ? { costUsd: cost } : {}),
       ...(turns !== undefined ? { numTurns: turns } : {}),
-      toolCalls: Math.max(0, stream.toolCalls - toolCallsAt),
+      toolCalls: Math.max(0, stream.toolCalls - at.toolCalls),
       ...(stream.sessionId ? { sessionId: stream.sessionId } : {}),
       ...(model ? { model } : {}),
       // enmascarado como el status (clampReport): el texto de un turno también sale de la máquina.
       ...(typeof ev.result === 'string' ? { result: maskSecrets(ev.result).slice(0, TURN_RESULT_MAX_CHARS) } : {}),
       ...(stream.lastAssistantUuid ? { lastMessageUuid: stream.lastAssistantUuid } : {}),
+      ...(context ? { context } : {}),
     },
   };
 }
@@ -234,7 +239,7 @@ export class ClaudeDriver implements AgentDriver {
     const exit = await spawnAgent(
       { command: this.command, args, cwd: res.cwd.dir, env: { ...res.env, ...claudeRunEnv(res.env, claim) }, stdin: live !== null, timeoutMs: claim.timeoutMs },
       spec.lease,
-      { log: io.log, runId: claim.run.id, verboseLog: io.verboseLog, workdir: res.note, progress: (n, workdir) => io.progress(n, workdir), toolCallsAt: () => io.toolCallsAt() },
+      { log: io.log, runId: claim.run.id, verboseLog: io.verboseLog, workdir: res.note, progress: (n, extra) => io.progress(n, extra), toolCallsAt: () => io.turnBase().toolCalls },
       (stdin) => this.session(stream, stdin, live, io),
     );
     return { ...exit, stream };
@@ -255,6 +260,8 @@ export class ClaudeDriver implements AgentDriver {
         if (ev && io.feed) feedEventsFromStream(ev, io.ctx).forEach((e) => io.feed!.push(e));
       },
       toolCalls: () => stream.toolCalls,
+      // el del bucle principal (el modelo del init): su ventana, la que dijo el `result` de un turno anterior (t#682).
+      context: () => streamContext(stream, stream.initModel, io.turnBase().compactions),
       closed: () => {
         inboxAbort.abort();
         session?.end();
@@ -265,7 +272,7 @@ export class ClaudeDriver implements AgentDriver {
   // los límites de turno de live-session.ts traducidos a los del daemon: el `result` que cierra un turno, a TurnEnded.
   private turnHooks(stream: StreamState, io: SegmentIo): LiveTurnHooks {
     return {
-      onTurnEnd: (ev) => io.turns.onTurnEnd(turnEndedOf(ev, stream, io.toolCallsAt())),
+      onTurnEnd: (ev) => io.turns.onTurnEnd(turnEndedOf(ev, stream, io.turnBase())),
       onTurnStart: (delivered) => io.turns.onTurnStart(delivered),
       onDelivered: (ids) => io.turns.onDelivered(ids),
     };

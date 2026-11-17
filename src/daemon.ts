@@ -163,7 +163,7 @@ import {
 } from './config.js';
 import { derivedMachineId, ensureMachineId, ensureMachineSecret } from './machine.js';
 import { CLAIM_OUTCOME } from './server-state.js';
-import type { AgentDriver, InboxTarget, PreparedSegment, SegmentIo, SegmentOutcome, SegmentSpec, TurnEnded, TurnHooks } from './backends/agent-driver.js';
+import type { AgentDriver, InboxTarget, PreparedSegment, SegmentIo, SegmentOutcome, SegmentSpec, TurnBase, TurnEnded, TurnHooks } from './backends/agent-driver.js';
 import { ClaudeDriver } from './backends/claude/claude-driver.js';
 import { DriverRegistry } from './backends/driver-registry.js';
 import { canBypassPermissions, EVENTS_DEFAULTS, PROMPT_PROFILE, RUN_ISOLATION, type ClaimResponse } from './claim.js';
@@ -199,13 +199,13 @@ import { RepoFilesSync } from './repo-files.js';
 import { SlashCommandCatalog } from './slash-commands.js';
 import { runnerVersion } from './version.js';
 import { processUpdater, UPDATE_MODE, UpdateError, type SelfUpdater } from './self-update.js';
-import { PlatformRejectedError, PROTOCOL, type ClaimAnnounce, type Platform, type PlatformContext, type PlatformFactories, type Protocol, type RunSegment } from './platforms/platform.js';
+import { PlatformRejectedError, PROTOCOL, type ClaimAnnounce, type Platform, type PlatformContext, type PlatformFactories, type Protocol, type RunProgressExtra, type RunSegment } from './platforms/platform.js';
 import { DEFAULT_CEILING, EXPOSE_ALL, isExposed, LOCAL_PLATFORM_DEFAULTS, PLATFORM_DEFAULT_SLOTS, type PlatformConfig } from './platforms/types.js';
 import { credentialStore } from './platforms/credentials.js';
 import { PLATFORM_FACTORIES } from './platforms/factories.js';
 import { Scheduler } from './platforms/scheduler.js';
 import { PLATFORM_STATE, PlatformSupervisor, type SupervisorHooks } from './platforms/supervisor.js';
-import { isNewerRunnerVersion, REWIND_RESTORE_ERROR, RUN_CHANGES_SCOPE, RUNNER_CAPABILITY, RUNNER_LABEL_MAX_CHARS, RUNNER_UPDATE_ERROR_MAX_CHARS, type LegacyClaimChanges, type RunChangesReport, type ToolsetShadow, type RunInboxCommand, V0_BACKEND } from './vendor/runner-protocol/index.js';
+import { isNewerRunnerVersion, REWIND_RESTORE_ERROR, RUN_CHANGES_SCOPE, RUNNER_CAPABILITY, RUNNER_LABEL_MAX_CHARS, RUNNER_UPDATE_ERROR_MAX_CHARS, type LegacyClaimChanges, type RunChangesReport, type ToolsetShadow, type RunContextUsage, type RunInboxCommand, V0_BACKEND } from './vendor/runner-protocol/index.js';
 import { shadowOf } from './toolset/shadow.js';
 import { intersectToolset } from './toolset/intersect.js';
 import { v0Announce } from './platforms/v0.js';
@@ -239,7 +239,8 @@ interface RunDiffFrom {
 interface TurnState extends TurnStart {
   // fija en todo el proceso (los turnos que parte no la cambian); null = el claim no pide el diff neto.
   runFrom: RunDiffFrom | null;
-  toolCallsAt: number;
+  // lo que el proceso llevaba contado al empezar el turno en curso (tool calls y compactaciones, t#682).
+  at: TurnBase;
   ended: TurnEnded | null;
   // los cambios de turno van en fila: uno no empieza hasta que acaba el anterior.
   chain: Promise<void>;
@@ -269,6 +270,19 @@ function rejectCode(error: string): string {
   const code = REJECT_CODE_RE.exec(error)?.[1];
   return code !== undefined && REJECT_CODES.has(code) ? code : CLAIM_REJECT.invalid;
 }
+
+// el contexto del cierre con solo las compactaciones desde `at`; ausente = ninguna (usage.ts), como lo deja el driver.
+const contextSince = ({ compactions = 0, ...rest }: RunContextUsage, at: number): RunContextUsage => {
+  const left = Math.max(0, compactions - at);
+  return { ...rest, ...(left > 0 ? { compactions: left } : {}) };
+};
+// el informe del cierre con solo lo del último turno de un proceso vivo (t#636, fase 3): el driver cuenta tool calls y
+// compactaciones (t#682) desde que el proceso empezó; sin turnos partidos, la base es cero y no cambia nada.
+const lastTurnOf = (report: StatusReport, at: TurnBase): StatusReport => ({
+  ...report,
+  ...(report.toolCalls !== undefined ? { toolCalls: Math.max(0, report.toolCalls - at.toolCalls) } : {}),
+  ...(report.context ? { context: contextSince(report.context, at.compactions) } : {}),
+});
 
 // cómo suelta sus recursos un run según su cierre.
 const RELEASE_BY_STATUS: Readonly<Record<StatusReport['status'], ReleaseOutcome>> = {
@@ -1426,7 +1440,7 @@ export class RunnerDaemon {
       ...first,
       // el diff neto (t#642): su base no cambia en todo el proceso.
       runFrom: restoreError === null ? runDiffFrom(claim, res, first) : null,
-      toolCallsAt: 0,
+      at: { toolCalls: 0, compactions: 0 },
       ended: null,
       chain: Promise.resolve(),
     };
@@ -1445,11 +1459,11 @@ export class RunnerDaemon {
       },
       onTurnStart: (delivered) => {
         // lo del turno que acaba se toma YA: el `result` del siguiente puede llegar antes de que el cambio en fila
-        // corra, y lo pisaría. la base de tool calls del turno nuevo, también ya.
+        // corra, y lo pisaría. la base del turno nuevo (tool calls y compactaciones), también ya.
         const ended = turn.ended;
-        const base = turn.toolCallsAt;
+        const base = turn.at;
         turn.ended = null;
-        if (ended !== null) turn.toolCallsAt = ended.toolCallsTotal;
+        if (ended !== null) turn.at = ended.totals;
         turn.chain = turn.chain
           .then(() => this.rollTurn(sup, claim, res, seg, turn, snapshotStart, ended, base, delivered))
           .catch((err: Error) => console.error(`${log} ${tag}: cambio de turno: ${err.message}`));
@@ -1463,10 +1477,10 @@ export class RunnerDaemon {
       feed,
       ctx,
       note,
-      progress: (toolCalls, workdir) => this.postProgress(sup, run.id, toolCalls, seg, workdir),
+      progress: (toolCalls, extra) => this.postProgress(sup, run.id, toolCalls, seg, extra),
       serveInbox: (target, waitMs, signal) => void this.pollInbox(sup, run.id, seg, waitMs, target, signal),
       verboseLog: this.opts.verboseLog ? () => path.join(logsDir(sup.id), `${run.id}.jsonl`) : null,
-      toolCallsAt: () => turn.toolCallsAt,
+      turnBase: () => turn.at,
       turns,
     };
     try {
@@ -1485,8 +1499,8 @@ export class RunnerDaemon {
       report = outcome.report;
       // un cambio de turno en vuelo termina antes del cierre: el informe es del último turno.
       await turn.chain;
-      // las tool calls del último turno (el proceso las cuenta desde que empezó).
-      if (turn.toolCallsAt > 0 && report.toolCalls !== undefined) report = { ...report, toolCalls: Math.max(0, report.toolCalls - turn.toolCallsAt) };
+      // las tool calls y las compactaciones del último turno (el proceso las cuenta desde que empezó).
+      report = lastTurnOf(report, turn.at);
     } catch (err) {
       report = { status: 'failed', error: err === restoreError || resourceMcp !== null ? (err as Error).message : legacyResourceError(err) };
     } finally {
@@ -1671,13 +1685,13 @@ export class RunnerDaemon {
     turn: TurnState,
     snapshotStart: () => Promise<TurnStart>,
     ended: TurnEnded | null,
-    base: number,
+    base: TurnBase,
     delivered: string[],
   ): Promise<void> {
     const runId = claim.run.id;
     const from = seg.segment;
     if (ended === null || from === undefined || !sup.platform.turn) {
-      turn.toolCallsAt = base;
+      turn.at = base;
       if (delivered.length > 0 && from !== undefined) await sup.platform.delivered?.(runId, { segment: from, ids: delivered });
       return;
     }
@@ -1692,9 +1706,9 @@ export class RunnerDaemon {
     }
     const next = await snapshotStart();
     const out = await sup.platform.turn(runId, { segment: from, report: { ...ended.report, ...turn.start }, delivered });
-    // sin partir (un server que no lo acepta): todo cuenta como un turno, también sus tool calls.
+    // sin partir (un server que no lo acepta): todo cuenta como un turno, también sus tool calls y compactaciones.
     if (out === null) {
-      turn.toolCallsAt = base;
+      turn.at = base;
       return;
     }
     seg.segment = out.segment;
@@ -1723,7 +1737,7 @@ export class RunnerDaemon {
   }
 
   // progreso del segmento: fuego y olvido (el siguiente envío lo corrige).
-  private postProgress(sup: PlatformSupervisor, runId: string, toolCalls: number, seg: RunSegment, workdir?: string): void {
-    void sup.platform.progress(runId, toolCalls, seg, workdir).catch((err) => console.error(`${this.tagOf(sup)} progress falló: ${(err as Error).message}`));
+  private postProgress(sup: PlatformSupervisor, runId: string, toolCalls: number, seg: RunSegment, extra?: RunProgressExtra): void {
+    void sup.platform.progress(runId, toolCalls, seg, extra).catch((err) => console.error(`${this.tagOf(sup)} progress falló: ${(err as Error).message}`));
   }
 }

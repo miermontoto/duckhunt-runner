@@ -49,6 +49,7 @@ import {
   type HeartbeatVerdict,
   type Platform,
   type PlatformContext,
+  type RunProgressExtra,
   type RunSegment,
   type UnpairOutcome,
 } from './platform.js';
@@ -213,9 +214,10 @@ export class V0Platform implements Platform {
     return body?.cancel === true ? { stop: true, reason: `cancelado por la plataforma (${typeof body.reason === 'string' ? body.reason : 'sin motivo'})` } : KEEP;
   }
 
-  async progress(runId: string, toolCalls: number, seg: RunSegment, workdir?: string): Promise<void> {
+  async progress(runId: string, toolCalls: number, seg: RunSegment, extra: RunProgressExtra = {}): Promise<void> {
     const doc = await this.doc();
-    await this.transport.post(v0RunPath(doc.endpoints.lease, runId), { ...seg, toolCalls, ...(workdir ? { workdir } : {}) });
+    const { workdir, context } = extra;
+    await this.transport.post(v0RunPath(doc.endpoints.lease, runId), { ...seg, toolCalls, ...(workdir ? { workdir } : {}), ...(context ? { context } : {}) });
   }
 
   async events(runId: string, events: SeqEvent[], seg: RunSegment): Promise<number> {
@@ -234,7 +236,13 @@ export class V0Platform implements Platform {
       return;
     }
     const r = clampReport(report);
-    const usage = { ...(r.costUsd !== undefined ? { costUsd: r.costUsd } : {}), ...(r.numTurns !== undefined ? { numTurns: r.numTurns } : {}), ...(r.toolCalls !== undefined ? { toolCalls: r.toolCalls } : {}) };
+    const usage = {
+      ...(r.costUsd !== undefined ? { costUsd: r.costUsd } : {}),
+      ...(r.numTurns !== undefined ? { numTurns: r.numTurns } : {}),
+      ...(r.toolCalls !== undefined ? { toolCalls: r.toolCalls } : {}),
+      // el del segmento (t#682): en v0 viaja dentro de usage.
+      ...(r.context !== undefined ? { context: r.context } : {}),
+    };
     const body = {
       segment: r.segment,
       status: r.status,

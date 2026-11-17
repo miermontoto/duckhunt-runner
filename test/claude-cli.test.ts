@@ -2,11 +2,13 @@
 // --help` (un flag entero, nunca un trozo de otro), qué capacidades anuncia el daemon con ese kit
 // (`model` solo con --model, `effort` desde 0.31.0 solo con --effort) y qué modelo reporta un run: el
 // del evento init (el bucle principal) y, sin él, el de modelUsage que más costó, nunca el haiku
-// auxiliar por ir primero.
+// auxiliar por ir primero. uso de contexto (t#682): lo que ocupa el hilo principal, su ventana y las compactaciones de
+// cada tramo, en el status y en el informe de un turno.
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { consumeStreamLine, newStreamState, OPTIONAL_FLAGS, reportedModel, supportedFlags } from '../src/claude.js';
+import { consumeStreamLine, contextWindows, newStreamState, OPTIONAL_FLAGS, reportedModel, streamContext, supportedFlags } from '../src/claude.js';
+import { turnEndedOf } from '../src/backends/claude/claude-driver.js';
 import { announcedCapabilities } from '../src/announced-capabilities.js';
 import { reportFor } from '../src/status-report.js';
 
@@ -129,3 +131,97 @@ test('el punto de retomar es del agente principal: un mensaje de un subagente no
   assert.equal(state.toolCalls, 1, 'las tool calls cuentan igual');
 });
 
+
+// --- uso de contexto (t#682) ---
+
+const MAIN_MODEL = 'claude-opus-5-5';
+const WINDOW = 1_000_000;
+// una llamada al modelo: input sin caché, lo leído y lo escrito en caché, y la salida (el formato de 2.1.326).
+const callUsage = (input: number, read: number, created: number, output: number): Record<string, unknown> => ({
+  input_tokens: input,
+  cache_read_input_tokens: read,
+  cache_creation_input_tokens: created,
+  output_tokens: output,
+  cache_creation: { ephemeral_5m_input_tokens: 0, ephemeral_1h_input_tokens: created },
+  service_tier: 'standard',
+});
+const said = (usage: Record<string, unknown>, extra: Record<string, unknown> = {}): string =>
+  line({ type: 'assistant', parent_tool_use_id: null, message: { model: MAIN_MODEL, content: [{ type: 'text', text: 'x' }], usage }, ...extra });
+const compacted = (extra: Record<string, unknown> = {}): string => line({ type: 'system', subtype: 'compact_boundary', compact_metadata: { trigger: 'auto', pre_tokens: 180_000 }, ...extra });
+// el result de una sesión: sus tokens suman TODAS las llamadas (no sirven para el contexto); la ventana, por modelo.
+const sessionResult = (window: unknown): string =>
+  line({
+    ...RESULT,
+    usage: { input_tokens: 999_999, cache_read_input_tokens: 999_999, output_tokens: 999_999 },
+    modelUsage: { [MAIN_MODEL]: { inputTokens: 999_999, outputTokens: 999_999, costUSD: 1.4, contextWindow: window, maxOutputTokens: 128_000 }, 'claude-haiku-5-5': { costUSD: 0.01, contextWindow: 200_000 } },
+  });
+const attempt = (stream: ReturnType<typeof newStreamState>, exitCode: number | null = 0) => ({ exitCode, killedBy: null, stream, stderrTail: '' });
+
+test('contexto: el usage del último assistant del hilo principal, con la caché sumada; ni subagentes ni sintéticos a cero', () => {
+  const state = newStreamState();
+  consumeStreamLine(state, line({ type: 'system', subtype: 'init', model: MAIN_MODEL, tools: [] }));
+  assert.equal(streamContext(state, MAIN_MODEL, 0), undefined, 'sin llamadas aún, nada que decir');
+  consumeStreamLine(state, said(callUsage(2, 11_364, 22_286, 4)));
+  assert.equal(state.contextTokens, 33_656, 'input + cache_read + cache_creation + output');
+  // un subagente tiene su propio contexto: no mueve el del principal.
+  consumeStreamLine(state, said(callUsage(5, 500_000, 0, 9), { parent_tool_use_id: 'toolu_sub' }));
+  // el mensaje sintético del cli (tras un error de api) llega con todo a cero.
+  consumeStreamLine(state, said(callUsage(0, 0, 0, 0)));
+  // un assistant sin usage (cli viejo) tampoco.
+  consumeStreamLine(state, line({ type: 'assistant', message: { content: [{ type: 'text', text: 'y' }] } }));
+  assert.equal(state.contextTokens, 33_656);
+  consumeStreamLine(state, said({ input_tokens: 3, cache_read_input_tokens: 40_000, output_tokens: 'x' }));
+  assert.equal(state.contextTokens, 40_003, 'lo que no es un número cuenta 0');
+  // ni result.usage ni los tokens de modelUsage: suman toda la sesión.
+  consumeStreamLine(state, sessionResult(WINDOW));
+  assert.deepEqual(streamContext(state, MAIN_MODEL, 0), { usedTokens: 40_003, windowTokens: WINDOW });
+});
+
+test('ventana: la de modelUsage[modelo].contextWindow al llegar el result (nunca 0 ni inventada), y se recuerda por modelo', () => {
+  assert.deepEqual(contextWindows({ a: { contextWindow: 200_000 }, b: { contextWindow: 0 }, c: { contextWindow: -1 }, d: { contextWindow: '1M' }, e: null, f: {} }), { a: 200_000 });
+  assert.deepEqual(contextWindows(undefined), {});
+  const state = newStreamState();
+  consumeStreamLine(state, line({ type: 'system', subtype: 'init', model: MAIN_MODEL, tools: [] }));
+  consumeStreamLine(state, said(callUsage(10, 20, 30, 40)));
+  // a mitad del primer turno la ventana no se sabe: null, nunca 0.
+  assert.deepEqual(streamContext(state, MAIN_MODEL, 0), { usedTokens: 100, windowTokens: null });
+  consumeStreamLine(state, sessionResult(WINDOW));
+  assert.deepEqual(reportFor(attempt(state), undefined).context, { usedTokens: 100, windowTokens: WINDOW });
+  assert.equal(streamContext(state, 'otro-modelo', 0)?.windowTokens, null, 'la de otro modelo no se toma prestada');
+  // un result que no la dice (o la dice a 0) no borra la aprendida; un modelo sin ella da null.
+  consumeStreamLine(state, sessionResult(0));
+  assert.equal(state.contextWindows[MAIN_MODEL], WINDOW);
+  // sin result (el proceso cayó a mitad del segundo turno): la del mismo modelo que dijo el primero.
+  const crashed = newStreamState();
+  consumeStreamLine(crashed, line({ type: 'system', subtype: 'init', model: MAIN_MODEL, tools: [] }));
+  consumeStreamLine(crashed, sessionResult(WINDOW));
+  crashed.result = null;
+  consumeStreamLine(crashed, said(callUsage(1, 2, 3, 4)));
+  assert.deepEqual(reportFor(attempt(crashed, 1), undefined).context, { usedTokens: 10, windowTokens: WINDOW });
+  assert.equal(reportFor(attempt(newStreamState(), 1), undefined).context, undefined, 'sin ninguna llamada, sin contexto');
+});
+
+test('compactaciones: las del hilo principal, contadas por tramo (el turno resta su base, el status las del proceso)', () => {
+  const state = newStreamState();
+  consumeStreamLine(state, line({ type: 'system', subtype: 'init', model: MAIN_MODEL, tools: [] }));
+  consumeStreamLine(state, said(callUsage(1, 150_000, 0, 10)));
+  consumeStreamLine(state, compacted());
+  // la de un subagente compacta SU contexto.
+  consumeStreamLine(state, compacted({ parent_tool_use_id: 'toolu_sub' }));
+  consumeStreamLine(state, said(callUsage(1, 20_000, 0, 10)));
+  const first = line({ ...JSON.parse(sessionResult(WINDOW)), num_turns: 2 });
+  consumeStreamLine(state, first);
+  assert.equal(state.compactions, 1);
+  const turn1 = turnEndedOf(JSON.parse(first), state, { toolCalls: 0, compactions: 0 });
+  assert.deepEqual(turn1.report.context, { usedTokens: 20_011, windowTokens: WINDOW, compactions: 1 });
+  assert.deepEqual(turn1.totals, { toolCalls: 0, compactions: 1 });
+  // el segundo turno del mismo proceso parte de la base del primero: sin compactar, no lleva ninguna.
+  consumeStreamLine(state, said(callUsage(1, 30_000, 0, 10)));
+  const second = JSON.parse(sessionResult(WINDOW)) as Parameters<typeof turnEndedOf>[0];
+  consumeStreamLine(state, JSON.stringify(second));
+  assert.deepEqual(turnEndedOf(second, state, turn1.totals).report.context, { usedTokens: 30_011, windowTokens: WINDOW });
+  // en vivo, lo que va de turno; el status del driver cuenta todo el proceso (el daemon resta la base al cerrar).
+  consumeStreamLine(state, compacted());
+  assert.equal(streamContext(state, MAIN_MODEL, turn1.totals.compactions)?.compactions, 1);
+  assert.equal(reportFor(attempt(state), undefined).context?.compactions, 2);
+});
