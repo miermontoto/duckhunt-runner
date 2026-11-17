@@ -273,7 +273,7 @@ const normalizer = (dir: string): ((s: string) => string) => {
   return (s) =>
     roots
       .reduce((acc, r) => acc.split(`${r}/${caseRel}`).join('<case>').split(r).join('<root>'), s.split(RUNNER_ENTRY).join('<runner>').split(process.execPath).join('<node>'))
-      .replace(/(mcp|aws)-([A-Za-z0-9_-]+?)-[0-9a-f]{8}(?=\.json|\/|"|$|\))/g, '$1-$2-<rand>')
+      .replace(/(mcp|aws|settings)-([A-Za-z0-9_-]+?)-[0-9a-f]{8}(?=\.json|\/|"|$|\))/g, '$1-$2-<rand>')
       // el motivo de git depende del sistema de ficheros del tmpdir (¿hay un punto de montaje por medio?).
       .replace(/not a git repository \(or any [^)]*\)(: \.git)?/g, 'not a git repository')
       .replace(/\b[0-9a-f]{40}\b/g, '<sha>')

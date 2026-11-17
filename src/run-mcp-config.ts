@@ -17,6 +17,8 @@
 // 0.15.0 (t#527): un segmento cuya autonomía pregunta (el claim trae `permissions`) lleva además la tool de permisos
 // (permissionMcpServers): el propio runner en `mcp-permission`, servidor stdio con la url, el token per-run, el
 // segmento y los plazos en su env. el token es el mismo de la cabecera del mcp de la plataforma, en el mismo fichero.
+// t#690: los settings del segmento (--settings, el hook de end-turn.ts) viven junto a él con su propio prefijo: mismo modo,
+// misma escritura en exclusiva, mismo borrado al cerrar y el mismo barrido al arrancar.
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -31,6 +33,9 @@ import type { McpServerEntry } from './resources/types.js';
 import { AGENT_PERMISSION_TOOL } from './vendor/runner-protocol/index.js';
 
 const MCP_CONFIG_PREFIX = 'mcp-';
+const SETTINGS_PREFIX = 'settings-';
+// lo que el barrido de arranque reconoce como suyo.
+const RUN_CONFIG_PREFIXES = [MCP_CONFIG_PREFIX, SETTINGS_PREFIX] as const;
 const MCP_CONFIG_SUFFIX = '.json';
 const MCP_CONFIG_MODE = 0o600;
 const MCP_CONFIG_RANDOM_BYTES = 4;
@@ -108,18 +113,25 @@ export function writeRunMcpConfig(
   extra: readonly McpServer[] = [],
   resources: Readonly<Record<string, McpServerEntry>> = {},
 ): string {
-  const name = `${MCP_CONFIG_PREFIX}${runId}-${crypto.randomBytes(MCP_CONFIG_RANDOM_BYTES).toString('hex')}${MCP_CONFIG_SUFFIX}`;
+  return writeRunFile(MCP_CONFIG_PREFIX, runId, platform, { mcpServers: { ...Object.fromEntries([mcp, ...extra].map(mcpEntry)), ...resources } });
+}
+
+/** escribe los settings de un segmento (--settings, t#690; 0600, en exclusiva) y devuelve su ruta. */
+export const writeRunSettings = (runId: string, platform: string, settings: object): string => writeRunFile(SETTINGS_PREFIX, runId, platform, settings);
+
+// un fichero del segmento en el run-config de su plataforma, con nombre aleatorio.
+function writeRunFile(prefix: string, runId: string, platform: string, content: object): string {
+  const name = `${prefix}${runId}-${crypto.randomBytes(MCP_CONFIG_RANDOM_BYTES).toString('hex')}${MCP_CONFIG_SUFFIX}`;
   const file = path.join(runConfigDir(platform), name);
-  const config = { mcpServers: { ...Object.fromEntries([mcp, ...extra].map(mcpEntry)), ...resources } };
   // wx: nunca reutiliza ni sigue nada que ya estuviera en esa ruta.
-  fs.writeFileSync(file, JSON.stringify(config), { mode: MCP_CONFIG_MODE, flag: 'wx' });
+  fs.writeFileSync(file, JSON.stringify(content), { mode: MCP_CONFIG_MODE, flag: 'wx' });
   return file;
 }
 
-/** borra los mcp-configs que dejó un daemon anterior. solo al arrancar, con el lock del daemon tomado. devuelve cuántos. */
+/** borra los mcp-configs (y los settings) que dejó un daemon anterior. solo al arrancar, con el lock del daemon tomado. devuelve cuántos. */
 export function clearRunMcpConfigs(platform: string): number {
   const dir = runConfigDir(platform);
-  const stale = fs.readdirSync(dir).filter((name) => name.startsWith(MCP_CONFIG_PREFIX) && name.endsWith(MCP_CONFIG_SUFFIX));
+  const stale = fs.readdirSync(dir).filter((name) => RUN_CONFIG_PREFIXES.some((p) => name.startsWith(p)) && name.endsWith(MCP_CONFIG_SUFFIX));
   stale.forEach((name) => fs.rmSync(path.join(dir, name), { force: true }));
   return stale.length;
 }

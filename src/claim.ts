@@ -58,6 +58,9 @@
 //   (nombre de un tramo, tamaño y sha256 con forma, sin repetidos, hasta RUN_ATTACHMENTS_MAX): lo que no cumple se
 //   descarta con un aviso (va al feed) y el agente lo lee por mcp; nunca tumba el claim. un bloque presente pero
 //   ilegible cuenta como presente sin ficheros: su prompt ya nombra la carpeta (RUN_ATTACHMENTS_DIR_TOKEN).
+// - cerrar el turno (t#690, end-turn.ts del protocolo, capability `end_turn`): de `endTurn.tools` solo cuentan ids de tool
+//   de tools mcp del propio servidor de la plataforma (`mcp__<serverName>__<nombre>`), hasta END_TURN_TOOLS_MAX; sin ninguno, sin
+//   bloque (el turno acaba cuando el modelo para). nunca invalida el claim.
 
 import { runIdFromLegacy } from './run-id.js';
 import {
@@ -102,6 +105,7 @@ import {
   type RunnerCapability,
   type RunEffort,
   RUN_INBOX_WAIT_MS,
+  type LegacyClaimEndTurn,
   type LegacyClaimLive,
   RUN_ATTACHMENT_MAX_BYTES,
   RUN_ATTACHMENT_NAME_MAX_CHARS,
@@ -345,6 +349,8 @@ export interface ClaimResponse {
   // t#680 (attachments.ts): los adjuntos de la conversación que el daemon baja a la carpeta del run, ya re-validados.
   // ausente = sin bloque: el prompt no lleva RUN_ATTACHMENTS_DIR_TOKEN y pasa tal cual.
   attachments?: LegacyClaimAttachments;
+  // t#690 (end-turn.ts): las tools tras las que el daemon cierra el turno, ya filtradas. ausente = ninguna.
+  endTurn?: LegacyClaimEndTurn;
   mcp: McpServer;
   // avisos de la validación local (rama ignorada…): el daemon los loguea y los sube al feed.
   warnings: string[];
@@ -469,6 +475,19 @@ function liveConfig(v: unknown): LegacyClaimLive | null {
   const wait = posInt(v.waitMs);
   // t#636, fase 3: `turns` solo cuenta como true.
   return wait === null ? null : { waitMs: Math.min(wait, RUN_INBOX_WAIT_MS), ...(v.turns === true ? { turns: true as const } : {}) };
+}
+
+// cuántas tools del bloque endTurn se miran: el server manda tres.
+const END_TURN_TOOLS_MAX = 16;
+// el nombre de una tool mcp tras `mcp__<server>__` (el del cli: sin espacios ni comodines).
+const MCP_TOOL_NAME_RE = /^[A-Za-z0-9_-]+$/;
+
+// el bloque endTurn (ver cabecera): las tools válidas del servidor mcp de la plataforma, sin repetir; null = ninguna.
+function endTurnOf(v: unknown, serverName: string): LegacyClaimEndTurn | null {
+  if (!isObj(v) || !Array.isArray(v.tools)) return null;
+  const prefix = `mcp__${serverName}__`;
+  const tools = [...new Set(v.tools.slice(0, END_TURN_TOOLS_MAX).filter((t): t is string => typeof t === 'string' && t.startsWith(prefix) && MCP_TOOL_NAME_RE.test(t.slice(prefix.length))))];
+  return tools.length > 0 ? { tools } : null;
 }
 
 // sha256 de un adjunto: hex de 64 (en minúsculas tras normalizar).
@@ -671,6 +690,7 @@ export function parseClaimBody(raw: unknown, id: string, machine: ClaimMachine =
   const extraRepos = extraReposOf(r.extraRepos, { kind, profile, repo }, warnings);
   const restore = restoreOf(raw.restore, { kind, profile, isolation, repo, extraRepos });
   const attachments = attachmentsOf(raw.attachments, warnings);
+  const endTurn = endTurnOf(raw.endTurn, serverName);
 
   return {
     run: {
@@ -711,6 +731,7 @@ export function parseClaimBody(raw: unknown, id: string, machine: ClaimMachine =
     ...(restore !== null ? { restore } : {}),
     ...(live !== null ? { live } : {}),
     ...(attachments !== null ? { attachments } : {}),
+    ...(endTurn !== null ? { endTurn } : {}),
     mcp: { serverName, url, token, expiresAt: numOrNull(mcp.expiresAt) ?? 0 },
     warnings,
     toolset: null,
