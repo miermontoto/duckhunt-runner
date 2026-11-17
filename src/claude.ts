@@ -175,7 +175,7 @@ export interface StreamLine {
   skills?: unknown;
   plugins?: unknown;
   // usage: los tokens de esa llamada al modelo (t#682).
-  message?: { content?: StreamContent[] | string; usage?: unknown };
+  message?: { content?: StreamContent[] | string; usage?: unknown; model?: unknown };
   // t#636: la tool call de la que cuelga un mensaje hecho dentro de un subagente (null o ausente = el agente principal).
   parent_tool_use_id?: unknown;
   // t#636, fase 3: un mensaje de stdin que el cli devuelve al tomarlo (--replay-user-messages).
@@ -188,6 +188,8 @@ export interface StreamLine {
   description?: unknown;
   summary?: unknown;
   workflow_name?: unknown;
+  // usage de un hito de tarea: {total_tokens, tool_uses, duration_ms}.
+  usage?: unknown;
 }
 
 function num(v: unknown): number | null {

@@ -155,6 +155,17 @@ test('tareas (t#636): sus hitos salen como eventos task con su tipo, su estado y
   assert.deepEqual(feedEventsFromStream({ type: 'system', subtype: 'task_updated', task_id: 'a01' }, ctx), []);
 });
 
+test('subagentes: el hito lleva el modelo que reportaron sus mensajes, el esfuerzo del árbol y los tokens; sin ellos, nada', () => {
+  const sub: FeedContext = { ...ctx, subagentEffort: 'medium', subagentModels: new Map() };
+  const inner: StreamLine = { type: 'assistant', parent_tool_use_id: 'toolu_1', message: { model: 'claude-haiku-4-5-20251001', content: [{ type: 'text', text: 'leo' }] } };
+  feedEventsFromStream(inner, sub);
+  const progress = feedEventsFromStream({ type: 'system', subtype: 'task_progress', task_id: 'a1', task_type: 'local_agent', tool_use_id: 'toolu_1', description: 'busca', usage: { total_tokens: 12_345, tool_uses: 2, duration_ms: 900 } }, sub);
+  assert.deepEqual(progress[0]?.task, { id: 'a1', type: 'agent', status: 'running', model: 'claude-haiku-4-5-20251001', effort: 'medium', tokens: 12_345 });
+  // un comando en segundo plano no lleva modelo ni esfuerzo, y un usage sin forma no viaja.
+  const shell = feedEventsFromStream({ type: 'system', subtype: 'task_progress', task_id: 'b1', task_type: 'local_bash', usage: { total_tokens: 'mucho' } }, sub);
+  assert.deepEqual(shell[0]?.task, { id: 'b1', type: 'shell', status: 'running' });
+});
+
 test('Workflow (t#636): su línea es su nombre, nunca el script', () => {
   assert.equal(summarizeToolUse('Workflow', { script: "export const meta = { name: 'review-changes', description: 'x' }\nawait agent('secreto')" }, ctx), 'review-changes');
   assert.equal(summarizeToolUse('Workflow', { name: 'deep-review' }, ctx), 'deep-review');

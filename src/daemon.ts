@@ -1391,12 +1391,15 @@ export class RunnerDaemon {
       await sup.platform.result(run.id, { ...failed, ...withShadow, ...seg });
       return;
     }
+    const subagentEffort = run.subagents?.effort ?? run.effort;
     const ctx: FeedContext = {
       cwd: res.cwd.dir,
       home: os.homedir(),
       bodyMaxChars: claim.events?.bodyMaxChars ?? EVENTS_DEFAULTS.bodyMaxChars,
       toolArgMaxChars: claim.events?.toolArgMaxChars ?? EVENTS_DEFAULTS.toolArgMaxChars,
       platformServer: claim.mcp.serverName,
+      ...(subagentEffort ? { subagentEffort } : {}),
+      subagentModels: new Map(),
     };
     const note = (text: string): void => {
       console.log(`${log} ${tag}: ${text}`);
