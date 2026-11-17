@@ -25,6 +25,7 @@ export * from './backends.js';
 export * from './capabilities.js';
 export * from './changes.js';
 export * from './claim.js';
+export * from './effort.js';
 export * from './errors.js';
 export * from './events.js';
 export * from './limits.js';

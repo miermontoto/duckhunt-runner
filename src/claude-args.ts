@@ -36,6 +36,17 @@
 // --model (0.12.0): `model` ya llega resuelto por el daemon (el run.model del claim, validado por
 // parseClaim; si no, defaults.model de la config) y va en todo segmento, también con --resume (cambia el
 // modelo de la sesión desde ese turno). sin ninguno no se pasa y manda el default del cli.
+// --effort (0.31.0, r#563): `effort` es el run.effort del claim (validado por parseClaim con isRunEffort) y va como
+// --model en todo segmento, también con --resume. sin él no se pasa y manda el de la máquina: el `effortLevel` de sus
+// settings o el default del cli (el daemon no tiene un defaults.effort: ese ajuste ya es del cli). la máquina no puede
+// fijarlo por el env: scrub-env.ts no deja pasar CLAUDE_CODE_EFFORT_LEVEL, que en el cli manda sobre la sesión.
+// el árbol de subagentes (run.subagents) va en el env del cli (claudeRunEnv): CLAUDE_CODE_SUBAGENT_MODEL y
+// CLAUDE_CODE_SUBAGENT_EFFORT, que scrub-env.ts tampoco deja pasar de la máquina (sin el bloque, nada). precedencia
+// leída en el cli 2.1.326: las dos son un DEFAULT, no un tope. el modelo de un subagente sale del `model` de la llamada
+// a la tool Agent, si no del `model` del frontmatter de su definición (`inherit` = el del padre, y ahí el env no
+// cuenta), si no del env, y si no el del padre; dentro de un workflow manda CLAUDE_CODE_WORKFLOW_SUBAGENT_MODEL. solo
+// con CLAUDE_CODE_SUBAGENT_MODEL_FORCE el env gana a todo (y el cli quita `model` de la tool), y el daemon no lo pone.
+// el esfuerzo igual: el `effort` de la llamada, si no el del frontmatter, si no el env (el cli no tiene un FORCE).
 // memoria de las plantillas y los runs de reglas: el deny lo decide el server (tools.disallowed). desde
 // t#465 (lote 9) una plantilla puede llegar SIN Edit/Write en el deny (la persona deja la memoria nativa
 // encendida, su knob ruleMemory): aquí no cambia nada, porque una plantilla es un prompt run read y
@@ -51,13 +62,16 @@
 // (el reintento desde cero no lo lleva) y con un cli que los acepta (supportsRewind, por versión: están ocultos del
 // --help); sin él, el turno no se lanza: reanudar entera sería seguir con lo que la persona descartó.
 
-import { BASH_TOOL, MEMORY_WRITE_TOOLS, PROMPT_PROFILE, RUN_KIND, RUN_SEED, type ClaimResponse, type PromptProfile, type RunSeed } from './claim.js';
+import { BASH_TOOL, MEMORY_WRITE_TOOLS, PROMPT_PROFILE, RUN_KIND, RUN_SEED, type ClaimedRun, type ClaimResponse, type PromptProfile, type RunEffort, type RunSeed } from './claim.js';
 import type { OptionalFlag } from './claude.js';
 import { AGENT_PERMISSION_TOOL_ID } from './vendor/runner-protocol/index.js';
 
 // env del cli con el que espera a la tool de permisos: el ttl de la petición más este margen (ms).
 export const MCP_TOOL_TIMEOUT_ENV = 'MCP_TOOL_TIMEOUT';
 export const PERMISSION_TOOL_TIMEOUT_MARGIN_MS = 120_000;
+// env del cli con el modelo y el esfuerzo por defecto de sus subagentes (r#563, ver cabecera).
+export const SUBAGENT_MODEL_ENV = 'CLAUDE_CODE_SUBAGENT_MODEL';
+export const SUBAGENT_EFFORT_ENV = 'CLAUDE_CODE_SUBAGENT_EFFORT';
 
 export interface ClaudeArgsInput {
   claim: Pick<ClaimResponse, 'tools' | 'permissionMode' | 'maxTurns' | 'maxBudgetUsd' | 'permissions'> & { run: { kind: string; profile: PromptProfile | null; seed?: RunSeed | null } };
@@ -69,6 +83,8 @@ export interface ClaudeArgsInput {
   // modelo resuelto (el del claim o el de la config; ausente = default del cli), presupuesto forzado
   // de la config (0 = nunca) y opt-in local a saltarse permisos del repo.
   model?: string;
+  // esfuerzo del claim (r#563; ausente = el de la máquina).
+  effort?: RunEffort | null;
   configBudgetUsd?: number;
   skipPermissions: boolean;
   // coste real (api key) frente a suscripción: sin api key el presupuesto sería nominal.
@@ -174,6 +190,8 @@ export function buildClaudeArgs(i: ClaudeArgsInput): string[] {
     ...(has('--max-turns') && maxTurns > 0 ? ['--max-turns', String(maxTurns)] : []),
     ...(has('--max-budget-usd') && budget > 0 ? ['--max-budget-usd', String(budget)] : []),
     ...(i.model ? ['--model', i.model] : []),
+    // un cli sin --effort abortaría con el flag: entonces manda el de la máquina (el daemon tampoco anuncia `effort`).
+    ...(i.effort && has('--effort') ? ['--effort', i.effort] : []),
     ...(skip ? ['--dangerously-skip-permissions'] : []),
     ...(i.resumeSessionId ? ['--resume', i.resumeSessionId] : []),
     ...(forkAt !== null ? ['--resume-session-at', forkAt, '--fork-session'] : []),
@@ -183,10 +201,16 @@ export function buildClaudeArgs(i: ClaudeArgsInput): string[] {
 }
 
 /** env que el run añade al de sus recursos para `claude`: con la tool de permisos, MCP_TOOL_TIMEOUT con margen sobre el
- *  ttl de la petición (sin bajar uno mayor que ya traiga el env). sin ella, nada. */
-export function claudeRunEnv(base: NodeJS.ProcessEnv, claim: Pick<ClaimResponse, 'permissions'>): Record<string, string> {
-  if (!claim.permissions) return {};
-  const wanted = claim.permissions.ttlMs + PERMISSION_TOOL_TIMEOUT_MARGIN_MS;
+ *  ttl de la petición (sin bajar uno mayor que ya traiga el env); con el tier de subagentes del claim (r#563), su modelo y
+ *  su esfuerzo por defecto. sin ninguno, nada. */
+export function claudeRunEnv(base: NodeJS.ProcessEnv, claim: Pick<ClaimResponse, 'permissions'> & { run: Pick<ClaimedRun, 'subagents'> }): Record<string, string> {
+  const { permissions } = claim;
+  const sub = claim.run.subagents;
+  const wanted = permissions ? permissions.ttlMs + PERMISSION_TOOL_TIMEOUT_MARGIN_MS : 0;
   const current = Number(base[MCP_TOOL_TIMEOUT_ENV]);
-  return { [MCP_TOOL_TIMEOUT_ENV]: String(Number.isSafeInteger(current) && current > wanted ? current : wanted) };
+  return {
+    ...(permissions ? { [MCP_TOOL_TIMEOUT_ENV]: String(Number.isSafeInteger(current) && current > wanted ? current : wanted) } : {}),
+    ...(sub?.model ? { [SUBAGENT_MODEL_ENV]: sub.model } : {}),
+    ...(sub?.effort ? { [SUBAGENT_EFFORT_ENV]: sub.effort } : {}),
+  };
 }

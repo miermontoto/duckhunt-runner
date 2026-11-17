@@ -109,7 +109,7 @@ export class ClaudeDriver implements AgentDriver {
   }
 
   // prompt solo si el cli puede cumplir su perfil (permission mode explícito, sin mcp del repo, deny list y settings solo
-  // del usuario en lectura), model solo con --model.
+  // del usuario en lectura), model solo con --model y effort solo con --effort.
   capabilities(facts: HostFacts): string[] {
     return announcedCapabilities({ ...facts, supported: this.info.supported, claudeVersion: this.info.version });
   }
@@ -161,6 +161,8 @@ export class ClaudeDriver implements AgentDriver {
         resumeSessionId,
         // el que pide duckhunt para esta conversación; si no pide ninguno, el default de la máquina.
         model: run.model ?? defaults.model,
+        // el que pide duckhunt para este segmento (r#563); sin él, el de la máquina (sus settings o el default del cli).
+        effort: run.effort,
         configBudgetUsd: defaults.maxBudgetUsd,
         skipPermissions: res.cwd.skipPermissions,
         payingWithApiKey: !!process.env.ANTHROPIC_API_KEY,

@@ -14,18 +14,20 @@
 // desatendido de un prompt de regla (sin web, push y remotos negados en edición) llega entero al argv.
 // 0.15.0 (t#527): las conversaciones con autonomía de la matriz (autonomy-*.json) llevan el modo de su nivel y, si
 // pregunta (manual, auto), la tool de permisos y el bloque permissions; bypass, ninguno de los dos.
+// 0.31.0 (r#563): `run.effort` solo pasa como nivel del cable (--effort) y `run.subagents` solo al env del cli; un valor
+// raro de cualquiera de los dos se ignora con aviso y el claim sigue.
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { buildClaudeArgs, type ClaudeArgsInput } from '../src/claude-args.js';
+import { buildClaudeArgs, claudeRunEnv, SUBAGENT_EFFORT_ENV, SUBAGENT_MODEL_ENV, type ClaudeArgsInput } from '../src/claude-args.js';
 import { AWS_OUTFILE_COMMANDS, claimRunId, isAwsReadPattern, parseClaim } from '../src/claim.js';
 import { parseRunnerBlock } from '../src/server-state.js';
 import { mirrorAllow, mirroredDeny, READ_MIRRORED_TOOLS, settingsFilesFor, WRITE_TOOLS } from '../src/user-permissions.js';
 import { OPTIONAL_FLAGS } from '../src/claude.js';
-import { AGENT_AUTONOMY_PERMISSION_MODE, AGENT_PERMISSION_TOOL_ID } from '../src/vendor/runner-protocol/index.js';
+import { AGENT_AUTONOMY_PERMISSION_MODE, AGENT_PERMISSION_TOOL_ID, RUN_EFFORT_LEVELS } from '../src/vendor/runner-protocol/index.js';
 import { clampReport } from '../src/status-report.js';
 import { scrubEnv } from '../src/scrub-env.js';
 
@@ -478,6 +480,80 @@ test('modelo (0.12.0): el del claim manda sobre defaults.model; sin ninguno no h
   assert.deepEqual(flagValue(resumed, '--model'), ['haiku']);
   assert.deepEqual(flagValue(resumed, '--resume'), ['s1']);
   assert.ok(resumed.indexOf('--model') < resumed.indexOf('--'), 'antes del prompt');
+});
+
+test('esfuerzo (0.31.0, r#563): parseClaim guarda un nivel del cable; cualquier otra cosa, null con aviso y el claim sigue', () => {
+  RUN_EFFORT_LEVELS.forEach((effort) => assert.equal(parseClaim(rawClaim({ effort })).run.effort, effort));
+  [rawClaim(), rawClaim({ effort: null })].forEach((raw) => {
+    const claim = parseClaim(raw);
+    assert.equal(claim.run.effort, null, 'un server sin la capability o el de la máquina');
+    assert.deepEqual(claim.warnings, []);
+  });
+  ['auto', 'HIGH', 'ultracode', '-x', '--dangerously-skip-permissions', '', 3, { level: 'high' }].forEach((effort) => {
+    const claim = parseClaim(rawClaim({ effort }));
+    assert.equal(claim.run.effort, null, JSON.stringify(effort));
+    assert.equal(claim.warnings.length, 1, JSON.stringify(effort));
+    assert.match(claim.warnings[0]!, /^esfuerzo .* ignorado \(no es low \| medium \| high \| xhigh \| max\)/);
+  });
+  assert.match(parseClaim(rawClaim({ effort: 3 })).warnings[0]!, /esfuerzo \(number\) ignorado/, 'de un valor que no es texto solo su tipo');
+});
+
+test('esfuerzo (0.31.0): --effort solo con el del claim, también con --resume; sin él, el argv de siempre', () => {
+  const effortArgs = (effort: unknown, over: Partial<ClaudeArgsInput> = {}): string[] => {
+    const raw = rawClaim({ effort });
+    return argsFor(raw, { effort: parseClaim(raw).run.effort, ...over });
+  };
+  const high = effortArgs('high');
+  assert.deepEqual(flagValue(high, '--effort'), ['high']);
+  assert.ok(high.indexOf('--effort') < high.indexOf('--'), 'antes del prompt');
+  // sin esfuerzo (ausente, null o inválido) el argv es exactamente el de un daemon anterior.
+  const before = argsFor(rawClaim());
+  [undefined, null, 'turbo'].forEach((effort) => assert.deepEqual(effortArgs(effort), before, String(effort)));
+  assert.ok(!before.includes('--effort'));
+  const resumed = effortArgs('low', { resumeSessionId: 's1' });
+  assert.deepEqual(flagValue(resumed, '--effort'), ['low']);
+  assert.deepEqual(flagValue(resumed, '--resume'), ['s1']);
+  // un cli sin --effort abortaría con el flag: entonces no se pasa (y el daemon tampoco anuncia la capability).
+  assert.ok(!effortArgs('max', { supported: new Set(OPTIONAL_FLAGS.filter((f) => f !== '--effort')) }).includes('--effort'));
+});
+
+test('subagentes (0.31.0, r#563): parseClaim valida cada clave sola; un bloque raro se ignora con aviso y el claim sigue', () => {
+  const sub = (subagents: unknown) => parseClaim(rawClaim({ subagents }));
+  assert.deepEqual(sub({ model: 'haiku', effort: 'low' }).run.subagents, { model: 'haiku', effort: 'low' });
+  assert.deepEqual(sub({ model: 'claude-sonnet-5-5' }).run.subagents, { model: 'claude-sonnet-5-5', effort: null });
+  assert.deepEqual(sub({ effort: 'medium', model: null }).run.subagents, { model: null, effort: 'medium' });
+  [undefined, null, {}, { model: null, effort: null }].forEach((v) => {
+    const claim = sub(v);
+    assert.equal(claim.run.subagents, null, JSON.stringify(v));
+    assert.deepEqual(claim.warnings, [], JSON.stringify(v));
+  });
+  const badModel = sub({ model: '-x', effort: 'low' });
+  assert.deepEqual(badModel.run.subagents, { model: null, effort: 'low' }, 'el esfuerzo válido se queda');
+  assert.match(badModel.warnings[0]!, /^modelo de subagentes "-x" ignorado/);
+  const bothBad = sub({ model: 'OPUS', effort: 'auto' });
+  assert.equal(bothBad.run.subagents, null);
+  assert.equal(bothBad.warnings.length, 2);
+  assert.match(bothBad.warnings[1]!, /^esfuerzo de subagentes "auto" ignorado/);
+  ['haiku', ['haiku'], 5].forEach((v) => {
+    const claim = sub(v);
+    assert.equal(claim.run.subagents, null, JSON.stringify(v));
+    assert.equal(claim.warnings.length, 1, JSON.stringify(v));
+    assert.match(claim.warnings[0]!, /^subagentes .* ignorados \(no es un objeto\)/);
+  });
+});
+
+test('subagentes (0.31.0): su modelo y su esfuerzo van al env del cli solo si el claim los trae; la máquina no los pone', () => {
+  const envOf = (subagents: unknown): Record<string, string> => claudeRunEnv({}, parseClaim(rawClaim({ subagents })));
+  assert.deepEqual(envOf({ model: 'haiku', effort: 'low' }), { [SUBAGENT_MODEL_ENV]: 'haiku', [SUBAGENT_EFFORT_ENV]: 'low' });
+  assert.deepEqual(envOf({ effort: 'xhigh' }), { [SUBAGENT_EFFORT_ENV]: 'xhigh' });
+  assert.deepEqual(envOf({ model: 'sonnet' }), { [SUBAGENT_MODEL_ENV]: 'sonnet' });
+  [undefined, null, {}, { model: '--x', effort: 'turbo' }].forEach((v) => assert.deepEqual(envOf(v), {}, JSON.stringify(v)));
+  // nada del bloque llega al argv: solo al env.
+  const args = argsFor(rawClaim({ subagents: { model: 'haiku', effort: 'low' } }));
+  assert.deepEqual(args, argsFor(rawClaim()));
+  // las del daemon (o un CLAUDE_CODE_EFFORT_LEVEL, que en el cli manda sobre --effort) no pasan al env del run.
+  const machine = scrubEnv({ [SUBAGENT_MODEL_ENV]: 'opus', [SUBAGENT_EFFORT_ENV]: 'max', CLAUDE_CODE_EFFORT_LEVEL: 'low', PATH: '/bin' }, () => false);
+  assert.deepEqual(Object.keys(machine).sort(), ['GIT_TERMINAL_PROMPT', 'PATH']);
 });
 
 test('memoria nativa de las plantillas (t#465, lote 9): sin Edit/Write en el deny del server el daemon no las añade', () => {

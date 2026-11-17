@@ -210,7 +210,7 @@ export async function statusCommand(args: string[] = []): Promise<void> {
     .catch(() => null);
   console.log(`aws cli:    ${aws ?? 'no instalada (los runs no podrán consultar aws)'}`);
   console.log(`ptrace:     kernel.yama.ptrace_scope ${ptraceScope()}`);
-  // las que anunciaría el daemon con este kit (model solo si el cli lista --model).
+  // las que anunciaría el daemon con este kit (model solo si el cli lista --model, effort solo si lista --effort).
   if (claude.version) {
     console.log(`capacidades: ${announcedCapabilities({ hasAws: aws !== null, supported: claude.supported, claudeVersion: claude.version, bypassPermissions: canBypassPermissions(), remoteRepoEdits: cfg?.defaults.remoteRepoEdits, toolsetRender: cfg?.defaults.toolsetRender }).join(' ')}`);
   }
