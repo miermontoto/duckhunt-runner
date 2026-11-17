@@ -17,11 +17,29 @@
 // en el `result` (`modelUsage[modelo].contextWindow`, misma clave que el modelo del init: verificado con 2.1.326) y se
 // guarda por modelo para el progreso en vivo de los turnos siguientes. las compactaciones son los `system/compact_boundary`
 // del hilo principal, contadas en todo el proceso: cada informe resta la base de su tramo.
+// límites de la suscripción (usage-limits.ts del protocolo): el evento `rate_limit_event` trae en `unifiedWindows` la
+// fracción gastada y el reinicio (en segundos) de la ventana de 5 h y la semanal. es de la cuenta, no del hilo: se toma
+// con o sin parent_tool_use_id y el último visto se queda en el proceso (a diferencia del contexto, no es por turno).
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { parseInitCatalog, type InitCatalog } from './slash-commands.js';
-import { REWIND_CLI_MIN_VERSION, RUN_CONTEXT_COMPACTIONS_MAX, RUN_CONTEXT_TOKENS_MAX, RUN_MESSAGE_UUID_RE, type RunContextUsage } from './vendor/runner-protocol/index.js';
+import {
+  REWIND_CLI_MIN_VERSION,
+  RUN_CONTEXT_COMPACTIONS_MAX,
+  RUN_CONTEXT_TOKENS_MAX,
+  RUN_MESSAGE_UUID_RE,
+  RUNNER_BACKEND,
+  USAGE_LIMIT_RATIO_MAX,
+  USAGE_LIMIT_STATUS,
+  USAGE_LIMIT_WINDOW,
+  USAGE_LIMIT_WINDOW_ID_RE,
+  USAGE_LIMIT_WINDOWS_MAX,
+  type BackendUsageLimits,
+  type RunContextUsage,
+  type UsageLimitStatus,
+  type UsageLimitWindow,
+} from './vendor/runner-protocol/index.js';
 
 const execFileP = promisify(execFile);
 
@@ -31,6 +49,18 @@ const UNNAMED_TOOL = '?';
 const CONTEXT_FILL_FIELDS = ['input_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens', 'output_tokens'] as const;
 // el evento system con el que el cli marca una compactación del contexto.
 const COMPACT_BOUNDARY = 'compact_boundary';
+// el evento con el que el cli informa del estado de los límites de la suscripción.
+const RATE_LIMIT_EVENT = 'rate_limit_event';
+const MS_PER_SECOND = 1000;
+// duración de cada ventana que el cli no da (minutos); un id que no conoce queda en null.
+const FIVE_HOUR_WINDOW_MINS = 5 * 60;
+const SEVEN_DAY_WINDOW_MINS = 7 * 24 * 60;
+// lo que el cli dice de una ventana → el status del protocolo; lo demás se omite.
+const LIMIT_STATUS_BY_CLI: Readonly<Record<string, UsageLimitStatus>> = {
+  allowed: USAGE_LIMIT_STATUS.allowed,
+  allowed_warning: USAGE_LIMIT_STATUS.warning,
+  rejected: USAGE_LIMIT_STATUS.rejected,
+};
 
 // flags que el daemon quiere pasar pero que no todas las versiones del cli aceptan; un flag
 // desconocido aborta el proceso, así que se detectan una vez por arranque.
@@ -140,11 +170,13 @@ export interface StreamState {
   contextTokens: number | null;
   compactions: number;
   contextWindows: Record<string, number>;
+  // los últimos límites de la suscripción vistos en el proceso (null = ninguno).
+  usageLimits: BackendUsageLimits | null;
   result: StreamResult | null;
 }
 
 export function newStreamState(): StreamState {
-  return { toolCalls: 0, toolsByName: {}, sawAssistant: false, sessionId: null, initModel: null, initCatalog: null, lastAssistantUuid: null, contextTokens: null, compactions: 0, contextWindows: {}, result: null };
+  return { toolCalls: 0, toolsByName: {}, sawAssistant: false, sessionId: null, initModel: null, initCatalog: null, lastAssistantUuid: null, contextTokens: null, compactions: 0, contextWindows: {}, usageLimits: null, result: null };
 }
 
 // bloque de contenido de un mensaje del stream: text (prosa), tool_use (name + input),
@@ -190,6 +222,8 @@ export interface StreamLine {
   workflow_name?: unknown;
   // usage de un hito de tarea: {total_tokens, tool_uses, duration_ms}.
   usage?: unknown;
+  // solo en rate_limit_event.
+  rate_limit_info?: unknown;
 }
 
 function num(v: unknown): number | null {
@@ -243,8 +277,42 @@ export function streamContext(state: StreamState, model: string | null, compacti
   };
 }
 
+const record = (v: unknown): Record<string, unknown> | null => (typeof v === 'object' && v !== null ? (v as Record<string, unknown>) : null);
+
+const windowMinsOf = (id: string): number | null =>
+  id === USAGE_LIMIT_WINDOW.fiveHour ? FIVE_HOUR_WINDOW_MINS : id.startsWith(USAGE_LIMIT_WINDOW.sevenDay) ? SEVEN_DAY_WINDOW_MINS : null;
+
+// una entrada de `unifiedWindows` → ventana del protocolo; null si no es válida (sin utilization numérica ≥ 0 o id raro).
+function limitWindow(id: string, raw: unknown): UsageLimitWindow | null {
+  const utilization = field(raw, 'utilization');
+  if (!USAGE_LIMIT_WINDOW_ID_RE.test(id) || utilization === null || utilization < 0) return null;
+  const resets = field(raw, 'resetsAt');
+  const status = LIMIT_STATUS_BY_CLI[String(record(raw)?.status)];
+  return {
+    id,
+    usedRatio: Math.min(utilization, USAGE_LIMIT_RATIO_MAX),
+    resetsAt: resets !== null && resets > 0 ? resets * MS_PER_SECOND : null,
+    windowMins: windowMinsOf(id),
+    ...(status ? { status } : {}),
+  };
+}
+
+/**
+ * los límites de la suscripción que dice un `rate_limit_event` (usage-limits.ts), normalizados al protocolo; undefined si
+ * no trae ninguna ventana válida (un evento roto nunca lanza ni borra lo ya visto).
+ */
+export function parseRateLimits(info: unknown, observedAt: number): BackendUsageLimits | undefined {
+  const raw = record(info);
+  const windows = Object.entries(record(raw?.unifiedWindows) ?? {})
+    .map(([id, w]) => limitWindow(id, w))
+    .filter((w): w is UsageLimitWindow => w !== null)
+    .slice(0, USAGE_LIMIT_WINDOWS_MAX);
+  if (windows.length === 0) return undefined;
+  return { backend: RUNNER_BACKEND.claudeCode, observedAt, windows, ...(typeof raw?.isUsingOverage === 'boolean' ? { overage: raw.isUsingOverage } : {}) };
+}
+
 /** consume una línea de stdout (stream-json) y devuelve el evento parseado; null si no es json. */
-export function consumeStreamLine(state: StreamState, line: string): StreamLine | null {
+export function consumeStreamLine(state: StreamState, line: string, now: () => number = Date.now): StreamLine | null {
   if (!line.startsWith('{')) return null;
   let ev: StreamLine;
   try {
@@ -259,6 +327,7 @@ export function consumeStreamLine(state: StreamState, line: string): StreamLine 
     state.initCatalog = parseInitCatalog(ev);
   }
   if (ev.type === 'system' && ev.subtype === COMPACT_BOUNDARY && onMainThread(ev)) state.compactions += 1;
+  if (ev.type === RATE_LIMIT_EVENT) state.usageLimits = parseRateLimits(ev.rate_limit_info, now()) ?? state.usageLimits;
   if (ev.type === 'assistant') {
     state.sawAssistant = true;
     // el punto de retomar es del agente principal (t#636): el uuid de un mensaje de un subagente no es de la sesión.

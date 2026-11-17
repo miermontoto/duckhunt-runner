@@ -5,18 +5,19 @@
 // rewind_files, el árbol y el HEAD con los que empezó el segmento (los pone el daemon: no salen del intento).
 // uso de contexto (t#682): el del hilo principal al cerrar, con las compactaciones de todo el proceso; el daemon les resta
 // las de los turnos que ya informó (como a las tool calls).
+// límites de la suscripción (usage-limits.ts): los últimos vistos en el proceso, tal cual (no son por tramo).
 
 import { configPath } from './config.js';
 import { maskSecrets } from './secret-mask.js';
 import { streamContext, type StreamState } from './claude.js';
-import type { RunContextFields, ToolsetShadow } from './vendor/runner-protocol/index.js';
+import type { RunContextFields, ToolsetShadow, UsageLimitsFields } from './vendor/runner-protocol/index.js';
 
 // por qué el daemon mató al proceso: cancel del server, timeout wall clock o parada del daemon.
 export type KillReason = 'cancel' | 'timeout' | 'shutdown';
 
 export type RunStatus = 'done' | 'failed' | 'canceled';
 
-export interface StatusReport extends RunContextFields {
+export interface StatusReport extends RunContextFields, UsageLimitsFields {
   status: RunStatus;
   result?: string;
   error?: string;
@@ -74,6 +75,7 @@ export function reportFor(attempt: Attempt, resumed: boolean | undefined): Statu
     ...(resumed !== undefined ? { resumed } : {}),
     ...(s.lastAssistantUuid ? { lastMessageUuid: s.lastAssistantUuid } : {}),
     ...(context ? { context } : {}),
+    ...(s.usageLimits ? { limits: s.usageLimits } : {}),
     ...(attempt.stderrTail ? { stderrTail: attempt.stderrTail } : {}),
   };
   if (attempt.killedBy === 'cancel') return { ...base, status: 'canceled', error: 'cancelado desde el server' };

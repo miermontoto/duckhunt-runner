@@ -225,3 +225,67 @@ test('compactaciones: las del hilo principal, contadas por tramo (el turno resta
   assert.equal(streamContext(state, MAIN_MODEL, turn1.totals.compactions)?.compactions, 1);
   assert.equal(reportFor(attempt(state), undefined).context?.compactions, 2);
 });
+
+// --- límites de la suscripción (usage-limits.ts) ---
+
+const OBSERVED_AT = 1_794_900_000_000;
+const NOW = () => OBSERVED_AT;
+// el evento real de claude 2.1.326.
+const rateLimit = (windows: unknown, extra: Record<string, unknown> = {}, top: Record<string, unknown> = {}): string =>
+  line({ type: 'rate_limit_event', rate_limit_info: { status: 'allowed', resetsAt: 1_794_943_200, rateLimitType: 'five_hour', isUsingOverage: false, unifiedWindows: windows, ...extra }, ...top });
+const REAL_WINDOWS = { five_hour: { utilization: 0.07, resetsAt: 1_794_943_200, status: 'allowed' }, seven_day: { utilization: 0.16, resetsAt: 1_795_093_200, status: 'allowed' } };
+
+test('límites: el rate_limit_event real se normaliza (ratio, reinicio en ms, duración, status, overage)', () => {
+  const state = newStreamState();
+  consumeStreamLine(state, rateLimit(REAL_WINDOWS), NOW);
+  assert.deepEqual(state.usageLimits, {
+    backend: 'claude_code',
+    observedAt: OBSERVED_AT,
+    windows: [
+      { id: 'five_hour', usedRatio: 0.07, resetsAt: 1_794_943_200_000, windowMins: 300, status: 'allowed' },
+      { id: 'seven_day', usedRatio: 0.16, resetsAt: 1_795_093_200_000, windowMins: 10_080, status: 'allowed' },
+    ],
+    overage: false,
+  });
+  // es de la cuenta: también con parent_tool_use_id.
+  const sub = newStreamState();
+  consumeStreamLine(sub, rateLimit(REAL_WINDOWS, {}, { parent_tool_use_id: 'toolu_sub' }), NOW);
+  assert.equal(sub.usageLimits?.windows.length, 2);
+});
+
+test('límites: allowed_warning es warning, rejected rejected y un status desconocido se omite; el ratio se acota', () => {
+  const state = newStreamState();
+  consumeStreamLine(state, rateLimit({ five_hour: { utilization: 0.9, status: 'allowed_warning' }, seven_day_opus: { utilization: 99, resetsAt: 0, status: 'rejected' }, extra: { utilization: 0.1, status: 'raro' } }, { isUsingOverage: 'si' }), NOW);
+  assert.deepEqual(state.usageLimits?.windows, [
+    { id: 'five_hour', usedRatio: 0.9, resetsAt: null, windowMins: 300, status: 'warning' },
+    { id: 'seven_day_opus', usedRatio: 10, resetsAt: null, windowMins: 10_080, status: 'rejected' },
+    { id: 'extra', usedRatio: 0.1, resetsAt: null, windowMins: null },
+  ]);
+  assert.equal('overage' in (state.usageLimits ?? {}), false, 'sin isUsingOverage booleano, sin overage');
+});
+
+test('límites: lo roto se ignora sin lanzar ni borrar lo ya visto; sin ventanas válidas, ningún límite', () => {
+  const state = newStreamState();
+  [rateLimit(undefined), rateLimit({}), rateLimit({ 'Bad Key': { utilization: 0.5 }, a: { utilization: -1 }, b: { utilization: 'x' }, c: null, d: [] }), line({ type: 'rate_limit_event' }), line({ type: 'rate_limit_event', rate_limit_info: 7 })].forEach((l) => consumeStreamLine(state, l, NOW));
+  assert.equal(state.usageLimits, null);
+  consumeStreamLine(state, rateLimit(REAL_WINDOWS), NOW);
+  const seen = (): number | undefined => state.usageLimits?.windows.length;
+  consumeStreamLine(state, rateLimit({}), NOW);
+  assert.equal(seen(), 2, 'un evento sin ventanas no pisa el último');
+  const many = Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`w${i}`, { utilization: 0.1 }]));
+  consumeStreamLine(state, rateLimit(many), NOW);
+  assert.equal(seen(), 8, 'tope de ventanas');
+});
+
+test('límites: viajan en el status y en el informe de un turno mientras se hayan visto, y se omiten si no', () => {
+  const state = newStreamState();
+  const result = line({ ...JSON.parse(sessionResult(WINDOW)) });
+  consumeStreamLine(state, result);
+  assert.equal('limits' in reportFor(attempt(state), undefined), false);
+  assert.equal('limits' in turnEndedOf(JSON.parse(result), state, { toolCalls: 0, compactions: 0 }).report, false);
+  consumeStreamLine(state, rateLimit(REAL_WINDOWS), NOW);
+  assert.equal(reportFor(attempt(state), undefined).limits?.observedAt, OBSERVED_AT);
+  // pegajoso: el turno siguiente lo sigue llevando.
+  consumeStreamLine(state, result);
+  assert.equal(turnEndedOf(JSON.parse(result), state, { toolCalls: 0, compactions: 0 }).report.limits?.windows[1]?.id, 'seven_day');
+});

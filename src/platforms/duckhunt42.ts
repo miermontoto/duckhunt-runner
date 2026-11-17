@@ -191,10 +191,10 @@ export class Duckhunt42Platform implements Platform {
     return KEEP;
   }
 
-  // el contexto (t#682) el server lo guarda solo junto al segmento.
+  // el contexto (t#682) el server lo guarda solo junto al segmento; los límites, por máquina y backend.
   async progress(runId: string, toolCalls: number, seg: RunSegment, extra: RunProgressExtra = {}): Promise<void> {
-    const { workdir, context } = extra;
-    await this.transport.post(`/runs/${runId}/progress`, { toolCalls, ...(workdir ? { workdir } : {}), ...(context ? { context } : {}), ...seg });
+    const { workdir, context, limits } = extra;
+    await this.transport.post(`/runs/${runId}/progress`, { toolCalls, ...(workdir ? { workdir } : {}), ...(context ? { context } : {}), ...(limits ? { limits } : {}), ...seg });
   }
 
   async events(runId: string, events: SeqEvent[], seg: RunSegment): Promise<number> {

@@ -27,6 +27,7 @@ import type {
   RunTurnBody,
   RunDeliveredBody,
   RunContextFields,
+  UsageLimitsFields,
 } from '../vendor/runner-protocol/index.js';
 import type { Exposure, ToolsetCeiling } from './types.js';
 
@@ -54,7 +55,7 @@ export type RunSegment = { segment?: number };
 
 /** lo que acompaña a las tool calls en el progreso de un segmento: dónde trabaja (el primer envío de cada proceso) y el
  *  contexto de lo que va de segmento (t#682). */
-export interface RunProgressExtra extends RunContextFields {
+export interface RunProgressExtra extends RunContextFields, UsageLimitsFields {
   workdir?: string;
 }
 
