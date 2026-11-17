@@ -16,7 +16,7 @@
 // de agente de la máquina (t#440, backends.ts: capabilities por backend, atestaciones y clases de run) y la coincidencia
 // de las reglas «siempre aquí» (approval-match.ts), que comparten el server y el puente de aprobaciones del daemon. uso de
 // contexto de un run (t#682, usage.ts): cuánto ocupa la ventana del hilo principal, en el status, el turno y el progreso.
-// adjuntos de una conversación en la máquina (t#680, attachments.ts).
+// adjuntos de una conversación en la máquina (t#680, attachments.ts). cerrar el turno al responder (t#690, end-turn.ts).
 // non-goals por ahora: validación (zod), que cada lado hace con lo suyo.
 
 export * from './agent-credentials.js';
@@ -29,6 +29,7 @@ export * from './capabilities.js';
 export * from './changes.js';
 export * from './claim.js';
 export * from './effort.js';
+export * from './end-turn.js';
 export * from './errors.js';
 export * from './events.js';
 export * from './limits.js';
