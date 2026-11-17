@@ -17,6 +17,7 @@
 // de las reglas «siempre aquí» (approval-match.ts), que comparten el server y el puente de aprobaciones del daemon. uso de
 // contexto de un run (t#682, usage.ts): cuánto ocupa la ventana del hilo principal, en el status, el turno y el progreso.
 // adjuntos de una conversación en la máquina (t#680, attachments.ts). cerrar el turno al responder (t#690, end-turn.ts).
+// límites de la suscripción de cada backend (usage-limits.ts): las ventanas del plan de la cuenta de la máquina.
 // non-goals por ahora: validación (zod), que cada lado hace con lo suyo.
 
 export * from './agent-credentials.js';
@@ -40,4 +41,5 @@ export * from './repo-files.js';
 export * from './slash-commands.js';
 export * from './toolset.js';
 export * from './usage.js';
+export * from './usage-limits.js';
 export * from './v0.js';
