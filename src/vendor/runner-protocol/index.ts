@@ -14,7 +14,8 @@
 // salud. autonomía (t#527, autonomy.ts): niveles, permission modes y el cable de las peticiones de permiso. catálogo de
 // slash commands de la máquina (t#555, slash-commands.ts) e índice de ficheros de sus repos (repo-files.ts). volver atrás en una conversación (t#564, rewind.ts). backends
 // de agente de la máquina (t#440, backends.ts: capabilities por backend, atestaciones y clases de run) y la coincidencia
-// de las reglas «siempre aquí» (approval-match.ts), que comparten el server y el puente de aprobaciones del daemon.
+// de las reglas «siempre aquí» (approval-match.ts), que comparten el server y el puente de aprobaciones del daemon. uso de
+// contexto de un run (t#682, usage.ts): cuánto ocupa la ventana del hilo principal, en el status, el turno y el progreso.
 // adjuntos de una conversación en la máquina (t#680, attachments.ts).
 // non-goals por ahora: validación (zod), que cada lado hace con lo suyo.
 
@@ -37,4 +38,5 @@ export * from './rewind.js';
 export * from './repo-files.js';
 export * from './slash-commands.js';
 export * from './toolset.js';
+export * from './usage.js';
 export * from './v0.js';

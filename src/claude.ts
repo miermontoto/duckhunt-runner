@@ -11,16 +11,26 @@
 // volver atrás (0.17.0, t#564): el `uuid` del último evento assistant del segmento es el punto donde duckhunt puede
 // retomar la conversación más tarde (--resume-session-at); un fork conserva los uuid de lo que copia (verificado con
 // 2.1.311), así que un punto de antes de un fork sigue valiendo en la sesión nueva.
+// uso de contexto (t#682, usage.ts del protocolo): lo que ocupa el hilo principal es el `message.usage` de su último
+// `assistant` (input + cache_read + cache_creation + output: el input de anthropic no cuenta la caché), nunca el de un
+// subagente ni el `result.usage`/los tokens de `modelUsage` (suman todas las llamadas de la sesión). la ventana solo llega
+// en el `result` (`modelUsage[modelo].contextWindow`, misma clave que el modelo del init: verificado con 2.1.326) y se
+// guarda por modelo para el progreso en vivo de los turnos siguientes. las compactaciones son los `system/compact_boundary`
+// del hilo principal, contadas en todo el proceso: cada informe resta la base de su tramo.
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { parseInitCatalog, type InitCatalog } from './slash-commands.js';
-import { REWIND_CLI_MIN_VERSION, RUN_MESSAGE_UUID_RE } from './vendor/runner-protocol/index.js';
+import { REWIND_CLI_MIN_VERSION, RUN_CONTEXT_COMPACTIONS_MAX, RUN_CONTEXT_TOKENS_MAX, RUN_MESSAGE_UUID_RE, type RunContextUsage } from './vendor/runner-protocol/index.js';
 
 const execFileP = promisify(execFile);
 
 // nombre con el que se cuenta un tool_use sin nombre (salida rara del cli).
 const UNNAMED_TOOL = '?';
+// los campos de `message.usage` que suman lo que ocupa el contexto en una llamada (t#682).
+const CONTEXT_FILL_FIELDS = ['input_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens', 'output_tokens'] as const;
+// el evento system con el que el cli marca una compactación del contexto.
+const COMPACT_BOUNDARY = 'compact_boundary';
 
 // flags que el daemon quiere pasar pero que no todas las versiones del cli aceptan; un flag
 // desconocido aborta el proceso, así que se detectan una vez por arranque.
@@ -123,11 +133,16 @@ export interface StreamState {
   initCatalog: InitCatalog | null;
   // uuid del último mensaje del asistente (t#564): dónde retomar más tarde. null = ninguno con un uuid válido.
   lastAssistantUuid: string | null;
+  // contexto del hilo principal (t#682): lo que ocupaba en su última llamada (null = ninguna aún), las compactaciones del
+  // proceso y la ventana de cada modelo que dijo un `result`.
+  contextTokens: number | null;
+  compactions: number;
+  contextWindows: Record<string, number>;
   result: StreamResult | null;
 }
 
 export function newStreamState(): StreamState {
-  return { toolCalls: 0, toolsByName: {}, sawAssistant: false, sessionId: null, initModel: null, initCatalog: null, lastAssistantUuid: null, result: null };
+  return { toolCalls: 0, toolsByName: {}, sawAssistant: false, sessionId: null, initModel: null, initCatalog: null, lastAssistantUuid: null, contextTokens: null, compactions: 0, contextWindows: {}, result: null };
 }
 
 // bloque de contenido de un mensaje del stream: text (prosa), tool_use (name + input),
@@ -157,7 +172,8 @@ export interface StreamLine {
   slash_commands?: unknown;
   skills?: unknown;
   plugins?: unknown;
-  message?: { content?: StreamContent[] | string };
+  // usage: los tokens de esa llamada al modelo (t#682).
+  message?: { content?: StreamContent[] | string; usage?: unknown };
   // t#636: la tool call de la que cuelga un mensaje hecho dentro de un subagente (null o ausente = el agente principal).
   parent_tool_use_id?: unknown;
   // t#636, fase 3: un mensaje de stdin que el cli devuelve al tomarlo (--replay-user-messages).
@@ -176,8 +192,16 @@ function num(v: unknown): number | null {
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
 }
 
-// costUSD de una entrada de modelUsage (null si no es un objeto con un número).
-const usageCost = (u: unknown): number | null => (typeof u === 'object' && u !== null ? num((u as { costUSD?: unknown }).costUSD) : null);
+// un campo numérico de un objeto del stream (una entrada de modelUsage, un message.usage); null si no lo es.
+const field = (o: unknown, key: string): number | null => (typeof o === 'object' && o !== null ? num((o as Record<string, unknown>)[key]) : null);
+// costUSD de una entrada de modelUsage.
+const usageCost = (u: unknown): number | null => field(u, 'costUSD');
+// un recuento de tokens: entero ≥ 0 (lo que no lo es cuenta 0).
+const tokens = (v: number | null): number => (v !== null && v > 0 ? Math.floor(v) : 0);
+// lo que ocupa el contexto en una llamada; 0 = sin usage (un mensaje sintético del cli lo trae a cero).
+const contextFill = (usage: unknown): number => CONTEXT_FILL_FIELDS.reduce((sum, k) => sum + tokens(field(usage, k)), 0);
+// el hilo principal: sin parent_tool_use_id (t#636); lo de un subagente tiene su propio contexto.
+const onMainThread = (ev: StreamLine): boolean => ev.parent_tool_use_id === undefined || ev.parent_tool_use_id === null;
 
 /** modelo de un run: el del init y, sin él, el de modelUsage que más costó (la primera clave si ninguna trae coste). */
 export function reportedModel(initModel: string | null, modelUsage: Record<string, unknown> | undefined): string | null {
@@ -188,6 +212,31 @@ export function reportedModel(initModel: string | null, modelUsage: Record<strin
     .filter((e): e is { model: string; cost: number } => e.cost !== null)
     .reduce<{ model: string; cost: number } | null>((best, e) => (best === null || e.cost > best.cost ? e : best), null);
   return costly?.model ?? entries[0]?.[0] ?? null;
+}
+
+/** las ventanas de contexto que dice un `modelUsage` (t#682), por modelo: solo enteros ≥ 1 (nunca una ventana 0). */
+export function contextWindows(modelUsage: Record<string, unknown> | undefined): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries(modelUsage ?? {})
+      .map(([model, u]) => [model, tokens(field(u, 'contextWindow'))] as const)
+      .filter(([, w]) => w > 0),
+  );
+}
+
+/**
+ * el contexto del hilo principal para un informe (t#682): lo que ocupaba en su última llamada, la ventana de `model`
+ * (null = ningún `result` la dijo) y las compactaciones desde `compactionsAt` (el inicio del tramo que cubre el informe).
+ * undefined = el agente principal aún no llamó al modelo en este proceso.
+ */
+export function streamContext(state: StreamState, model: string | null, compactionsAt: number): RunContextUsage | undefined {
+  if (state.contextTokens === null) return undefined;
+  const window = model !== null ? state.contextWindows[model] : undefined;
+  const compactions = Math.min(Math.max(0, state.compactions - compactionsAt), RUN_CONTEXT_COMPACTIONS_MAX);
+  return {
+    usedTokens: Math.min(state.contextTokens, RUN_CONTEXT_TOKENS_MAX),
+    windowTokens: window !== undefined ? Math.min(window, RUN_CONTEXT_TOKENS_MAX) : null,
+    ...(compactions > 0 ? { compactions } : {}),
+  };
 }
 
 /** consume una línea de stdout (stream-json) y devuelve el evento parseado; null si no es json. */
@@ -205,11 +254,14 @@ export function consumeStreamLine(state: StreamState, line: string): StreamLine 
     if (typeof ev.model === 'string' && ev.model) state.initModel = ev.model;
     state.initCatalog = parseInitCatalog(ev);
   }
+  if (ev.type === 'system' && ev.subtype === COMPACT_BOUNDARY && onMainThread(ev)) state.compactions += 1;
   if (ev.type === 'assistant') {
     state.sawAssistant = true;
     // el punto de retomar es del agente principal (t#636): el uuid de un mensaje de un subagente no es de la sesión.
-    const main = ev.parent_tool_use_id === undefined || ev.parent_tool_use_id === null;
+    const main = onMainThread(ev);
     if (main && typeof ev.uuid === 'string' && RUN_MESSAGE_UUID_RE.test(ev.uuid)) state.lastAssistantUuid = ev.uuid;
+    const fill = main ? contextFill(ev.message?.usage) : 0;
+    if (fill > 0) state.contextTokens = fill;
     const content = ev.message?.content;
     const uses = Array.isArray(content) ? content.filter((c) => c?.type === 'tool_use') : [];
     state.toolCalls += uses.length;
@@ -220,6 +272,7 @@ export function consumeStreamLine(state: StreamState, line: string): StreamLine 
     return ev;
   }
   if (ev.type === 'result') {
+    state.contextWindows = { ...state.contextWindows, ...contextWindows(ev.modelUsage) };
     state.result = {
       subtype: ev.subtype ?? null,
       isError: ev.is_error === true,

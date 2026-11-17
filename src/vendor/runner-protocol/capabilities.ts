@@ -43,10 +43,10 @@ export const RUNNER_CAPABILITY = {
   // `--model`; null = su defaults.model o el default del cli. lo anuncia solo si su cli tiene `--model`.
   // sin ella el run no lleva la clave (el cable de siempre) y corre con el modelo de la máquina.
   model: 'model',
-  // >= 0.30.0 (r#563): acepta `run.effort` en el claim (RUN_EFFORT, effort.ts) y lo pasa a `--effort`; null o
+  // >= 0.31.0 (r#563): acepta `run.effort` en el claim (RUN_EFFORT, effort.ts) y lo pasa a `--effort`; null o
   // ausente = el esfuerzo de la máquina (su config o el default del cli). lo anuncia solo si su cli lista `--effort`.
   // sin ella el run no lleva la clave (el cable de siempre) y corre con el esfuerzo de la máquina. con ella acepta
-  // también `run.subagents` (modelo y esfuerzo del árbol de subagentes, por el entorno del cli).
+  // también `run.subagents` (modelo y esfuerzo POR DEFECTO del árbol de subagentes, por el entorno del cli: ver claim.ts).
   effort: 'effort',
   // >= 0.13.0 (t#495, M5): recibe `toolset` (toolset_v1, toolset.ts) junto a las listas de tools, lo renderiza en
   // sombra y devuelve toolsetShadow en el status del segmento. sin ella el claim no lleva la clave (el cable de

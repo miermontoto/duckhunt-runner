@@ -673,7 +673,7 @@ for your home; a file opened outside the worktree shows only its name) and anyth
 a secret (AWS keys, GitHub, Slack, Atlassian, Bitbucket and Anthropic tokens, credentials in a remote
 URL, `password=`/`token=`-style assignments, `Bearer` headers, private keys) is masked before it
 leaves the machine, also in the final result, error and stderr; the server masks it again. Set *progress feed* to *counter only* in Settings → Agents to send just the
-tool-call count. From 0.13.0, what the agent types or evaluates in a tool that is not the platform's
+tool-call count and how full the agent's context window is (token counts, never its contents). From 0.13.0, what the agent types or evaluates in a tool that is not the platform's
 own (the `value` of a form fill, a script it runs in a page) shows only its length, and a URL shows
 only its origin and path, never its query or fragment. Browser tools get a summary of their own: the
 selector of a `fill` or `select_option`, `js ‹length›` for an `evaluate`, the action of a dialog and

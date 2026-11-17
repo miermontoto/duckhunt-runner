@@ -112,7 +112,7 @@ const probeIo = (c: CanaryHome, cwd: string, notes: string[]): SegmentIo => ({
   progress: () => undefined,
   serveInbox: () => undefined,
   verboseLog: null,
-  toolCallsAt: () => 0,
+  turnBase: () => ({ toolCalls: 0, compactions: 0 }),
   turns: { onTurnEnd: () => undefined, onTurnStart: () => undefined, onDelivered: () => undefined },
 });
 

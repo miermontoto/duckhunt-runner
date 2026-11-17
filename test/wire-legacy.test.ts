@@ -13,6 +13,7 @@ import { RunLease } from '../src/run-lease.js';
 import type { KeptWorktree } from '../src/server-state.js';
 import type { StatusReport } from '../src/status-report.js';
 import type { SeqEvent } from '../src/event-uploader.js';
+import type { RunProgressExtra } from '../src/platforms/platform.js';
 import { internals, legacyOf } from './daemon-harness.js';
 import { runnerVersion } from '../src/version.js';
 
@@ -42,7 +43,7 @@ interface Wire {
   openConversations(ids: string[]): Promise<Set<string>>;
   postEvents(runId: string, events: SeqEvent[], seg: { segment?: number }): Promise<number>;
   postStatus(runId: string, report: StatusReport): Promise<void>;
-  postProgress(runId: string, toolCalls: number, seg: { segment?: number }, workdir?: string): void;
+  postProgress(runId: string, toolCalls: number, seg: { segment?: number }, extra?: RunProgressExtra): void;
   startHeartbeat(lease: RunLease, heartbeatMs: number, seg: { segment?: number }): NodeJS.Timeout;
   keptWorktrees: KeptWorktree[] | null;
 }
@@ -72,7 +73,7 @@ async function daemon(): Promise<Wire> {
     openConversations: (ids) => sup.platform.openConversations(ids),
     postEvents: (runId, events, seg) => sup.platform.events(runId, events, seg),
     postStatus: (runId, report) => sup.platform.result(runId, report),
-    postProgress: (runId, toolCalls, seg, workdir) => d.postProgress(sup, runId, toolCalls, seg, workdir),
+    postProgress: (runId, toolCalls, seg, extra) => d.postProgress(sup, runId, toolCalls, seg, extra),
     startHeartbeat: (lease, ms, seg) => d.startHeartbeat(sup, lease, ms, seg),
     set keptWorktrees(kept: KeptWorktree[] | null) {
       sup.keptWorktrees = kept;
@@ -111,8 +112,10 @@ test('cuerpos del cable legacy byte a byte iguales a los del daemon con ids numÃ
   await d.claim();
   assert.deepEqual([...(await d.openConversations(['12', '34']))], ['12']);
   await d.postEvents('88', [{ seq: 5, kind: 'text', body: 'hola' }], { segment: 3 });
-  await d.postStatus('88', { status: 'done', result: 'listo', costUsd: 0.25, numTurns: 2, toolCalls: 3, sessionId: 's-1', model: 'opus', resumed: true, segment: 3 });
-  d.postProgress('88', 0, { segment: 3 }, 'worktree Â· feat/x');
+  // el contexto (t#682): plano junto al coste en el status y en el progreso.
+  await d.postStatus('88', { status: 'done', result: 'listo', costUsd: 0.25, numTurns: 2, toolCalls: 3, sessionId: 's-1', model: 'opus', resumed: true, context: { usedTokens: 42_000, windowTokens: 1_000_000, compactions: 1 }, segment: 3 });
+  d.postProgress('88', 0, { segment: 3 }, { workdir: 'worktree Â· feat/x' });
+  d.postProgress('88', 2, { segment: 3 }, { context: { usedTokens: 9_000, windowTokens: null } });
   const timer = d.startHeartbeat(new RunLease('88'), 1, { segment: 3 });
   t.mock.timers.tick(HEARTBEAT_FLOOR_MS);
   clearInterval(timer);
@@ -124,8 +127,9 @@ test('cuerpos del cable legacy byte a byte iguales a los del daemon con ids numÃ
     `/claim {"runnerLabel":"fa","repos":["acme/api"],"awsAccounts":["123456789012"],"capabilities":["events","checkout","repo_edit","secret_paths","seed_budget","aws_strict","worktree_report","logout","toolset_v1","toolset_render","turn_changes","run_changes","attachments","remote_slots"],"slots":2,${version}"machine":{"id":"${MACHINE}"},"keptWorktrees":[{"runId":3,"dirtyFiles":2,"unpushedCommits":0},{"runId":12,"dirtyFiles":0,"unpushedCommits":1}],"awsDefault":false}`,
     '/conversations {"runIds":[12,34]}',
     '/runs/88/events {"events":[{"seq":5,"kind":"text","body":"hola"}],"segment":3}',
-    '/runs/88/status {"status":"done","result":"listo","costUsd":0.25,"numTurns":2,"toolCalls":3,"sessionId":"s-1","model":"opus","resumed":true,"segment":3}',
+    '/runs/88/status {"status":"done","result":"listo","costUsd":0.25,"numTurns":2,"toolCalls":3,"sessionId":"s-1","model":"opus","resumed":true,"context":{"usedTokens":42000,"windowTokens":1000000,"compactions":1},"segment":3}',
     '/runs/88/progress {"toolCalls":0,"workdir":"worktree Â· feat/x","segment":3}',
+    '/runs/88/progress {"toolCalls":2,"context":{"usedTokens":9000,"windowTokens":null},"segment":3}',
     '/runs/88/heartbeat {"segment":3}',
   ]);
 });

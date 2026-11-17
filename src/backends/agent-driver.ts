@@ -27,6 +27,7 @@ import type { RunLease } from '../run-lease.js';
 import type { SlashCommand } from '../vendor/runner-protocol/index.js';
 import type { StatusReport } from '../status-report.js';
 import type { RunInboxCommand, RunTurnReport } from '../vendor/runner-protocol/index.js';
+import type { RunProgressExtra } from '../platforms/platform.js';
 
 /** lo que el daemon sabe de la máquina y de su config, de lo que dependen las capabilities de un driver. */
 export interface HostFacts {
@@ -37,10 +38,17 @@ export interface HostFacts {
   browser: boolean;
 }
 
-/** lo que un `result` del agente principal cuenta de su turno (t#636, fase 3): el informe y el total de tool calls. */
+/** lo que un proceso llevaba contado al empezar el turno en curso (t#636, fase 3): cada informe cuenta solo lo de su tramo. */
+export interface TurnBase {
+  toolCalls: number;
+  // compactaciones del contexto (t#682).
+  compactions: number;
+}
+
+/** lo que un `result` del agente principal cuenta de su turno (t#636, fase 3): el informe y los totales del proceso. */
 export interface TurnEnded {
-  // las tool calls del proceso al cerrarlo: la base del turno siguiente.
-  toolCallsTotal: number;
+  // los totales del proceso al cerrarlo: la base del turno siguiente.
+  totals: TurnBase;
   report: RunTurnReport;
 }
 
@@ -67,13 +75,13 @@ export interface SegmentIo {
   readonly ctx: FeedContext;
   note(text: string): void;
   // el progreso del segmento (fuego y olvido); `workdir` solo en el primer envío de cada proceso.
-  progress(toolCalls: number, workdir?: string): void;
+  progress(toolCalls: number, extra?: RunProgressExtra): void;
   // atiende el buzón del run mientras `target` siga abierto (long-poll); nunca lanza.
   serveInbox(target: InboxTarget, waitMs: number, signal: AbortSignal): void;
   // el log crudo del proceso (--verbose del daemon): su ruta, que se calcula al abrirlo (crea su directorio); null = sin log.
   readonly verboseLog: (() => string) | null;
-  // las tool calls con que empezó el turno en curso del proceso (t#636, fase 3).
-  toolCallsAt(): number;
+  // lo que el proceso llevaba contado al empezar el turno en curso (t#636, fase 3).
+  turnBase(): TurnBase;
   // los límites de turno del daemon; el driver los usa solo si su cli parte turnos en el mismo proceso.
   readonly turns: TurnHooks;
 }
