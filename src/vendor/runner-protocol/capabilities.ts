@@ -113,5 +113,9 @@ export const RUNNER_CAPABILITY = {
   // sustituye RUN_ATTACHMENTS_DIR_TOKEN en el prompt por su ruta. sin ella el claim no lleva la clave y el agente los
   // lee por mcp.
   attachments: 'attachments',
+  // t#690 (end-turn.ts): con el bloque `endTurn` del claim, un hook PostToolUse sobre esas tools cierra el turno del agente
+  // en cuanto su resultado lleva RUN_END_TURN_FIELD (sin el texto final que el modelo escribe tras responder). sin ella el
+  // claim no lleva la clave.
+  endTurn: 'end_turn',
 } as const;
 export type RunnerCapability = (typeof RUNNER_CAPABILITY)[keyof typeof RUNNER_CAPABILITY];

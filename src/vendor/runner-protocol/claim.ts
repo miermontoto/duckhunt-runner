@@ -8,6 +8,7 @@
 import type { AgentAutonomy, LegacyClaimPermissions } from './autonomy.js';
 import type { RunEffort } from './effort.js';
 import type { LegacyClaimRestore } from './rewind.js';
+import type { LegacyClaimEndTurn } from './end-turn.js';
 import type { LegacyClaimLive } from './live.js';
 import type { LegacyClaimAttachments } from './attachments.js';
 import type { LegacyClaimChanges } from './changes.js';
@@ -228,6 +229,8 @@ export interface LegacyClaimBody {
   // solo a un daemon con RUNNER_CAPABILITY.attachments (t#680, attachments.ts), tras live y solo si la conversación
   // cita alguno: los ficheros que deja en la carpeta del run.
   attachments?: LegacyClaimAttachments;
+  // solo a un daemon con RUNNER_CAPABILITY.endTurn (t#690, end-turn.ts), tras attachments: las tools que cierran el turno.
+  endTurn?: LegacyClaimEndTurn;
   mcp: LegacyClaimMcp;
   runner?: LegacyClaimRunner;
 }

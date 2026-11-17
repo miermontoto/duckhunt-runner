@@ -54,6 +54,8 @@ export const OPTIONAL_FLAGS = [
   '--input-format',
   // t#636, fase 3: el cli devuelve el mensaje de stdin al tomarlo (el acuse; capability `live_turns`).
   '--replay-user-messages',
+  // t#690: los settings del segmento con el hook que cierra el turno al responder (capability `end_turn`).
+  '--settings',
 ] as const;
 export type OptionalFlag = (typeof OPTIONAL_FLAGS)[number];
 

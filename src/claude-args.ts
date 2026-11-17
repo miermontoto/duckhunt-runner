@@ -112,6 +112,8 @@ export interface ClaudeArgsInput {
   liveInput?: boolean;
   // t#636, fase 3: además toma mensajes en vivo y parte sus turnos (solo con liveInput).
   liveTurns?: boolean;
+  // t#690 (end-turn.ts): los settings del segmento con el hook que cierra el turno; null = sin ellos.
+  settingsFile?: string | null;
 }
 
 /** flags sin los que el cli no puede cumplir un prompt run (el daemon solo anuncia `prompt` si los tiene todos). */
@@ -178,6 +180,7 @@ export function buildClaudeArgs(i: ClaudeArgsInput): string[] {
     ...(has('--forward-subagent-text') ? ['--forward-subagent-text'] : []),
     '--mcp-config',
     i.mcpConfigFile,
+    ...(i.settingsFile && has('--settings') ? ['--settings', i.settingsFile] : []),
     ...(addDirs.length > 0 ? ['--add-dir', ...addDirs] : []),
     ...(has('--strict-mcp-config') ? ['--strict-mcp-config'] : []),
     ...(readPrompt ? ['--setting-sources', 'user'] : []),

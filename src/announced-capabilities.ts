@@ -76,6 +76,9 @@ export function announcedCapabilities(kit: MachineKit): RunnerCapability[] {
     // el esfuerzo por segmento y el tier de subagentes (r#563, claude-args.ts): como model, solo con el flag (--effort). no
     // depende de la versión del cli: va antes de las que sí.
     ...(kit.supported.has('--effort') ? [RUNNER_CAPABILITY.effort] : []),
+    // cerrar el turno al responder (t#690, end-turn.ts): con prompt y un cli que carga settings por flag (el hook). no
+    // depende de la versión del cli: va antes de las que sí.
+    ...(prompt && kit.supported.has('--settings') ? [RUNNER_CAPABILITY.endTurn] : []),
     // autonomía de las conversaciones en edición (t#527): con prompt y un cli que acepta --permission-prompt-tool;
     // bypass además fuera de root (el cli lo rechaza).
     ...(autonomy ? [RUNNER_CAPABILITY.autonomy] : []),

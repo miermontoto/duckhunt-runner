@@ -17,12 +17,13 @@ import type { AttemptFacts } from '../../audit.js';
 import { PROMPT_PROFILE, RUN_KIND, type ClaimResponse } from '../../claim.js';
 import { buildClaudeArgs, claudeRunEnv } from '../../claude-args.js';
 import { consumeStreamLine, detectClaude, newStreamState, reportedModel, streamContext, supportsPermissionPromptTool, supportsRewind, type ClaudeInfo, type StreamLine, type StreamState } from '../../claude.js';
+import { endTurnSettings } from '../../end-turn.js';
 import { feedEventsFromStream } from '../../feed.js';
 import { LiveSession, type LiveTurnHooks } from '../../live-session.js';
 import { allRunConfigDirs, backendsRoot } from '../../paths.js';
 import { mergeShellVerdicts, readShellGuard, readShellLog, readShellNote } from '../../read-shell-guard.js';
 import type { RunMcp } from '../../resources/lifecycle.js';
-import { permissionMcpServers, readDenyRule, readOnlyDirDeny, runConfigDeny, writeRunMcpConfig } from '../../run-mcp-config.js';
+import { permissionMcpServers, readDenyRule, readOnlyDirDeny, runConfigDeny, writeRunMcpConfig, writeRunSettings } from '../../run-mcp-config.js';
 import { attachmentsDeny, browserVaultDeny, otherPlatformsDeny, otherScratchDeny, secretPathsDeny } from '../../secret-paths.js';
 import { maskSecrets } from '../../secret-mask.js';
 import { claudeConfigDir, resolveSlashCommands } from '../../slash-commands.js';
@@ -73,9 +74,11 @@ const withResourceTools = (claim: ClaimResponse, mcp: RunMcp): ClaimResponse =>
     ? claim
     : { ...claim, tools: { allowed: [...claim.tools.allowed, ...mcp.allowed], disallowed: [...claim.tools.disallowed, ...mcp.deny] } };
 
-// el mcp-config del segmento (0600 en el run-config 0700 de su plataforma): se borra al cerrarlo.
+// el mcp-config del segmento (0600 en el run-config 0700 de su plataforma) y, con `endTurn` (t#690), sus settings con el
+// hook que cierra el turno: se borran al cerrarlo.
 interface ClaudePrepared extends PreparedSegment {
   readonly mcpFile: string;
+  readonly settingsFile: string | null;
 }
 
 // un proceso vivo (t#636): el prompt por stdin, cuánto espera el buzón y si parte turnos en el mismo proceso.
@@ -123,7 +126,9 @@ export class ClaudeDriver implements AgentDriver {
     const { claim, resourceMcp } = spec;
     // la tool de permisos (t#527) junto a los de los recursos: res_<tipo>_<clave> nunca choca con su nombre.
     const mcpFile = writeRunMcpConfig(claim.run.id, claim.mcp, spec.platform.id, claim.extraMcp, { ...permissionMcpServers(claim), ...resourceMcp.servers });
-    return { mcpFile, dispose: () => fs.rmSync(mcpFile, { force: true }) };
+    // t#690: solo con un cli que carga settings por flag (sin él tampoco se anuncia end_turn).
+    const settingsFile = claim.endTurn && this.info.supported.has('--settings') ? writeRunSettings(claim.run.id, spec.platform.id, endTurnSettings(claim.endTurn.tools)) : null;
+    return { mcpFile, settingsFile, dispose: () => [mcpFile, settingsFile].forEach((f) => f !== null && fs.rmSync(f, { force: true })) };
   }
 
   // uno o dos intentos: reanudación fallida antes de que el asistente hablara (sesión inexistente en esta máquina,
@@ -132,7 +137,7 @@ export class ClaudeDriver implements AgentDriver {
     const { res } = spec;
     const claim = withResourceTools(spec.claim, spec.resourceMcp);
     const { run } = claim;
-    const { mcpFile } = prepared as ClaudePrepared;
+    const { mcpFile, settingsFile } = prepared as ClaudePrepared;
     // settings leídos por run (pueden cambiar con el daemon vivo): lectura solo carga los de usuario y espeja su shell y
     // su escritura; un run de reglas carga todos y espeja su escritura; edición, nada.
     const readPrompt = run.kind === RUN_KIND.prompt && run.profile === PROMPT_PROFILE.read;
@@ -162,6 +167,7 @@ export class ClaudeDriver implements AgentDriver {
         claim,
         prompt,
         mcpConfigFile: mcpFile,
+        settingsFile,
         supported,
         resumeSessionId,
         // el que pide duckhunt para esta conversación; si no pide ninguno, el default de la máquina.
