@@ -61,6 +61,9 @@ export function announcedCapabilities(kit: MachineKit): RunnerCapability[] {
     // los adjuntos de la conversación en una carpeta del run (t#680, attachments.ts): los baja el daemon y el prompt cita
     // la ruta, sea cual sea el cli. no depende del cli: va antes de las que sí.
     RUNNER_CAPABILITY.attachments,
+    // obedece `fsRead: false` del toolset (t#701, toolset/parse.ts y render.ts): un run sin las tools de leer ficheros.
+    // tampoco depende del cli.
+    RUNNER_CAPABILITY.toolsetFsRead,
     // varios repos por conversación (t#597): con prompt y un cli que acepta --add-dir; con ellos, su diff y su vuelta atrás.
     ...(prompt && kit.supported.has('--add-dir') ? [RUNNER_CAPABILITY.multiRepo, RUNNER_CAPABILITY.extraRepoChanges] : []),
     // t#686: los adicionales también sobre el scratch de un run sin repo (conversación a la que se le sumó uno). al final:

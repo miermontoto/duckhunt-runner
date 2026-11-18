@@ -140,8 +140,10 @@ export function renderClaudeTools(t: ToolsetV1, ctx: RenderContext): ClaudeTools
   // sin autonomía, el kit fijo: todo lo que concede el toolset va al allow.
   const level = t.autonomy;
   const asked = level === AGENT_AUTONOMY.manual;
+  // fsRead false (t#701): un run que es solo cliente del mcp de la plataforma, sin leer ficheros de la máquina.
+  const reads = t.fsRead !== false;
   const allowed = [
-    ...CLAUDE_CODE_TOOLS.fsRead,
+    ...(reads ? CLAUDE_CODE_TOOLS.fsRead : []),
     ...(t.shell === TOOLSET_SHELL.full && (level === undefined || level === AGENT_AUTONOMY.bypass) ? [CLAUDE_CODE_TOOLS.shell] : []),
     ...(t.fsWrite && !asked ? CLAUDE_CODE_TOOLS.fsWrite : []),
     ...(t.web && !asked ? CLAUDE_CODE_TOOLS.web : []),
@@ -154,6 +156,7 @@ export function renderClaudeTools(t: ToolsetV1, ctx: RenderContext): ClaudeTools
     allowed: t.approvals ? Array.from(new Set([...allowed, ...approvalsFor(t, ctx).kept])) : allowed,
     disallowed: [
       CLAUDE_CODE_TOOLS.notebook,
+      ...(reads ? [] : CLAUDE_CODE_TOOLS.fsRead),
       ...(t.web ? [] : CLAUDE_CODE_TOOLS.web),
       ...(t.memory || t.fsWrite ? [] : CLAUDE_CODE_TOOLS.fsWrite),
       ...(t.shell === TOOLSET_SHELL.none ? [CLAUDE_CODE_TOOLS.shell] : []),

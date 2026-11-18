@@ -21,7 +21,7 @@ import {
 } from '../vendor/runner-protocol/index.js';
 
 // claves del toolset y de cada grant: ni una más.
-const TOOLSET_KEYS: ReadonlySet<string> = new Set(['v', 'shell', 'fsWrite', 'memory', 'web', 'vcsPush', 'grants', 'platformTools', 'autonomy', 'approvals', 'subagents', 'workflows']);
+const TOOLSET_KEYS: ReadonlySet<string> = new Set(['v', 'shell', 'fsWrite', 'memory', 'web', 'vcsPush', 'grants', 'platformTools', 'autonomy', 'approvals', 'subagents', 'workflows', 'fsRead']);
 const GRANT_KEYS: ReadonlySet<string> = new Set(['type', 'key', 'access']);
 const FLAG_KEYS = ['fsWrite', 'memory', 'web', 'vcsPush'] as const;
 // tipo de recurso (repo, aws, browser…) y su clave tal como el daemon la anunció (ws/slug, id de cuenta, default…):
@@ -81,6 +81,13 @@ function delegationOf(raw: Obj): Pick<ToolsetV1, 'subagents' | 'workflows'> {
   return { ...(subagents !== undefined ? { subagents } : {}), ...(workflows !== undefined ? { workflows } : {}) };
 }
 
+// sin las tools de leer ficheros (t#701): la clave solo admite false; ausente = las de siempre.
+function fsReadOf(raw: Obj): Pick<ToolsetV1, 'fsRead'> {
+  if (raw.fsRead === undefined) return {};
+  if (raw.fsRead !== false) throw invalid('fsRead solo admite false');
+  return { fsRead: false };
+}
+
 /** valida el toolset_v1 de un claim (ver cabecera). lanza con el motivo. */
 export function parseToolsetV1(raw: unknown): ToolsetV1 {
   if (!isObj(raw)) throw invalid('no es un objeto');
@@ -104,6 +111,7 @@ export function parseToolsetV1(raw: unknown): ToolsetV1 {
     memory: raw.memory as boolean,
     web: raw.web as boolean,
     vcsPush: raw.vcsPush as boolean,
+    ...fsReadOf(raw),
     grants,
     platformTools: [...(tools as string[])],
     ...autonomyOf(raw),

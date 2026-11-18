@@ -56,6 +56,10 @@ export const RUNNER_CAPABILITY = {
   // el techo que el usuario le puso a la plataforma). las listas de `tools` el server las sigue mandando igual: pasan
   // a ser la entrada de la comparación que el daemon devuelve en toolsetShadow. solo con toolset_v1.
   toolsetRender: 'toolset_render',
+  // t#701: su render obedece `fsRead: false` del toolset (sin las tools de leer ficheros del backend: un run que es solo
+  // un cliente del mcp de la plataforma, el hilo principal de duckhunt). sin ella el claim no lleva la clave (un daemon
+  // anterior rechaza una clave que no conoce) y su render las conserva. solo con toolset_render.
+  toolsetFsRead: 'toolset_fs_read',
   // t#495, M7: sabe poner en un run una sesión de navegador guardada (odysea >= la mínima que sabe usar, hallada en la
   // máquina): copia filtrada a sus orígenes, su servidor mcp res_browser_<clave> y las tools del acceso del grant. sin
   // ella el server nunca concede un grant de browser. solo con toolset_render (las listas las pinta el daemon).

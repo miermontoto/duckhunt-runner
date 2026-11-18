@@ -8,6 +8,7 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { test } from 'node:test';
+import { announcedCapabilities } from '../src/announced-capabilities.js';
 import { parseClaim } from '../src/claim.js';
 import { LEGACY_CEILING, DEFAULT_CEILING, type ToolsetCeiling } from '../src/platforms/types.js';
 import { intersectToolset } from '../src/toolset/intersect.js';
@@ -194,3 +195,20 @@ test('subagentes (t#636): Agent, Task y TaskStop tras la plataforma; Workflow so
   assert.deepEqual(parseToolsetV1({ ...base, subagents: true, workflows: false }).subagents, true);
 });
 
+
+test('fsRead false (t#701): sin Read, Grep ni Glob en el allow y negadas; ausente, el render de siempre; el techo no lo reabre', () => {
+  const ctx = { mcpServerName: 'duckhunt', awsCli: false };
+  const READS = ['Read', 'Grep', 'Glob'];
+  const plain = renderClaudeTools(base, ctx);
+  assert.ok(READS.every((tool) => plain.allowed.includes(tool) && !plain.disallowed.includes(tool)), 'sin la clave, leer es la base de todo run');
+  // un run que es solo cliente del mcp de la plataforma: ni shell, ni escritura, ni web, ni leer ficheros.
+  const client: ToolsetV1 = { ...base, shell: 'none', fsWrite: false, memory: false, web: false, grants: [], platformTools: ['duckhunt-brief'], fsRead: false };
+  const off = renderClaudeTools(client, ctx);
+  assert.deepEqual(off.allowed, ['mcp__duckhunt__duckhunt-brief']);
+  assert.ok(READS.every((tool) => off.disallowed.includes(tool)));
+  assert.equal(parseToolsetV1(client).fsRead, false);
+  assert.equal('fsRead' in parseToolsetV1(base), false);
+  assert.throws(() => parseToolsetV1({ ...base, fsRead: true }), /fsRead solo admite false/);
+  assert.equal(intersectToolset(client, LEGACY_CEILING).toolset.fsRead, false);
+  assert.ok(announcedCapabilities({ hasAws: false, supported: new Set() }).includes(RUNNER_CAPABILITY.toolsetFsRead));
+});
