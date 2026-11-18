@@ -86,6 +86,8 @@ const APPROVAL_GATES: readonly { tools: readonly string[]; granted: (t: ToolsetV
   { tools: [CLAUDE_CODE_TOOLS.shell], granted: (t) => t.shell === TOOLSET_SHELL.full },
   { tools: [...CLAUDE_CODE_TOOLS.fsWrite, MULTI_EDIT_TOOL, CLAUDE_CODE_TOOLS.notebook], granted: (t) => t.fsWrite },
   { tools: CLAUDE_CODE_TOOLS.web, granted: (t) => t.web },
+  // sin leer ficheros (t#701): una regla «siempre aquí» de Read, Grep o Glob no las devuelve al allow.
+  { tools: CLAUDE_CODE_TOOLS.fsRead, granted: (t) => t.fsRead !== false },
 ];
 
 const mcpToolId = (server: string, tool: string): string => `${MCP_PREFIX}${server}${MCP_SEPARATOR}${tool}`;
