@@ -1153,8 +1153,8 @@
           "--strict-mcp-config",
           "--allowedTools",
           {
-            "allowed": "2acb639557fddc4c",
-            "count": 107,
+            "allowed": "ccffe7141fd5118b",
+            "count": 116,
             "notFromClaim": [],
             "dropped": []
           },

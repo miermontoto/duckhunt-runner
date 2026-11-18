@@ -72,6 +72,9 @@ export interface ToolsetV1 {
   memory: boolean;
   web: boolean;
   vcsPush: boolean;
+  // t#701, solo ante la capability `toolset_fs_read`: false = sin las tools de leer ficheros del backend (ni en el
+  // allow ni fuera del deny). ausente = las de siempre: leer el cwd es la base de todo run.
+  fsRead?: false;
   grants: ToolsetGrant[];
   // tools del mcp de la plataforma que el run puede llamar (sin prefijo de ningún cli).
   platformTools: string[];
