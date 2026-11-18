@@ -210,5 +210,8 @@ test('fsRead false (t#701): sin Read, Grep ni Glob en el allow y negadas; ausent
   assert.equal('fsRead' in parseToolsetV1(base), false);
   assert.throws(() => parseToolsetV1({ ...base, fsRead: true }), /fsRead solo admite false/);
   assert.equal(intersectToolset(client, LEGACY_CEILING).toolset.fsRead, false);
+  // una regla recordada de leer no las reabre: se descarta y se anota, como las de una shell que no se concede.
+  const remembered = renderClaudeTools({ ...client, autonomy: 'auto', approvals: ['Read', 'Grep(src/**)', 'mcp__duckhunt__duckhunt-brief'] }, ctx);
+  assert.deepEqual(remembered.allowed, ['mcp__duckhunt__duckhunt-brief']);
   assert.ok(announcedCapabilities({ hasAws: false, supported: new Set() }).includes(RUNNER_CAPABILITY.toolsetFsRead));
 });
