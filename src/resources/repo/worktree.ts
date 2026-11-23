@@ -16,7 +16,10 @@
 // es quien decide) y ningún argumento de git va sin `--end-of-options`: un nombre que empiece por
 // '-' no es un flag. una rama que git no acepta NO falla el run: worktree sobre la base por defecto
 // con un aviso (como hacía 0.3.1 con HEAD). un conv-<id> borrado a mano sin `git worktree remove`
-// sigue registrado y el `worktree add` fallaría para siempre: antes de crearlo, `git worktree prune`.
+// sigue registrado y el `worktree add` fallaría para siempre: se crea con `worktree add --force`, que
+// reemplaza solo el registro de su path. nunca `git worktree prune`: borra todo registro cuyo directorio
+// no exista EN ESTA máquina, y con el .git compartido entre máquinas (sincronizado) se llevaba los
+// worktrees vivos de las otras.
 // al server solo viaja una nota corta con la base git (`origin/main@a1b2c3d`): ni paths absolutos ni el
 // nombre del directorio (conv-88 se leía en la ui como id del run, que es r#88).
 // submódulos (t#617): el repo de un submódulo de un worktree vive bajo SU directorio de admin
@@ -141,27 +144,20 @@ export function touchWorktree(dir: string): void {
   }
 }
 
-// registros de worktrees cuyo directorio ya no existe: sin esto `worktree add` sobre el mismo path
-// falla con "missing but already registered worktree". barato y nunca toca directorios existentes.
-async function pruneWorktrees(repoPath: string, env: NodeJS.ProcessEnv): Promise<void> {
-  await git(repoPath, ['worktree', 'prune'], env).catch((err: Error) => console.error(`[runner] git worktree prune falló: ${err.message}`));
-}
-
-// reutiliza el worktree si ya existe (segmento siguiente de la misma fila). null = hay que crearlo.
+// reutiliza el worktree si ya existe (segmento siguiente de la misma fila). null = hay que crearlo
+// (addDetached reemplaza el registro que dejó un directorio borrado a mano).
 async function reuseWorktree(repoPath: string, dir: string, env: NodeJS.ProcessEnv): Promise<string | null> {
-  if (!fs.existsSync(dir)) {
-    await pruneWorktrees(repoPath, env);
-    return null;
-  }
+  if (!fs.existsSync(dir)) return null;
   if (await isWorktreeRoot(dir, env)) {
     touchWorktree(dir);
     return describeHead(dir, env);
   }
-  // registro huérfano (alguien borró el .git del worktree): prune y, si el directorio sigue con
-  // contenido, no se toca: podría ser trabajo del usuario.
-  await pruneWorktrees(repoPath, env);
-  if (fs.existsSync(dir) && fs.readdirSync(dir).length > 0) {
-    throw new Error(`${path.relative(repoPath, dir)} existe pero no es un worktree git válido: revísalo y bórralo a mano`);
+  // directorio que git ya no reconoce (borraron su .git, o su registro en .git/worktrees/): vacío se
+  // recrea; con contenido no se toca: podría ser trabajo del usuario.
+  if (fs.readdirSync(dir).length > 0) {
+    throw new Error(
+      `${path.relative(repoPath, dir)} existe pero git ya no lo reconoce como worktree (falta su .git o su registro en .git/worktrees): revísalo y bórralo a mano`,
+    );
   }
   fs.rmSync(dir, { recursive: true, force: true });
   return null;
@@ -180,10 +176,12 @@ async function excludeDaemonDir(repoPath: string, env: NodeJS.ProcessEnv, platfo
   fs.appendFileSync(file, `${current && !current.endsWith('\n') ? '\n' : ''}${pattern}\n`);
 }
 
+// --force: solo reemplaza el registro de ESTE path si su directorio falta ("missing but already registered");
+// un directorio con contenido lo sigue rechazando git, y con --detach no hay rama que pisar.
 async function addDetached(repoPath: string, dir: string, sha: string, env: NodeJS.ProcessEnv, platform: string): Promise<void> {
   await excludeDaemonDir(repoPath, env, platform);
   fs.mkdirSync(path.dirname(dir), { recursive: true });
-  await git(repoPath, ['worktree', 'add', '--quiet', '--detach', '--end-of-options', dir, sha], env);
+  await git(repoPath, ['worktree', 'add', '--quiet', '--force', '--detach', '--end-of-options', dir, sha], env);
 }
 
 interface Base {

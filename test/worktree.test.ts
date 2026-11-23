@@ -176,6 +176,27 @@ test('conv-<id> borrado a mano sin git worktree remove: el siguiente segmento lo
   assert.equal(git(again.workdir, 'rev-parse', 'HEAD'), mainSha);
 });
 
+test('crear un worktree no borra registros ajenos cuyo directorio no existe aquí (otra máquina con el .git sincronizado)', async () => {
+  const elsewhere = path.join(root, 'otra-maquina');
+  git(clone, 'worktree', 'add', '-q', '--detach', path.join(elsewhere, 'conv-30'), mainSha);
+  fs.rmSync(elsewhere, { recursive: true, force: true });
+  await prepareConversationWorktree(clone, '31', null, env, LEGACY_PLATFORM_ID);
+  assert.ok(fs.existsSync(path.join(clone, '.git', 'worktrees', 'conv-30')));
+  git(clone, 'worktree', 'prune');
+});
+
+test('conv-<id> con contenido cuyo registro desapareció: no se toca y el error lo dice sin paths absolutos', async () => {
+  const conv = await prepareConversationWorktree(clone, '32', null, env, LEGACY_PLATFORM_ID);
+  fs.writeFileSync(path.join(conv.workdir, 'trabajo.txt'), 'x');
+  fs.rmSync(path.join(clone, '.git', 'worktrees', 'conv-32'), { recursive: true, force: true });
+  await assert.rejects(prepareConversationWorktree(clone, '32', null, env, LEGACY_PLATFORM_ID), (err: Error) => {
+    assert.match(err.message, /conv-32 existe pero git ya no lo reconoce como worktree/);
+    assert.ok(!err.message.includes(root));
+    return true;
+  });
+  assert.ok(fs.existsSync(path.join(conv.workdir, 'trabajo.txt')));
+});
+
 test('gc con submódulos: limpio se borra (forzado); lo sin commitear o los commits que solo guarda el submódulo (rama, tag o stash) lo conservan', async () => {
   const subOrigin = path.join(root, 'sub-origin');
   fs.mkdirSync(subOrigin);
