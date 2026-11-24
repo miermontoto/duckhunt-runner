@@ -121,5 +121,10 @@ export const RUNNER_CAPABILITY = {
   // en cuanto su resultado lleva RUN_END_TURN_FIELD (sin el texto final que el modelo escribe tras responder). sin ella el
   // claim no lleva la clave.
   endTurn: 'end_turn',
+  // t#743 (toolset.ts, events.ts, live.ts): con live_turns, renderiza `monitor` del toolset (la tool Monitor del backend:
+  // un comando cuyo cada evento despierta al agente), sube sus tareas con su tipo propio (`monitor`), no corta el proceso
+  // por silencio mientras uno vigila y marca `woken` en el informe del turno que abrió un despertar del cli. niega además
+  // las programaciones de sesión del backend (mueren con el proceso) y sus avisos o rutinas fuera de la máquina.
+  monitor: 'monitor',
 } as const;
 export type RunnerCapability = (typeof RUNNER_CAPABILITY)[keyof typeof RUNNER_CAPABILITY];

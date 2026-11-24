@@ -28,6 +28,9 @@
 //   tools de la plataforma en cualquier nivel (lo que hagan sus subagentes lo decide el nivel igual: heredan los
 //   permisos del run); al deny, ListAgents y SendMessage (alcanzan otras sesiones de la máquina) y Workflow si no se
 //   concede (en auto o bypass no basta con no listarla).
+// - monitor (t#743, `monitor` del toolset): Monitor tras Workflow solo donde Bash va al allow (ejecuta un comando: en
+//   manual y auto lo decide el nivel, como Bash); al deny, Monitor si no se concede y, con la clave, las programaciones de
+//   sesión del cli (live-session.ts cierra stdin al acabar el turno y se perderían en silencio) y lo que sale de la máquina.
 
 import {
   AGENT_AUTONOMY,
@@ -54,6 +57,11 @@ export const CLAUDE_CODE_TOOLS = {
   subagents: ['Agent', 'Task', 'TaskStop'],
   workflow: 'Workflow',
   crossSession: ['ListAgents', 'SendMessage'],
+  // t#743 (`monitor` del toolset): vigilar un comando; las programaciones de sesión (mueren con el proceso) y lo que sale
+  // de la máquina (avisos push del cli, rutinas en la nube), negadas con la clave.
+  monitor: 'Monitor',
+  sessionSchedules: ['CronCreate', 'CronDelete', 'CronList', 'ScheduleWakeup'],
+  offMachine: ['PushNotification', 'RemoteTrigger'],
 } as const;
 
 // lecturas de credenciales locales, genéricas y relativas a ~ (AGENT_SECRET_READ_DENY del server). las rutas reales
@@ -144,15 +152,17 @@ export function renderClaudeTools(t: ToolsetV1, ctx: RenderContext): ClaudeTools
   const asked = level === AGENT_AUTONOMY.manual;
   // fsRead false (t#701): un run que es solo cliente del mcp de la plataforma, sin leer ficheros de la máquina.
   const reads = t.fsRead !== false;
+  const bash = t.shell === TOOLSET_SHELL.full && (level === undefined || level === AGENT_AUTONOMY.bypass);
   const allowed = [
     ...(reads ? CLAUDE_CODE_TOOLS.fsRead : []),
-    ...(t.shell === TOOLSET_SHELL.full && (level === undefined || level === AGENT_AUTONOMY.bypass) ? [CLAUDE_CODE_TOOLS.shell] : []),
+    ...(bash ? [CLAUDE_CODE_TOOLS.shell] : []),
     ...(t.fsWrite && !asked ? CLAUDE_CODE_TOOLS.fsWrite : []),
     ...(t.web && !asked ? CLAUDE_CODE_TOOLS.web : []),
     ...(rendersAwsRead(t, ctx) ? AWS_READ_ALLOWED : []),
     ...t.platformTools.map((tool) => mcpToolId(ctx.mcpServerName, tool)),
     ...(t.subagents ? CLAUDE_CODE_TOOLS.subagents : []),
     ...(t.subagents && t.workflows ? [CLAUDE_CODE_TOOLS.workflow] : []),
+    ...(t.monitor && bash ? [CLAUDE_CODE_TOOLS.monitor] : []),
   ];
   return {
     allowed: t.approvals ? Array.from(new Set([...allowed, ...approvalsFor(t, ctx).kept])) : allowed,
@@ -166,6 +176,7 @@ export function renderClaudeTools(t: ToolsetV1, ctx: RenderContext): ClaudeTools
       ...(t.shell === TOOLSET_SHELL.full ? [] : SECRET_READ_DENY),
       ...(t.vcsPush ? [] : VCS_PUSH_DENY),
       ...(t.subagents ? [...CLAUDE_CODE_TOOLS.crossSession, ...(t.workflows ? [] : [CLAUDE_CODE_TOOLS.workflow])] : []),
+      ...(t.monitor === undefined ? [] : [...(t.monitor ? [] : [CLAUDE_CODE_TOOLS.monitor]), ...CLAUDE_CODE_TOOLS.sessionSchedules, ...CLAUDE_CODE_TOOLS.offMachine]),
     ],
     permissionMode: level === undefined ? PROMPT_PERMISSION_MODE : AGENT_AUTONOMY_PERMISSION_MODE[level],
   };

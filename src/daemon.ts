@@ -242,6 +242,8 @@ interface TurnState extends TurnStart {
   // lo que el proceso llevaba contado al empezar el turno en curso (tool calls y compactaciones, t#682).
   at: TurnBase;
   ended: TurnEnded | null;
+  // t#743: el turno en curso lo abrió un despertar del cli (lo de fondo acabó o un monitor avisó), no un mensaje.
+  woken: boolean;
   // los cambios de turno van en fila: uno no empieza hasta que acaba el anterior.
   chain: Promise<void>;
 }
@@ -1400,6 +1402,8 @@ export class RunnerDaemon {
       platformServer: claim.mcp.serverName,
       ...(subagentEffort ? { subagentEffort } : {}),
       subagentModels: new Map(),
+      // t#743: solo si el server sabe del tipo `monitor` (su toolset trajo la clave); si no, sus tareas van como shell.
+      ...(claim.toolsetShadow?.toolset.monitor !== undefined ? { monitorToolUses: new Set<string>() } : {}),
     };
     const note = (text: string): void => {
       console.log(`${log} ${tag}: ${text}`);
@@ -1445,6 +1449,7 @@ export class RunnerDaemon {
       runFrom: restoreError === null ? runDiffFrom(claim, res, first) : null,
       at: { toolCalls: 0, compactions: 0 },
       ended: null,
+      woken: false,
       chain: Promise.resolve(),
     };
     // lo que el driver deja en disco para el segmento (claude: el mcp-config con el token per-run, 0600 en un directorio
@@ -1465,10 +1470,13 @@ export class RunnerDaemon {
         // corra, y lo pisaría. la base del turno nuevo (tool calls y compactaciones), también ya.
         const ended = turn.ended;
         const base = turn.at;
+        // el turno que acaba se informa con cómo empezó; el nuevo, sin mensajes que lo abran, es un despertar.
+        const woken = turn.woken;
+        turn.woken = delivered.length === 0;
         turn.ended = null;
         if (ended !== null) turn.at = ended.totals;
         turn.chain = turn.chain
-          .then(() => this.rollTurn(sup, claim, res, seg, turn, snapshotStart, ended, base, delivered))
+          .then(() => this.rollTurn(sup, claim, res, seg, turn, snapshotStart, ended, base, delivered, woken))
           .catch((err: Error) => console.error(`${log} ${tag}: cambio de turno: ${err.message}`));
       },
       onDelivered: (ids) => {
@@ -1502,8 +1510,9 @@ export class RunnerDaemon {
       report = outcome.report;
       // un cambio de turno en vuelo termina antes del cierre: el informe es del último turno.
       await turn.chain;
-      // las tool calls y las compactaciones del último turno (el proceso las cuenta desde que empezó).
-      report = lastTurnOf(report, turn.at);
+      // las tool calls y las compactaciones del último turno (el proceso las cuenta desde que empezó), y si lo abrió un
+      // despertar (t#743).
+      report = { ...lastTurnOf(report, turn.at), ...(turn.woken ? { woken: true as const } : {}) };
     } catch (err) {
       report = { status: 'failed', error: err === restoreError || resourceMcp !== null ? (err as Error).message : legacyResourceError(err) };
     } finally {
@@ -1690,11 +1699,14 @@ export class RunnerDaemon {
     ended: TurnEnded | null,
     base: TurnBase,
     delivered: string[],
+    woken: boolean,
   ): Promise<void> {
     const runId = claim.run.id;
     const from = seg.segment;
     if (ended === null || from === undefined || !sup.platform.turn) {
+      // sin partir, el turno sigue siendo el que era (también cómo empezó, t#743).
       turn.at = base;
+      turn.woken = woken;
       if (delivered.length > 0 && from !== undefined) await sup.platform.delivered?.(runId, { segment: from, ids: delivered });
       return;
     }
@@ -1708,10 +1720,11 @@ export class RunnerDaemon {
       if (runDiff !== null) await sup.platform.changes?.(runId, runDiff, seg);
     }
     const next = await snapshotStart();
-    const out = await sup.platform.turn(runId, { segment: from, report: { ...ended.report, ...turn.start }, delivered });
+    const out = await sup.platform.turn(runId, { segment: from, report: { ...ended.report, ...turn.start, ...(woken ? { woken: true as const } : {}) }, delivered });
     // sin partir (un server que no lo acepta): todo cuenta como un turno, también sus tool calls y compactaciones.
     if (out === null) {
       turn.at = base;
+      turn.woken = woken;
       return;
     }
     seg.segment = out.segment;

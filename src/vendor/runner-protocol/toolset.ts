@@ -27,6 +27,11 @@
 //   (ListAgents y SendMessage negadas: con ellas un run que lee texto ajeno podría escribir a una sesión con más acceso);
 //   con workflows, además Workflow (solo una conversación con alguien detrás). un subagente o un agente de workflow
 //   hereda los permisos del run (verificado con el cli 2.1.319), así que no abren nada que el run no tenga.
+// - monitor (t#743): solo a un daemon con la capability `monitor` (sin ella no viaja la clave). true = el run vigila un
+//   comando y cada evento le despierta (un turno por despertar, live_turns); exige shell full porque ejecuta un comando, y
+//   alguien detrás porque se re-arma solo. con la clave (true o false) el daemon niega las programaciones de sesión del
+//   backend (mueren con el proceso: sin una vía durable se perderían en silencio), los avisos push del backend (los
+//   avisos van por la plataforma) y sus rutinas en la nube (salen de la máquina).
 
 import type { AgentAutonomy } from './autonomy.js';
 
@@ -89,6 +94,10 @@ export interface ToolsetV1 {
   subagents?: boolean;
   // t#636, con subagents: lanzar workflows (solo una conversación con alguien detrás).
   workflows?: boolean;
+  // t#743, solo con la capability `monitor` (ver cabecera): vigilar un comando en segundo plano, cada evento despierta al
+  // agente. solo con shell full y alguien detrás. presente (true o false) = el daemon niega además lo de sesión que no
+  // sobrevive al proceso (programaciones) y lo que sale de la máquina (avisos push, rutinas en la nube).
+  monitor?: boolean;
 }
 
 /** diferencias explicadas por una decisión, no por un fallo del render (ver cabecera). */

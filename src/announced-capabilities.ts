@@ -4,7 +4,7 @@
 
 import { RUNNER_CAPABILITY, type RunnerCapability } from './claim.js';
 import { PROMPT_REQUIRED_FLAGS } from './claude-args.js';
-import { supportsPermissionPromptTool, supportsRewind, type OptionalFlag } from './claude.js';
+import { supportsMonitor, supportsPermissionPromptTool, supportsRewind, type OptionalFlag } from './claude.js';
 
 export interface MachineKit {
   // aws cli instalada.
@@ -89,5 +89,10 @@ export function announcedCapabilities(kit: MachineKit): RunnerCapability[] {
     // volver atrás (t#564): retomar en un mensaje con un cli que sabe (claude.ts::supportsRewind) y, con turn_changes
     // (siempre anunciada), restaurar los ficheros de un turno (rewind-files.ts).
     ...(rewind ? [RUNNER_CAPABILITY.rewind, RUNNER_CAPABILITY.rewindFiles] : []),
+    // vigilar un comando (t#743): con live_turns (cada evento del monitor despierta al agente en un turno nuevo del mismo
+    // proceso) y un cli que la tiene en headless. al final: el orden de las anteriores no cambia para el server.
+    ...(prompt && kit.supported.has('--input-format') && kit.supported.has('--replay-user-messages') && supportsMonitor(kit.claudeVersion ?? null)
+      ? [RUNNER_CAPABILITY.monitor]
+      : []),
   ];
 }

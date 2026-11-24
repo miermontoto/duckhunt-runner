@@ -106,6 +106,13 @@ export function claudeAtLeast(version: string | null, min: string): boolean {
 /** ¿acepta el cli --permission-prompt-tool? (ver PERMISSION_PROMPT_TOOL_MIN_VERSION). */
 export const supportsPermissionPromptTool = (version: string | null): boolean => claudeAtLeast(version, PERMISSION_PROMPT_TOOL_MIN_VERSION);
 
+// Monitor en headless (t#743): verificado en 2.1.319 (t#636, la lista de tools de -p) y con un run real en 2.1.331 (cada
+// evento despierta al agente con su propio `result`). no sale en --help: se decide por versión.
+export const MONITOR_CLI_MIN_VERSION = '2.1.319';
+
+/** ¿tiene el cli la tool Monitor en headless? (ver MONITOR_CLI_MIN_VERSION). */
+export const supportsMonitor = (version: string | null): boolean => claudeAtLeast(version, MONITOR_CLI_MIN_VERSION);
+
 /** ¿acepta el cli --resume-session-at + --fork-session? flags ocultos del --help: se decide por versión (protocolo). */
 export const supportsRewind = (version: string | null): boolean => claudeAtLeast(version, REWIND_CLI_MIN_VERSION);
 

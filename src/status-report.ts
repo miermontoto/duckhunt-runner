@@ -36,6 +36,8 @@ export interface StatusReport extends RunContextFields, UsageLimitsFields {
   lastMessageUuid?: string;
   startTree?: string;
   startHead?: string;
+  // t#743 (live.ts del protocolo): el último turno del proceso lo abrió un despertar del cli, no un mensaje.
+  woken?: true;
 }
 
 // resultado de una ejecución de claude (un intento).

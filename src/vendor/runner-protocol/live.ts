@@ -66,6 +66,9 @@ export interface RunTurnReport extends RunContextFields, UsageLimitsFields {
   startTree?: string;
   startHead?: string;
   extraStarts?: Array<{ repo: string; tree: string; head: string }>;
+  // t#743, solo de un daemon con `monitor`: el turno lo abrió un despertar del cli (acabó o avisó algo en segundo plano),
+  // no un mensaje. sin respuesta propia del agente, su respuesta de garantía se guarda sin aviso push.
+  woken?: true;
 }
 
 /** POST /api/runner/runs/:id/turn: cierra `segment` con su informe y abre el siguiente en el mismo proceso. `delivered` = los

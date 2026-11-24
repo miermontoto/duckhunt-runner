@@ -290,3 +290,14 @@ test('límites: viajan en el status y en el informe de un turno mientras se haya
   consumeStreamLine(state, result);
   assert.equal(turnEndedOf(JSON.parse(result), state, { toolCalls: 0, compactions: 0 }).report.limits?.windows[1]?.id, 'seven_day');
 });
+
+test('capacidades (t#743): monitor con live_turns y un cli >= 2.1.319, al final', () => {
+  const live = `${HELP}\n  --input-format <format>\n  --replay-user-messages`;
+  const caps = (claudeVersion: string | null): string[] => announcedCapabilities({ hasAws: true, supported: supportedFlags(live), claudeVersion });
+  assert.ok(caps('2.1.331 (Claude Code)').includes('live_turns'));
+  assert.equal(caps('2.1.331 (Claude Code)').at(-1), 'monitor');
+  assert.ok(caps('2.1.319').includes('monitor'));
+  assert.ok(!caps('2.1.318').includes('monitor'), 'un cli anterior');
+  assert.ok(!caps(null).includes('monitor'), 'sin versión, no');
+  assert.ok(!announcedCapabilities({ hasAws: true, supported: supportedFlags(HELP), claudeVersion: '2.1.331' }).includes('monitor'), 'sin live_turns, no');
+});
