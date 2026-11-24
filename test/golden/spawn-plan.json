@@ -2970,6 +2970,186 @@
       ]
     }
   },
+  "claim-kits/prompt-edit-monitor-toolset": {
+    "spawns": [
+      {
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-252",
+        "argv": [
+          "-p",
+          "--output-format",
+          "stream-json",
+          "--input-format",
+          "stream-json",
+          "--replay-user-messages",
+          "--verbose",
+          "--forward-subagent-text",
+          "--mcp-config",
+          "<case>/home/run-config/mcp-252-<rand>.json",
+          "--strict-mcp-config",
+          "--allowedTools",
+          {
+            "allowed": "e83d46992b72a642",
+            "count": 112,
+            "notFromClaim": [],
+            "dropped": []
+          },
+          "--disallowedTools",
+          {
+            "disallowed": "eccc55d1b35708b9",
+            "count": 11,
+            "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
+              "Read(/<case>/home/run-config/**)"
+            ]
+          },
+          "--permission-mode",
+          "dontAsk"
+        ],
+        "stdin": "<claim.prompt>",
+        "env": {
+          "set": {
+            "AWS_PAGER": "",
+            "DUCKHUNT_RUNNER_CONFIG": "<case>/runner.json",
+            "DUCKHUNT_RUNNER_HOME": "<case>/home",
+            "GIT_TERMINAL_PROMPT": "0"
+          },
+          "removed": [
+            "ANTHROPIC_API_KEY",
+            "CLAUDECODE",
+            "CLAUDE_CODE_SESSION_ID"
+          ]
+        },
+        "mcp": "{\"mcpServers\":{\"duckhunt\":{\"type\":\"http\",\"url\":\"http://duckhunt.test/mcp\",\"headers\":{\"Authorization\":\"Bearer dho_fixture\"}}}}"
+      }
+    ],
+    "runs": {
+      "252": {
+        "progress": [
+          "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":1}"
+        ],
+        "feed": [
+          {
+            "kind": "system",
+            "body": "origin/main@<sha>",
+            "seq": 1
+          },
+          {
+            "kind": "text",
+            "body": "miro el repo",
+            "seq": 2
+          },
+          {
+            "kind": "tool",
+            "tool": "Read",
+            "body": "README.md",
+            "seq": 3
+          }
+        ],
+        "status": [
+          "{\"status\":\"done\",\"toolCalls\":1,\"costUsd\":0.5,\"numTurns\":2,\"sessionId\":\"sess-new\",\"model\":\"claude-opus-5-5\",\"result\":\"hecho\",\"segment\":1}"
+        ]
+      }
+    },
+    "left": {
+      "runConfig": [],
+      "worktrees": [
+        "conv-252"
+      ],
+      "exclude": [
+        "/.duckhunt/"
+      ]
+    }
+  },
+  "claim-kits/prompt-edit-monitor": {
+    "spawns": [
+      {
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-249",
+        "argv": [
+          "-p",
+          "--output-format",
+          "stream-json",
+          "--input-format",
+          "stream-json",
+          "--replay-user-messages",
+          "--verbose",
+          "--forward-subagent-text",
+          "--mcp-config",
+          "<case>/home/run-config/mcp-249-<rand>.json",
+          "--strict-mcp-config",
+          "--allowedTools",
+          {
+            "allowed": "e83d46992b72a642",
+            "count": 112,
+            "notFromClaim": [],
+            "dropped": []
+          },
+          "--disallowedTools",
+          {
+            "disallowed": "eccc55d1b35708b9",
+            "count": 11,
+            "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
+              "Read(/<case>/home/run-config/**)"
+            ]
+          },
+          "--permission-mode",
+          "dontAsk"
+        ],
+        "stdin": "<claim.prompt>",
+        "env": {
+          "set": {
+            "AWS_PAGER": "",
+            "DUCKHUNT_RUNNER_CONFIG": "<case>/runner.json",
+            "DUCKHUNT_RUNNER_HOME": "<case>/home",
+            "GIT_TERMINAL_PROMPT": "0"
+          },
+          "removed": [
+            "ANTHROPIC_API_KEY",
+            "CLAUDECODE",
+            "CLAUDE_CODE_SESSION_ID"
+          ]
+        },
+        "mcp": "{\"mcpServers\":{\"duckhunt\":{\"type\":\"http\",\"url\":\"http://duckhunt.test/mcp\",\"headers\":{\"Authorization\":\"Bearer dho_fixture\"}}}}"
+      }
+    ],
+    "runs": {
+      "249": {
+        "progress": [
+          "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":1}"
+        ],
+        "feed": [
+          {
+            "kind": "system",
+            "body": "origin/main@<sha>",
+            "seq": 1
+          },
+          {
+            "kind": "text",
+            "body": "miro el repo",
+            "seq": 2
+          },
+          {
+            "kind": "tool",
+            "tool": "Read",
+            "body": "README.md",
+            "seq": 3
+          }
+        ],
+        "status": [
+          "{\"status\":\"done\",\"toolCalls\":1,\"costUsd\":0.5,\"numTurns\":2,\"sessionId\":\"sess-new\",\"model\":\"claude-opus-5-5\",\"result\":\"hecho\",\"segment\":1}"
+        ]
+      }
+    },
+    "left": {
+      "runConfig": [],
+      "worktrees": [
+        "conv-249"
+      ],
+      "exclude": [
+        "/.duckhunt/"
+      ]
+    }
+  },
   "claim-kits/prompt-edit-no-native-memory": {
     "spawns": [
       {
@@ -5568,6 +5748,104 @@
       "runConfig": [],
       "worktrees": [
         "conv-35"
+      ],
+      "exclude": [
+        "/.duckhunt/"
+      ]
+    }
+  },
+  "claim-kits/prompt-read-monitor": {
+    "spawns": [
+      {
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-250",
+        "argv": [
+          "-p",
+          "--output-format",
+          "stream-json",
+          "--input-format",
+          "stream-json",
+          "--replay-user-messages",
+          "--verbose",
+          "--forward-subagent-text",
+          "--mcp-config",
+          "<case>/home/run-config/mcp-250-<rand>.json",
+          "--strict-mcp-config",
+          "--setting-sources",
+          "user",
+          "--allowedTools",
+          {
+            "allowed": "2d9b556044d71c4b",
+            "count": 400,
+            "notFromClaim": [],
+            "dropped": []
+          },
+          "--disallowedTools",
+          {
+            "disallowed": "d8b1e0ce770d92ec",
+            "count": 99,
+            "notFromClaim": [
+              "Bash(npm test:*)",
+              "Edit(src/**)",
+              "Read(/<case>/runner.json)",
+              "Read(/<case>/home/run-config/**)",
+              "Read(/<case>/home/logs/**)",
+              "Read(/<case>/home/daemon.lock)",
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
+            ]
+          },
+          "--permission-mode",
+          "dontAsk"
+        ],
+        "stdin": "<claim.prompt>",
+        "env": {
+          "set": {
+            "AWS_PAGER": "",
+            "DUCKHUNT_RUNNER_CONFIG": "<case>/runner.json",
+            "DUCKHUNT_RUNNER_HOME": "<case>/home",
+            "GIT_TERMINAL_PROMPT": "0"
+          },
+          "removed": [
+            "ANTHROPIC_API_KEY",
+            "CLAUDECODE",
+            "CLAUDE_CODE_SESSION_ID"
+          ]
+        },
+        "mcp": "{\"mcpServers\":{\"duckhunt\":{\"type\":\"http\",\"url\":\"http://duckhunt.test/mcp\",\"headers\":{\"Authorization\":\"Bearer dho_fixture\"}}}}"
+      }
+    ],
+    "runs": {
+      "250": {
+        "progress": [
+          "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":1}"
+        ],
+        "feed": [
+          {
+            "kind": "system",
+            "body": "origin/main@<sha>",
+            "seq": 1
+          },
+          {
+            "kind": "text",
+            "body": "miro el repo",
+            "seq": 2
+          },
+          {
+            "kind": "tool",
+            "tool": "Read",
+            "body": "README.md",
+            "seq": 3
+          }
+        ],
+        "status": [
+          "{\"status\":\"done\",\"toolCalls\":1,\"costUsd\":0.5,\"numTurns\":2,\"sessionId\":\"sess-new\",\"model\":\"claude-opus-5-5\",\"result\":\"hecho\",\"segment\":1}"
+        ]
+      }
+    },
+    "left": {
+      "runConfig": [],
+      "worktrees": [
+        "conv-250"
       ],
       "exclude": [
         "/.duckhunt/"
@@ -9164,6 +9442,104 @@
       "runConfig": [],
       "worktrees": [
         "conv-7"
+      ],
+      "exclude": [
+        "/.duckhunt/"
+      ]
+    }
+  },
+  "claim-kits/template-monitor": {
+    "spawns": [
+      {
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-251",
+        "argv": [
+          "-p",
+          "--output-format",
+          "stream-json",
+          "--verbose",
+          "--forward-subagent-text",
+          "--mcp-config",
+          "<case>/home/run-config/mcp-251-<rand>.json",
+          "--strict-mcp-config",
+          "--setting-sources",
+          "user",
+          "--allowedTools",
+          {
+            "allowed": "45932cc59b2385ab",
+            "count": 323,
+            "notFromClaim": [],
+            "dropped": []
+          },
+          "--disallowedTools",
+          {
+            "disallowed": "e9866be7d5a15908",
+            "count": 102,
+            "notFromClaim": [
+              "Bash(npm test:*)",
+              "Edit(src/**)",
+              "Read(/<case>/runner.json)",
+              "Read(/<case>/home/run-config/**)",
+              "Read(/<case>/home/logs/**)",
+              "Read(/<case>/home/daemon.lock)",
+              "Read(/<case>/home/server-state.json)",
+              "Read(/<case>/home/backends/**)"
+            ]
+          },
+          "--permission-mode",
+          "dontAsk",
+          "--",
+          "<claim.prompt>"
+        ],
+        "env": {
+          "set": {
+            "AWS_DEFAULT_REGION": "eu-west-1",
+            "AWS_PAGER": "",
+            "AWS_PROFILE": "okt-prod",
+            "DUCKHUNT_RUNNER_CONFIG": "<case>/runner.json",
+            "DUCKHUNT_RUNNER_HOME": "<case>/home",
+            "GIT_TERMINAL_PROMPT": "0"
+          },
+          "removed": [
+            "ANTHROPIC_API_KEY",
+            "CLAUDECODE",
+            "CLAUDE_CODE_SESSION_ID"
+          ]
+        },
+        "mcp": "{\"mcpServers\":{\"duckhunt\":{\"type\":\"http\",\"url\":\"http://duckhunt.test/mcp\",\"headers\":{\"Authorization\":\"Bearer dho_fixture\"}}}}"
+      }
+    ],
+    "runs": {
+      "251": {
+        "progress": [
+          "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":1}"
+        ],
+        "feed": [
+          {
+            "kind": "system",
+            "body": "origin/main@<sha>",
+            "seq": 1
+          },
+          {
+            "kind": "text",
+            "body": "miro el repo",
+            "seq": 2
+          },
+          {
+            "kind": "tool",
+            "tool": "Read",
+            "body": "README.md",
+            "seq": 3
+          }
+        ],
+        "status": [
+          "{\"status\":\"done\",\"toolCalls\":1,\"costUsd\":0.5,\"numTurns\":2,\"sessionId\":\"sess-new\",\"model\":\"claude-opus-5-5\",\"result\":\"hecho\",\"segment\":1}"
+        ]
+      }
+    },
+    "left": {
+      "runConfig": [],
+      "worktrees": [
+        "conv-251"
       ],
       "exclude": [
         "/.duckhunt/"
@@ -13496,6 +13872,121 @@
       "runConfig": [],
       "worktrees": [
         "conv-920"
+      ],
+      "exclude": [
+        "/.duckhunt/"
+      ]
+    }
+  },
+  "synthetic/live-wake-turn": {
+    "spawns": [
+      {
+        "cwd": "<case>/checkout/.duckhunt/worktrees/conv-921",
+        "argv": [
+          "-p",
+          "--output-format",
+          "stream-json",
+          "--input-format",
+          "stream-json",
+          "--replay-user-messages",
+          "--verbose",
+          "--forward-subagent-text",
+          "--mcp-config",
+          "<case>/home/run-config/mcp-921-<rand>.json",
+          "--strict-mcp-config",
+          "--allowedTools",
+          {
+            "allowed": "2acb639557fddc4c",
+            "count": 107,
+            "notFromClaim": [],
+            "dropped": []
+          },
+          "--disallowedTools",
+          {
+            "disallowed": "3768c6ff19cd11e0",
+            "count": 3,
+            "notFromClaim": [
+              "Read(/<case>/home/backends/**)",
+              "Read(/<case>/home/run-config/**)"
+            ]
+          },
+          "--permission-mode",
+          "dontAsk"
+        ],
+        "stdin": "<claim.prompt>",
+        "env": {
+          "set": {
+            "AWS_PAGER": "",
+            "DUCKHUNT_RUNNER_CONFIG": "<case>/runner.json",
+            "DUCKHUNT_RUNNER_HOME": "<case>/home",
+            "GIT_TERMINAL_PROMPT": "0"
+          },
+          "removed": [
+            "ANTHROPIC_API_KEY",
+            "CLAUDECODE",
+            "CLAUDE_CODE_SESSION_ID"
+          ]
+        },
+        "mcp": "{\"mcpServers\":{\"duckhunt\":{\"type\":\"http\",\"url\":\"http://duckhunt.test/mcp\",\"headers\":{\"Authorization\":\"Bearer dho_fixture\"}}}}"
+      }
+    ],
+    "runs": {
+      "921": {
+        "progress": [
+          "{\"toolCalls\":0,\"workdir\":\"origin/main@<sha>\",\"segment\":1}"
+        ],
+        "feed": [
+          {
+            "kind": "system",
+            "body": "origin/main@<sha>",
+            "seq": 1
+          },
+          {
+            "kind": "tool",
+            "tool": "Agent",
+            "body": "en segundo plano",
+            "toolUseId": "toolu_bg",
+            "seq": 2
+          },
+          {
+            "kind": "task",
+            "body": "en segundo plano",
+            "task": {
+              "id": "bgtask1",
+              "type": "agent",
+              "status": "running"
+            },
+            "toolUseId": "toolu_bg",
+            "seq": 3
+          },
+          {
+            "kind": "task",
+            "body": "",
+            "task": {
+              "id": "bgtask1",
+              "type": "other",
+              "status": "completed"
+            },
+            "seq": 4
+          },
+          {
+            "kind": "text",
+            "body": "despierto",
+            "seq": 5
+          }
+        ],
+        "status": [
+          "{\"status\":\"done\",\"toolCalls\":0,\"costUsd\":0.3,\"numTurns\":1,\"sessionId\":\"sess-new\",\"model\":\"claude-opus-5-5\",\"result\":\"despertó\",\"woken\":true,\"segment\":2}"
+        ],
+        "turns": [
+          "{\"segment\":1,\"report\":{\"costUsd\":0.2,\"numTurns\":1,\"toolCalls\":1,\"sessionId\":\"sess-new\",\"model\":\"claude-opus-5-5\",\"result\":\"lanzado\"},\"delivered\":[]}"
+        ]
+      }
+    },
+    "left": {
+      "runConfig": [],
+      "worktrees": [
+        "conv-921"
       ],
       "exclude": [
         "/.duckhunt/"

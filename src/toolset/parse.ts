@@ -21,7 +21,7 @@ import {
 } from '../vendor/runner-protocol/index.js';
 
 // claves del toolset y de cada grant: ni una más.
-const TOOLSET_KEYS: ReadonlySet<string> = new Set(['v', 'shell', 'fsWrite', 'memory', 'web', 'vcsPush', 'grants', 'platformTools', 'autonomy', 'approvals', 'subagents', 'workflows', 'fsRead']);
+const TOOLSET_KEYS: ReadonlySet<string> = new Set(['v', 'shell', 'fsWrite', 'memory', 'web', 'vcsPush', 'grants', 'platformTools', 'autonomy', 'approvals', 'subagents', 'workflows', 'fsRead', 'monitor']);
 const GRANT_KEYS: ReadonlySet<string> = new Set(['type', 'key', 'access']);
 const FLAG_KEYS = ['fsWrite', 'memory', 'web', 'vcsPush'] as const;
 // tipo de recurso (repo, aws, browser…) y su clave tal como el daemon la anunció (ws/slug, id de cuenta, default…):
@@ -81,6 +81,15 @@ function delegationOf(raw: Obj): Pick<ToolsetV1, 'subagents' | 'workflows'> {
   return { ...(subagents !== undefined ? { subagents } : {}), ...(workflows !== undefined ? { workflows } : {}) };
 }
 
+// vigilar un comando (t#743): booleano opcional; true sin shell entera no tiene sentido (Monitor ejecuta un comando).
+function monitorOf(raw: Obj): Pick<ToolsetV1, 'monitor'> {
+  const { monitor } = raw;
+  if (monitor === undefined) return {};
+  if (typeof monitor !== 'boolean') throw invalid('monitor no booleano');
+  if (monitor && raw.shell !== TOOLSET_SHELL.full) throw invalid('monitor sin shell full');
+  return { monitor };
+}
+
 // sin las tools de leer ficheros (t#701): la clave solo admite false; ausente = las de siempre.
 function fsReadOf(raw: Obj): Pick<ToolsetV1, 'fsRead'> {
   if (raw.fsRead === undefined) return {};
@@ -116,5 +125,6 @@ export function parseToolsetV1(raw: unknown): ToolsetV1 {
     platformTools: [...(tools as string[])],
     ...autonomyOf(raw),
     ...delegationOf(raw),
+    ...monitorOf(raw),
   };
 }

@@ -215,3 +215,23 @@ test('fsRead false (t#701): sin Read, Grep ni Glob en el allow y negadas; ausent
   assert.deepEqual(remembered.allowed, ['mcp__duckhunt__duckhunt-brief']);
   assert.ok(announcedCapabilities({ hasAws: false, supported: new Set() }).includes(RUNNER_CAPABILITY.toolsetFsRead));
 });
+
+test('monitor (t#743): Monitor tras Workflow donde Bash va al allow; con la clave, programaciones y lo que sale de la máquina al deny', () => {
+  const ctx = { mcpServerName: 'duckhunt', awsCli: true };
+  const DENIED = ['CronCreate', 'CronDelete', 'CronList', 'ScheduleWakeup', 'PushNotification', 'RemoteTrigger'];
+  const plain = renderClaudeTools(base, ctx);
+  assert.ok(!plain.allowed.includes('Monitor') && !plain.disallowed.some((t) => t === 'Monitor' || DENIED.includes(t)), 'sin la clave, el render de siempre');
+  const on = renderClaudeTools({ ...base, subagents: true, workflows: true, monitor: true }, ctx);
+  assert.deepEqual(on.allowed.slice(-2), ['Workflow', 'Monitor']);
+  assert.deepEqual(on.disallowed.slice(-DENIED.length), DENIED);
+  // en auto Bash no va al allow (lo decide el clasificador): Monitor tampoco, y no se niega.
+  const auto = renderClaudeTools({ ...base, monitor: true, autonomy: 'auto', approvals: [] }, ctx);
+  assert.ok(!auto.allowed.includes('Monitor') && !auto.disallowed.includes('Monitor'));
+  assert.ok(renderClaudeTools({ ...base, monitor: true, autonomy: 'bypass', approvals: [] }, ctx).allowed.includes('Monitor'), 'en bypass, como Bash');
+  const off = renderClaudeTools({ ...base, shell: 'read', monitor: false }, ctx);
+  assert.deepEqual(off.disallowed.slice(-(DENIED.length + 1)), ['Monitor', ...DENIED]);
+  assert.throws(() => parseToolsetV1({ ...base, shell: 'read', monitor: true }), /monitor sin shell full/);
+  assert.throws(() => parseToolsetV1({ ...base, monitor: 'sí' }), /monitor no booleano/);
+  assert.equal(parseToolsetV1({ ...base, monitor: false }).monitor, false);
+  assert.equal('monitor' in parseToolsetV1(base), false);
+});

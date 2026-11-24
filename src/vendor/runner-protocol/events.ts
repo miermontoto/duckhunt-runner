@@ -23,6 +23,8 @@ export const AGENT_RUN_TASK_TYPE = {
   agent: 'agent',
   workflow: 'workflow',
   shell: 'shell',
+  // t#743: un comando vigilado (Monitor) cuyo cada evento despierta al agente. solo de un daemon con `monitor`.
+  monitor: 'monitor',
   other: 'other',
 } as const;
 export type AgentRunTaskType = (typeof AGENT_RUN_TASK_TYPE)[keyof typeof AGENT_RUN_TASK_TYPE];

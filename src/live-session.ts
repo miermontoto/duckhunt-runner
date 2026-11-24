@@ -14,6 +14,9 @@
 // (onTurnStart con sus ids); tomado a mitad de un turno entra en él (onDelivered). el cli despierta solo al acabar algo en
 // segundo plano: también es un turno nuevo, sin mensajes. un mensaje escrito y aún sin acuse retiene stdin abierto igual
 // que una tarea: el cli lo tomará tras su `result`.
+// monitores (t#743): un Monitor es una tarea (local_bash para el cli) cuyo cada evento despierta al agente; puede callar
+// mucho más que LIVE_SILENCE_MAX_MS esperando a que algo pase, y él mismo expira (su timeout). mientras uno vigila, el
+// silencio no cierra stdin: lo acota su expiración y, por encima, el timeout del segmento.
 
 import type { Writable } from 'node:stream';
 import type { StreamLine } from './claude.js';
@@ -44,11 +47,17 @@ const DEFAULT_TIMERS: LiveTimers = { wakeGraceMs: LIVE_WAKE_GRACE_MS, silenceMax
 /** un mensaje de usuario del stream-json de entrada del cli. */
 export const userMessageLine = (text: string): string => `${JSON.stringify({ type: 'user', message: { role: 'user', content: text } })}\n`;
 
+// la tool del cli que vigila un comando (t#743).
+const MONITOR_TOOL = 'Monitor';
+
 const isMain = (ev: StreamLine): boolean => ev.parent_tool_use_id === undefined || ev.parent_tool_use_id === null;
 
 /** el stdin de un proceso de claude vivo (ver cabecera). */
 export class LiveSession {
   private readonly running = new Set<string>();
+  // las tool calls de Monitor y las tareas en marcha que lanzaron (t#743).
+  private readonly monitorUses = new Set<string>();
+  private readonly monitors = new Set<string>();
   // mensajes de la persona escritos en stdin y aún sin acuse (fase 3).
   private readonly awaiting = new Set<string>();
   // hubo un `result` y el turno siguiente aún no empezó: el próximo que empiece parte el segmento.
@@ -88,9 +97,20 @@ export class LiveSession {
   /** cada evento del stream: lleva la cuenta de tareas y cierra stdin cuando ya no queda nada que esperar. */
   observe(ev: StreamLine): void {
     if (this.ended) return;
+    if (ev.type === 'assistant' && Array.isArray(ev.message?.content)) {
+      ev.message.content.forEach((c) => {
+        if (c.type === 'tool_use' && c.name === MONITOR_TOOL && typeof c.id === 'string') this.monitorUses.add(c.id);
+      });
+    }
     if (ev.type === 'system' && typeof ev.task_id === 'string') {
-      if (ev.subtype === 'task_started') this.running.add(ev.task_id);
-      if (ev.subtype === 'task_notification') this.running.delete(ev.task_id);
+      if (ev.subtype === 'task_started') {
+        this.running.add(ev.task_id);
+        if (typeof ev.tool_use_id === 'string' && this.monitorUses.has(ev.tool_use_id)) this.monitors.add(ev.task_id);
+      }
+      if (ev.subtype === 'task_notification') {
+        this.running.delete(ev.task_id);
+        this.monitors.delete(ev.task_id);
+      }
     }
     // el acuse de un mensaje de la persona (fase 3): abre turno si el agente estaba parado; si no, entra en el suyo.
     if (ev.type === 'user' && ev.isReplay === true && typeof ev.uuid === 'string' && this.awaiting.delete(ev.uuid)) {
@@ -143,13 +163,13 @@ export class LiveSession {
     this.stdin.end();
   }
 
-  // con el agente parado: sin tareas, la gracia para despertar; con ellas, el tope de silencio (cada evento lo rearma). un
-  // mensaje sin acuse lo retiene: el cli lo tomará.
+  // con el agente parado: sin tareas, la gracia para despertar; con ellas, el tope de silencio (cada evento lo rearma),
+  // salvo con un monitor vigilando (t#743). un mensaje sin acuse lo retiene: el cli lo tomará.
   private armWhileIdle(): void {
     this.clear();
     if (this.awaiting.size > 0) return;
     if (this.running.size === 0) this.wakeTimer = setTimeout(() => this.end(), this.timers.wakeGraceMs);
-    else this.silenceTimer = setTimeout(() => this.end(), this.timers.silenceMaxMs);
+    else if (this.monitors.size === 0) this.silenceTimer = setTimeout(() => this.end(), this.timers.silenceMaxMs);
   }
 
   private clear(): void {

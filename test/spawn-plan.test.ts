@@ -138,6 +138,15 @@ const background = () => {
   out({ type: 'system', subtype: 'task_started', task_id: 'bgtask1', tool_use_id: 'toolu_bg', task_type: 'local_agent', description: 'en segundo plano' });
   out({ type: 'result', subtype: 'success', is_error: false, result: 'lanzado', total_cost_usd: 0.2, num_turns: 1, session_id: 'sess-new' });
 };
+// t#743: BGWAKE: lo de fondo acaba solo tras el result y el cli despierta al agente sin mensaje (otro turno, woken).
+const wake = () => {
+  background();
+  setTimeout(() => {
+    out({ type: 'system', subtype: 'task_notification', task_id: 'bgtask1', status: 'completed' });
+    out({ type: 'assistant', message: { content: [{ type: 'text', text: 'despierto' }] } });
+    out({ type: 'result', subtype: 'success', is_error: false, result: 'despertó', total_cost_usd: 0.3, num_turns: 1, session_id: 'sess-new' });
+  }, 50);
+};
 if (!live) {
   record();
   main(args[args.length - 1]);
@@ -148,7 +157,8 @@ if (!live) {
     if (first) {
       first = false;
       record(msg.message.content);
-      if (msg.message.content.includes('BG:') || msg.message.content.includes('BGMSG:')) background();
+      if (msg.message.content.includes('BGWAKE:')) wake();
+      else if (msg.message.content.includes('BG:') || msg.message.content.includes('BGMSG:')) background();
       else main(msg.message.content);
       return;
     }
@@ -260,6 +270,8 @@ function syntheticCases(): Case[] {
     { name: 'synthetic/live-background-stop', raw: withRun(edit, { id: Number(LIVE_STOP_RUN) }, { prompt: 'BG: reparte en segundo plano', live: { waitMs: 1000 } }) },
     // t#636, fase 3: un mensaje en vivo con el agente parado parte el turno en el mismo proceso.
     { name: 'synthetic/live-message-turn', raw: withRun(edit, { id: Number(LIVE_MESSAGE_RUN), segment: 1 }, { prompt: 'BGMSG: reparte', live: { waitMs: 1000, turns: true } }) },
+    // t#743: lo de fondo despierta al agente sin mensaje: el turno que abre se informa con woken (el primero, sin él).
+    { name: 'synthetic/live-wake-turn', raw: withRun(edit, { id: 921, segment: 1 }, { prompt: 'BGWAKE: vigila', live: { waitMs: 1000, turns: true } }) },
   ];
 }
 

@@ -133,3 +133,24 @@ test('el cli que despierta al principal tras lo de fondo abre un turno sin mensa
   const plain = new LiveSession(stdin().stream, { wakeGraceMs: 10_000, silenceMaxMs: 10_000 });
   assert.equal(plain.command({ id: MSG, kind: 'message', text: 'x' }), false);
 });
+
+test('un monitor (t#743) retiene stdin sin el tope de silencio; al acabar, vuelve la cuenta de siempre', async () => {
+  const s = stdin();
+  const live = new LiveSession(s.stream, { wakeGraceMs: 20, silenceMaxMs: 20 });
+  live.observe({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'toolu_M', name: 'Monitor', input: {} }] } });
+  live.observe({ type: 'system', subtype: 'task_started', task_id: 'm1', tool_use_id: 'toolu_M' });
+  live.observe(result());
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(live.open, true, 'callado más que el tope, sigue vigilando');
+  live.observe(notified('m1'));
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(live.open, false, 'sin el monitor, la gracia para despertar vence');
+  // un comando de fondo que no es un monitor sigue con su tope de silencio.
+  const b = stdin();
+  const bash = new LiveSession(b.stream, { wakeGraceMs: 10_000, silenceMaxMs: 20 });
+  bash.observe({ type: 'assistant', message: { content: [{ type: 'tool_use', id: 'toolu_B', name: 'Bash', input: {} }] } });
+  bash.observe({ type: 'system', subtype: 'task_started', task_id: 'b1', tool_use_id: 'toolu_B' });
+  bash.observe(result());
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(bash.open, false);
+});

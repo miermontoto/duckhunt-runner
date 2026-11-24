@@ -171,3 +171,16 @@ test('Workflow (t#636): su línea es su nombre, nunca el script', () => {
   assert.equal(summarizeToolUse('Workflow', { name: 'deep-review' }, ctx), 'deep-review');
   assert.equal(summarizeToolUse('Workflow', { script: 'await agent("x")' }, ctx), '');
 });
+
+test('monitores (t#743): con un server que sabe del tipo, la tarea de un Monitor va como monitor; sin él, como shell', () => {
+  const started = { type: 'system', subtype: 'task_started', task_id: 'm1', tool_use_id: 'toolu_M', task_type: 'local_bash', description: 'tail del deploy' } as StreamLine;
+  const call = { type: 'assistant', message: { content: [{ type: 'tool_use', id: 'toolu_M', name: 'Monitor', input: { command: 'tail -f x', description: 'tail del deploy' } }] } } as StreamLine;
+  const knows: FeedContext = { ...ctx, monitorToolUses: new Set() };
+  feedEventsFromStream(call, knows);
+  assert.equal(feedEventsFromStream(started, knows)[0]?.task?.type, 'monitor');
+  const old: FeedContext = { ...ctx };
+  feedEventsFromStream(call, old);
+  assert.equal(feedEventsFromStream(started, old)[0]?.task?.type, 'shell');
+  // un Bash de fondo sigue siendo shell.
+  assert.equal(feedEventsFromStream({ ...started, task_id: 'b1', tool_use_id: 'toolu_B' } as StreamLine, knows)[0]?.task?.type, 'shell');
+});

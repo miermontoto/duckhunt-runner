@@ -66,7 +66,13 @@ export interface FeedContext {
   subagentEffort?: string;
   // modelo que reportó cada subagente en sus mensajes, por la tool call que lo lanzó: estado del run, solo local.
   subagentModels?: Map<string, string>;
+  // t#743: las tool calls de Monitor del run (su tarea es local_bash para el cli: el tipo `monitor` sale de la tool).
+  // ausente = un server que no sabe del tipo (el claim no trajo la clave `monitor`): sus tareas van como shell.
+  monitorToolUses?: Set<string>;
 }
+
+// la tool del cli que vigila un comando (t#743).
+const MONITOR_TOOL = 'Monitor';
 
 // tope del nombre de la tool (AGENT_RUN_EVENT_TOOL_MAX_CHARS del protocolo).
 const TOOL_NAME_MAX_CHARS = AGENT_RUN_EVENT_TOOL_MAX_CHARS;
@@ -293,9 +299,10 @@ function taskEvent(ev: StreamLine, ctx: FeedContext): FeedEvent | null {
   const subtype = ev.subtype ?? '';
   const id = cliId(ev.task_id);
   if (id === null) return null;
-  const type = (typeof ev.task_type === 'string' ? TASK_TYPE_OF.get(ev.task_type) : undefined) ?? AGENT_RUN_TASK_TYPE.other;
-  const name = textOf(ev.workflow_name);
   const toolUseId = cliId(ev.tool_use_id);
+  const monitor = toolUseId !== null && ctx.monitorToolUses?.has(toolUseId) === true;
+  const type = monitor ? AGENT_RUN_TASK_TYPE.monitor : ((typeof ev.task_type === 'string' ? TASK_TYPE_OF.get(ev.task_type) : undefined) ?? AGENT_RUN_TASK_TYPE.other);
+  const name = textOf(ev.workflow_name);
   // modelo, esfuerzo y tokens solo de un subagente: el modelo es el que reportaron sus propios mensajes.
   const isAgent = type === AGENT_RUN_TASK_TYPE.agent;
   const model = isAgent && toolUseId ? powerOf(ctx.subagentModels?.get(toolUseId)) : null;
@@ -329,6 +336,10 @@ export function feedEventsFromStream(ev: StreamLine, ctx: FeedContext): FeedEven
   const parent = cliId(ev.parent_tool_use_id);
   const model = powerOf(ev.message.model);
   if (parent !== null && model !== null) ctx.subagentModels?.set(parent, model);
+  // las tool calls de Monitor, para el tipo de su tarea (llega después, con su tool_use_id).
+  ev.message.content.forEach((c) => {
+    if (c.type === 'tool_use' && c.name === MONITOR_TOOL && typeof c.id === 'string') ctx.monitorToolUses?.add(c.id);
+  });
   return ev.message.content.map((c) => eventFromContent(c, ctx, parent)).filter((e): e is FeedEvent => e !== null);
 }
 
