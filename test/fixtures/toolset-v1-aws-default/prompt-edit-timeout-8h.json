@@ -128,6 +128,9 @@
       "duckhunt-target-branch-set",
       "duckhunt-target-branch-delete",
       "duckhunt-attachment-upload-ticket",
+      "duckhunt-run-schedule",
+      "duckhunt-run-schedule-list",
+      "duckhunt-run-schedule-cancel",
       "duckhunt-run-propose-edit"
     ]
   },
@@ -239,6 +242,9 @@
       "mcp__duckhunt__duckhunt-target-branch-set",
       "mcp__duckhunt__duckhunt-target-branch-delete",
       "mcp__duckhunt__duckhunt-attachment-upload-ticket",
+      "mcp__duckhunt__duckhunt-run-schedule",
+      "mcp__duckhunt__duckhunt-run-schedule-list",
+      "mcp__duckhunt__duckhunt-run-schedule-cancel",
       "mcp__duckhunt__duckhunt-run-propose-edit"
     ],
     "disallowed": [
