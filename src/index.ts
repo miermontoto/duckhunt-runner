@@ -62,7 +62,7 @@ uso:
   duckhunt-runner service install|remove     lo deja en marcha con tu sesión (systemd --user, launchd) o lo quita
   duckhunt-runner run [flags] "<prompt>"     un run en esta máquina sin server (\`run --help\`)
   duckhunt-runner repos list|add|remove|discover
-  duckhunt-runner aws list|add|remove
+  duckhunt-runner aws list|add|remove|discover
   duckhunt-runner resource list|add|remove|check [repo|aws|browser]   los recursos de la máquina por tipo
   duckhunt-runner browser login|list|check|remove   sesiones de navegador guardadas (odysea)
   duckhunt-runner audit [--platform <id>] [--since 7d|<fecha>] [--json]   lo que corrió cada plataforma
@@ -121,7 +121,7 @@ async function main(): Promise<void> {
     return;
   }
   if (cmd === 'aws') {
-    awsCommand(rest);
+    await awsCommand(rest);
     return;
   }
   if (cmd === 'audit') {

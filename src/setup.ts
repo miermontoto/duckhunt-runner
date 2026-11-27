@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { awsEntryOf, listAwsProfiles, planAwsAccounts, resolveAwsProfiles, type AwsProfileAccount } from './aws-discover.js';
+import { applyAwsAccounts, listAwsProfiles, planAwsAccounts, resolveAwsProfiles, type AwsAccountPick } from './aws-discover.js';
 import { interactiveAuth, NO_BROWSER_FLAG } from './browser-open.js';
 import { detectClaude } from './claude.js';
 import { loadStoredConfig, saveConfig } from './config.js';
@@ -217,7 +217,7 @@ async function reposStep(args: SetupArgs, prompt: Prompter): Promise<void> {
 // pregunta cuál (sin terminal, se salta).
 async function awsStep(args: SetupArgs, prompt: Prompter, interactive: boolean): Promise<void> {
   step(4, 'cuentas aws');
-  const later = 'mapea luego con `duckhunt-runner aws add <account-id> <profile> [region]`';
+  const later = 'mapea luego con `duckhunt-runner aws discover`';
   if (args.aws === false) {
     console.log(`  saltado: ${later}`);
     return;
@@ -239,14 +239,14 @@ async function awsStep(args: SetupArgs, prompt: Prompter, interactive: boolean):
     return;
   }
   // una cuenta con varios perfiles: elige la persona (el número, o «-» para no mapearla); sin terminal se dice cómo.
-  const picks: { account: string; profile: AwsProfileAccount }[] = [];
+  const picks: AwsAccountPick[] = [];
   for (const candidate of plan.fresh) {
     if (candidate.profiles.length === 1) {
       picks.push({ account: candidate.account, profile: candidate.profiles[0]! });
       continue;
     }
     if (!interactive) {
-      console.log(`  saltada ${candidate.account}: elige su perfil con \`duckhunt-runner aws add ${candidate.account} <perfil> [region]\``);
+      console.log(`  saltada ${candidate.account}: elige su perfil con \`duckhunt-runner aws discover <perfil>\``);
       continue;
     }
     const options = candidate.profiles.map((p, i) => `${i + 1} ${p.profile}`).join(', ');
@@ -256,7 +256,7 @@ async function awsStep(args: SetupArgs, prompt: Prompter, interactive: boolean):
   }
   if (picks.length === 0) return;
   if (await prompt.confirm(`  ¿mapear ${picks.length} cuenta(s) aws?`, true)) {
-    saveConfig((current) => ({ aws: { ...current.aws, ...Object.fromEntries(picks.map((p) => [p.account, awsEntryOf(p.profile)])) } }));
+    applyAwsAccounts(picks);
     ok(`${picks.length} cuenta(s) mapeadas: solo el id de cuenta llega a duckhunt, nunca el perfil ni sus credenciales`);
   }
 }
