@@ -83,7 +83,7 @@ the exact version that installed it (see [Keeping it running](#keeping-it-runnin
 4. **AWS accounts.** Lists the profiles of your AWS CLI, asks AWS which account each one reaches
    (`aws sts get-caller-identity`, read-only) and offers to map the accounts not mapped yet, each with
    its profile and region, as `aws add` would. When several profiles reach the same account it asks
-   which one to use; a profile AWS rejects (an expired SSO session, revoked keys) is listed with how to
+   which one to use (`aws discover` does the same outside `setup`); a profile AWS rejects (an expired SSO session, revoked keys) is listed with how to
    fix it and skipped. Only the account id reaches duckhunt.
 5. **Keep it running.** Offers to install the daemon as a service of your session — a systemd user
    unit on Linux, a launchd agent on macOS — so it starts with your session and restarts if it
@@ -111,9 +111,10 @@ Every command:
 | `login [base-url] [label] [--no-browser]` | Connects the daemon to your account. Opens the browser and, once you approve, comes back by itself through a one-off listener on `127.0.0.1` (0.28.0 or later); you can always paste the code duckhunt shows instead, which is what works over SSH or with the browser on another computer. With no browser to open (no display, an SSH session) or `--no-browser`, it only asks for the code. Defaults to `https://duckhunt.info`; pass a URL for another instance (`https://` is assumed if you omit the scheme). Both arguments are optional — an argument that does not look like a URL is taken as the label, which distinguishes machines if you run more than one. A running daemon switches to the new credential before its next claim; one connected to another instance keeps it until you restart it. |
 | `repos discover [dir]` | Scans a directory for git checkouts and maps each one by its `origin` remote, so an agent can read the code behind an alarm. Add `--dry-run` to see what it would map. Only the `workspace/slug` key reaches the server. A repo checked out in more than one directory is listed but not mapped: pick one with `repos add`. |
 | `repos list\|add\|remove` | Manage that map by hand: `repos add <workspace/slug> <path>`. `list` and `add` show each repo's health warnings (see below). |
+| `aws discover [profile…] [--dry-run]` | Optional (0.40.0 or later). Maps the AWS accounts of the profiles your AWS CLI already has saved (`~/.aws/config`, `~/.aws/credentials`), so you don't type account ids: it asks AWS which account each profile reaches (`aws sts get-caller-identity`, read-only) and maps the new ones with their profile and region, as `aws add` would. It only adds. An account reached by several profiles is listed but not mapped: name the one to use (`aws discover <profile>`). A profile AWS rejects (an expired SSO session, revoked keys) is listed with how to fix it. `--dry-run` shows what it would map. The runner never reads the keys: the AWS CLI does. |
 | `aws add <accountId> <profile> [region] [--s3-read [bucket[/prefix]]…]` | Optional. Binds an AWS account id to a profile of your local AWS CLI, so the agent can read metrics, logs and resource state for that account. `--s3-read` (0.13.0 or later) also lets runs read S3 objects (see [S3 object reads](#s3-object-reads-0130-or-later)). |
 | `aws list\|remove` | Manage the AWS map. |
-| `resource list\|add\|remove\|check [repo\|aws\|browser]` | The same maps by resource type (0.13.0 or later): `repos`, `aws` and `browser` are its `repo`, `aws` and `browser` types, with the same output and exit codes (`resource discover repo` is `repos discover`). `resource add aws default <profile> [region]` maps the machine's default AWS identity (see [AWS accounts](#aws-accounts-0110-or-later)). `resource check` prints the repo and browser warnings and exits 1 if one blocks runs. |
+| `resource list\|add\|remove\|check [repo\|aws\|browser]` | The same maps by resource type (0.13.0 or later): `repos`, `aws` and `browser` are its `repo`, `aws` and `browser` types, with the same output and exit codes (`resource discover repo\|aws` is `repos\|aws discover`). `resource add aws default <profile> [region]` maps the machine's default AWS identity (see [AWS accounts](#aws-accounts-0110-or-later)). `resource check` prints the repo and browser warnings and exits 1 if one blocks runs. |
 | `browser login\|list\|check\|remove` | Browser sessions saved on this machine (0.13.0 or later; see [Browser sessions](#browser-sessions-0130-or-later)). |
 | `status [--platforms]` | Reports whether a daemon is running, this machine's kit (Claude version, which credential it will use, AWS profiles and mapped repos) and what duckhunt last said about this machine (see [Machines](#machines-and-credentials)). Run this first when something does not work. `--platforms` shows each platform instead (see [Platforms](#platforms-0130-or-later)). |
 | `logout [id]` | Unpairs this machine from duckhunt and deletes its credential from the config file (0.11.0 or later; see [Machines](#machines-and-credentials)). With an id, does the same for another platform. |
@@ -351,7 +352,7 @@ code in its own worktree, never in your checkout; below the confirmed tier its d
 #### AWS accounts (0.11.0 or later)
 
 A run carries the AWS account of its entry. The daemon maps it to the profile you bound with
-`aws add`. An account this machine does not map no longer falls back to your default profile, which
+`aws add` (or `aws discover`). An account this machine does not map no longer falls back to your default profile, which
 may belong to another account: the AWS CLI runs with empty config and credentials files of its own
 (and no profile, no keys from the environment and no instance or container credentials), so every
 call fails, and the run's feed says which account to map. duckhunt already omits the AWS read

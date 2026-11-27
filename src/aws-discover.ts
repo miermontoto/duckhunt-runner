@@ -1,4 +1,4 @@
-// cuentas aws de la máquina para el paso aws de `setup` (t#660): los perfiles de la aws cli, la cuenta de cada uno
+// cuentas aws de la máquina para el paso aws de `setup` (t#660) y `aws discover`: los perfiles de la aws cli, la cuenta de cada uno
 // (sts get-caller-identity) y su región, y qué se propone mapear sobre lo ya mapeado. el mapa es el de `aws add`
 // (aws.ts): id de cuenta → perfil; el server nunca ve perfiles ni credenciales.
 // decisiones:
@@ -6,17 +6,20 @@
 //   la misma cuenta (lectura y admin) y elegir uno es de la persona; sin terminal, una cuenta así no se mapea.
 // - un perfil que sts rechaza (sso caducado, claves revocadas) no bloquea nada: se dice con su arreglo y se sigue.
 // - sts va en paralelo y con tope de tiempo: un perfil colgado (proceso de credenciales, red) no cuelga setup.
+// - los perfiles los lee la propia aws cli (~/.aws/config y ~/.aws/credentials, o AWS_CONFIG_FILE y
+//   AWS_SHARED_CREDENTIALS_FILE): el runner nunca abre esos ficheros ni toca sus claves.
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import type { AwsAccountConfig } from './config.js';
+import { saveConfig, type AwsAccountConfig } from './config.js';
 import { AWS_ACCOUNT_ID_RE } from './resources/aws.js';
 
 const execFileP = promisify(execFile);
 
 const AWS_TIMEOUT_MS = 15_000;
-// sin paginador: la cli abriría less sobre la salida.
-const AWS_ENV = { ...process.env, AWS_PAGER: '' };
+// sin paginador: la cli abriría less sobre la salida. se lee en cada llamada: el PATH y los ficheros de la cli son los
+// del momento.
+const awsEnv = (): NodeJS.ProcessEnv => ({ ...process.env, AWS_PAGER: '' });
 // el rechazo de un perfil sso sin sesión (o caducada): su arreglo es `aws sso login`.
 const SSO_EXPIRED_RE = /sso|token has expired|refresh failed/i;
 const ERROR_MAX_CHARS = 120;
@@ -36,7 +39,7 @@ export interface AwsAccountCandidate {
 }
 
 async function aws(args: string[]): Promise<string> {
-  return (await execFileP('aws', args, { encoding: 'utf-8', timeout: AWS_TIMEOUT_MS, env: AWS_ENV })).stdout.trim();
+  return (await execFileP('aws', args, { encoding: 'utf-8', timeout: AWS_TIMEOUT_MS, env: awsEnv() })).stdout.trim();
 }
 
 /** los perfiles de la aws cli; null si no hay aws cli. */
@@ -98,3 +101,18 @@ export function planAwsAccounts(found: readonly AwsProfileAccount[], mapped: Rea
 
 /** la entrada del mapa para un perfil (la de `aws add <cuenta> <perfil> [región]`). */
 export const awsEntryOf = (p: AwsProfileAccount): AwsAccountConfig => ({ profile: p.profile, ...(p.region ? { region: p.region } : {}) });
+
+/** una cuenta elegida para mapear con su perfil. */
+export interface AwsAccountPick {
+  account: string;
+  profile: AwsProfileAccount;
+}
+
+/** las cuentas nuevas con un solo perfil: las que se mapean sin preguntar. */
+export const unambiguousPicks = (fresh: readonly AwsAccountCandidate[]): AwsAccountPick[] =>
+  fresh.filter((c) => c.profiles.length === 1).map((c) => ({ account: c.account, profile: c.profiles[0]! }));
+
+/** mapea las cuentas elegidas sobre lo ya mapeado (solo añade). */
+export function applyAwsAccounts(picks: readonly AwsAccountPick[]): void {
+  saveConfig((current) => ({ aws: { ...current.aws, ...Object.fromEntries(picks.map((p) => [p.account, awsEntryOf(p.profile)])) } }));
+}

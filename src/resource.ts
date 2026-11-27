@@ -22,7 +22,7 @@ const USAGE = `uso:
   duckhunt-runner resource check [repo|browser]
   duckhunt-runner resource add browser <clave> <url> [--origin <patrón> …] (es \`browser login\`)
   duckhunt-runner resource remove browser <clave> [--purge]
-  (\`repos\` y \`aws\` son los mismos comandos: \`resource discover repo\` es \`repos discover\`)
+  (\`repos\` y \`aws\` son los mismos comandos: \`resource discover repo|aws\` es \`repos|aws discover\`)
 `;
 
 const SUB = { list: 'list', check: 'check' } as const;
